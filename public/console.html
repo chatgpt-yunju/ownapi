@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>控制台 - OpenClaw AI</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <nav class="oc-navbar">
+    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>OpenClaw AI</a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <div class="oc-nav-links">
+      <a href="/">首页</a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+      <a href="/docs.html">文档</a>
+      <a href="/console.html" class="active">控制台</a>
+    </div>
+    <div class="oc-nav-right">
+      <span id="nav-username" style="font-size:0.85rem;color:var(--text-secondary);"></span>
+      <button class="btn-outline btn-sm" onclick="logout()">退出</button>
+    </div>
+  </nav>
+
+  <div class="oc-console">
+    <!-- Sidebar -->
+    <aside class="oc-sidebar">
+      <div class="oc-sidebar-section">概览</div>
+      <div class="oc-sidebar-item active" data-page="dashboard" onclick="switchPage('dashboard')">&#x1f4ca; 仪表盘</div>
+      <div class="oc-sidebar-section">管理</div>
+      <div class="oc-sidebar-item" data-page="apikeys" onclick="switchPage('apikeys')">&#x1f511; API Keys</div>
+      <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f4dd; 调用日志</div>
+      <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐</div>
+      <div class="oc-sidebar-section">设置</div>
+      <div class="oc-sidebar-item" data-page="playground" onclick="switchPage('playground')">&#x1f9ea; 调试</div>
+      <div id="admin-nav" style="display:none;">
+        <div class="oc-sidebar-section">管理后台</div>
+        <div class="oc-sidebar-item" onclick="window.location.href='/admin.html'">&#x2699;&#xfe0f; 管理面板</div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="oc-main">
+      <!-- Dashboard -->
+      <div id="page-dashboard" class="page-content">
+        <h2 style="margin-bottom:1.5rem;">仪表盘</h2>
+        <div class="oc-grid oc-grid-4" id="stats-grid">
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-balance">-</div><div class="oc-stat-label">余额 (元)</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-calls">-</div><div class="oc-stat-label">今日调用</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-tokens">-</div><div class="oc-stat-label">今日 Tokens</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-cost">-</div><div class="oc-stat-label">今日费用 (元)</div></div>
+        </div>
+        <div class="oc-grid oc-grid-2" style="margin-top:1.5rem;">
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">近7天调用量</span></div>
+            <canvas id="chart-daily" height="200"></canvas>
+          </div>
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">最近调用</span></div>
+            <div id="recent-logs" style="max-height:250px;overflow-y:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Keys -->
+      <div id="page-apikeys" class="page-content" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+          <h2>API Keys</h2>
+          <button class="btn-accent" onclick="showCreateKeyModal()">+ 创建 Key</button>
+        </div>
+        <div class="oc-card">
+          <table class="oc-table" id="keys-table">
+            <thead><tr><th>名称</th><th>Key</th><th>状态</th><th>创建时间</th><th>最后使用</th><th>操作</th></tr></thead>
+            <tbody id="keys-tbody"></tbody>
+          </table>
+          <div id="keys-empty" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);">还没有 API Key，点击上方按钮创建</div>
+        </div>
+      </div>
+
+      <!-- Logs -->
+      <div id="page-logs" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">调用日志</h2>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+            <select class="oc-select" id="log-filter-model" style="width:160px;"><option value="">全部模型</option></select>
+            <select class="oc-select" id="log-filter-status" style="width:120px;"><option value="">全部状态</option><option value="success">成功</option><option value="error">失败</option></select>
+            <button class="btn-accent btn-sm" onclick="loadLogs()">筛选</button>
+          </div>
+        </div>
+        <div class="oc-card">
+          <table class="oc-table">
+            <thead><tr><th>时间</th><th>模型</th><th>Tokens</th><th>费用</th><th>状态</th><th>IP</th></tr></thead>
+            <tbody id="logs-tbody"></tbody>
+          </table>
+          <div class="oc-pagination" id="logs-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Packages -->
+      <div id="page-packages" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">套餐</h2>
+        <div class="oc-grid oc-grid-4" id="packages-grid"></div>
+        <div style="margin-top:2rem;">
+          <h3 style="margin-bottom:1rem;">我的套餐</h3>
+          <div class="oc-card">
+            <table class="oc-table">
+              <thead><tr><th>套餐</th><th>开始时间</th><th>到期时间</th><th>状态</th></tr></thead>
+              <tbody id="my-packages-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Playground -->
+      <div id="page-playground" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">API 调试</h2>
+        <div class="oc-grid oc-grid-2">
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">请求</span></div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">模型</label>
+              <select class="oc-select" id="pg-model" style="width:100%;"></select>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">消息</label>
+              <textarea class="oc-input" id="pg-message" rows="6" placeholder="输入消息内容..."></textarea>
+            </div>
+            <div style="display:flex;gap:0.5rem;">
+              <button class="btn-accent" onclick="sendPlayground()">发送</button>
+              <label style="display:flex;align-items:center;gap:0.35rem;font-size:0.8rem;color:var(--text-secondary);"><input type="checkbox" id="pg-stream" checked> 流式</label>
+            </div>
+          </div>
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">响应</span></div>
+            <div id="pg-response" class="oc-code" style="min-height:200px;max-height:400px;overflow-y:auto;white-space:pre-wrap;font-size:0.8rem;"></div>
+            <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-muted);" id="pg-stats"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Create Key Modal -->
+  <div class="oc-modal-overlay" id="modal-create-key">
+    <div class="oc-modal" style="min-width:420px;">
+      <h3>创建 API Key</h3>
+      <div class="form-group">
+        <label>名称</label>
+        <input class="oc-input" id="new-key-name" placeholder="如：测试环境" maxlength="50">
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-create-key')">取消</button>
+        <button class="btn-accent" onclick="createKey()">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Show Key Modal -->
+  <div class="oc-modal-overlay" id="modal-show-key">
+    <div class="oc-modal" style="min-width:480px;">
+      <h3>API Key 已创建</h3>
+      <p style="color:var(--danger);font-size:0.85rem;margin-bottom:0.75rem;">请立即复制保存，此 Key 仅显示一次！</p>
+      <div class="oc-code" style="word-break:break-all;"><span id="new-key-value"></span></div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-accent" onclick="copyText(document.getElementById('new-key-value').textContent);showToast('已复制','success');">复制</button>
+        <button class="btn-outline" onclick="hideModal('modal-show-key')">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('need auth');
+
+    let currentPage = 'dashboard';
+    let logsPage = 1;
+    let userInfo = null;
+
+    function switchPage(page) {
+      currentPage = page;
+      document.querySelectorAll('.page-content').forEach(el => el.style.display = 'none');
+      document.getElementById('page-' + page).style.display = 'block';
+      document.querySelectorAll('.oc-sidebar-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+      if (page === 'dashboard') loadDashboard();
+      else if (page === 'apikeys') loadApiKeys();
+      else if (page === 'logs') loadLogs();
+      else if (page === 'packages') loadPackages();
+      else if (page === 'playground') loadPlayground();
+    }
+
+    function showModal(id) { document.getElementById(id).classList.add('show'); }
+    function hideModal(id) { document.getElementById(id).classList.remove('show'); }
+    function showCreateKeyModal() { document.getElementById('new-key-name').value = ''; showModal('modal-create-key'); }
+
+    function logout() { api.clearToken(); window.location.href = '/'; }
+
+    // Init
+    async function init() {
+      try {
+        userInfo = await api.getUserInfo();
+        document.getElementById('nav-username').textContent = userInfo.username;
+        if (userInfo.role === 'admin') document.getElementById('admin-nav').style.display = '';
+        loadDashboard();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // Dashboard
+    async function loadDashboard() {
+      try {
+        const [info, stats] = await Promise.all([api.getUserInfo(), api.getStats()]);
+        document.getElementById('stat-balance').textContent = parseFloat(info.balance || 0).toFixed(2);
+        document.getElementById('stat-today-calls').textContent = formatNum(stats.today?.calls || 0);
+        document.getElementById('stat-today-tokens').textContent = formatNum(stats.today?.tokens || 0);
+        document.getElementById('stat-today-cost').textContent = parseFloat(stats.today?.cost || 0).toFixed(4);
+
+        // Chart
+        if (stats.daily && stats.daily.length > 0) drawChart(stats.daily);
+
+        // Recent logs
+        const logsRes = await api.getLogs({ limit: 5 });
+        const logs = logsRes.logs || logsRes;
+        const container = document.getElementById('recent-logs');
+        if (Array.isArray(logs) && logs.length > 0) {
+          container.innerHTML = logs.map(l => `<div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border-color);font-size:0.8rem;">
+            <span><span class="badge-model">${l.model}</span></span>
+            <span style="color:var(--text-muted);">${l.prompt_tokens + l.completion_tokens} tokens</span>
+            <span style="color:${l.status === 'success' ? 'var(--success)' : 'var(--danger)'};">${l.status}</span>
+            <span style="color:var(--text-muted);">${formatDate(l.created_at)}</span>
+          </div>`).join('');
+        } else {
+          container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem;">暂无调用记录</div>';
+        }
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function drawChart(daily) {
+      const canvas = document.getElementById('chart-daily');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const w = rect.width, h = rect.height;
+      const pad = { top: 20, right: 20, bottom: 30, left: 50 };
+      const plotW = w - pad.left - pad.right;
+      const plotH = h - pad.top - pad.bottom;
+
+      const vals = daily.map(d => d.calls || 0);
+      const max = Math.max(...vals, 1);
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid lines
+      ctx.strokeStyle = 'rgba(42,42,74,0.5)';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (plotH / 4) * i;
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+      }
+
+      // Bars
+      const barW = Math.min(plotW / vals.length * 0.6, 40);
+      const gap = plotW / vals.length;
+      vals.forEach((v, i) => {
+        const x = pad.left + gap * i + (gap - barW) / 2;
+        const barH = (v / max) * plotH;
+        const gradient = ctx.createLinearGradient(0, pad.top + plotH - barH, 0, pad.top + plotH);
+        gradient.addColorStop(0, '#6c5ce7');
+        gradient.addColorStop(1, '#a29bfe');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, pad.top + plotH - barH, barW, barH, [4, 4, 0, 0]);
+        ctx.fill();
+      });
+
+      // Labels
+      ctx.fillStyle = '#606080';
+      ctx.font = '11px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      daily.forEach((d, i) => {
+        const x = pad.left + gap * i + gap / 2;
+        ctx.fillText(d.date?.slice(5) || '', x, h - 8);
+      });
+
+      // Y axis
+      ctx.textAlign = 'right';
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (plotH / 4) * i;
+        ctx.fillText(Math.round(max - (max / 4) * i), pad.left - 8, y + 4);
+      }
+    }
+
+    // API Keys
+    async function loadApiKeys() {
+      try {
+        const keys = await api.getApiKeys();
+        const tbody = document.getElementById('keys-tbody');
+        const empty = document.getElementById('keys-empty');
+        if (keys.length === 0) {
+          tbody.innerHTML = '';
+          empty.style.display = 'block';
+          return;
+        }
+        empty.style.display = 'none';
+        tbody.innerHTML = keys.map(k => `<tr>
+          <td style="color:var(--text-primary)">${k.name || '-'}</td>
+          <td><code style="font-size:0.8rem;">${k.key_display}</code></td>
+          <td>${k.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
+          <td>${formatDate(k.created_at)}</td>
+          <td>${k.last_used_at ? formatDate(k.last_used_at) : '-'}</td>
+          <td>
+            <button class="btn-outline btn-sm" onclick="toggleKey(${k.id})">${k.status === 'active' ? '禁用' : '启用'}</button>
+            <button class="btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteKey(${k.id})">删除</button>
+          </td>
+        </tr>`).join('');
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function createKey() {
+      const name = document.getElementById('new-key-name').value.trim();
+      if (!name) return showToast('请输入名称', 'error');
+      try {
+        const res = await api.createApiKey(name);
+        hideModal('modal-create-key');
+        document.getElementById('new-key-value').textContent = res.key;
+        showModal('modal-show-key');
+        loadApiKeys();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function toggleKey(id) {
+      try { await api.toggleApiKey(id); loadApiKeys(); showToast('已更新', 'success'); }
+      catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function deleteKey(id) {
+      if (!confirm('确定删除此 Key？')) return;
+      try { await api.deleteApiKey(id); loadApiKeys(); showToast('已删除', 'success'); }
+      catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // Logs
+    async function loadLogs() {
+      try {
+        const model = document.getElementById('log-filter-model').value;
+        const status = document.getElementById('log-filter-status').value;
+        const params = { page: logsPage, limit: 20 };
+        if (model) params.model = model;
+        if (status) params.status = status;
+        const res = await api.getLogs(params);
+        const logs = res.logs || [];
+        const tbody = document.getElementById('logs-tbody');
+        tbody.innerHTML = logs.length ? logs.map(l => `<tr>
+          <td>${formatDate(l.created_at)}</td>
+          <td><span class="badge-model">${l.model}</span></td>
+          <td style="font-family:var(--font-mono);font-size:0.8rem;">${l.prompt_tokens} / ${l.completion_tokens}</td>
+          <td style="font-family:var(--font-mono);">¥${parseFloat(l.total_cost).toFixed(4)}</td>
+          <td>${l.status === 'success' ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">失败</span>'}</td>
+          <td style="font-size:0.75rem;color:var(--text-muted);">${l.ip || '-'}</td>
+        </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">暂无记录</td></tr>';
+
+        // Pagination
+        const total = res.total || 0;
+        const totalPages = Math.ceil(total / 20);
+        const pagDiv = document.getElementById('logs-pagination');
+        pagDiv.innerHTML = '';
+        for (let i = 1; i <= Math.min(totalPages, 10); i++) {
+          pagDiv.innerHTML += `<button class="${i === logsPage ? 'active' : ''}" onclick="logsPage=${i};loadLogs();">${i}</button>`;
+        }
+
+        // Populate model filter
+        const models = await api.getModels();
+        const sel = document.getElementById('log-filter-model');
+        if (sel.options.length <= 1) {
+          models.forEach(m => { sel.innerHTML += `<option value="${m.model_id}">${m.display_name || m.model_id}</option>`; });
+        }
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // Packages
+    async function loadPackages() {
+      try {
+        const [pkgs, myPkgs] = await Promise.all([api.getPackages(), api.getMyPackages()]);
+        const grid = document.getElementById('packages-grid');
+        grid.innerHTML = pkgs.map((p, i) => `<div class="oc-card oc-pricing-card ${i === 1 ? 'popular' : ''}">
+          <h3 style="margin-bottom:0.5rem;">${p.name}</h3>
+          <div class="oc-pricing-price">¥${parseFloat(p.price).toFixed(0)}</div>
+          <div class="oc-pricing-unit">${p.type === 'monthly' ? '/月' : p.type === 'yearly' ? '/年' : '一次性'}</div>
+          <ul style="text-align:left;font-size:0.8rem;color:var(--text-secondary);padding-left:1rem;margin:1rem 0;">
+            <li>每日限制: ${p.daily_limit || '无限'} 次</li>
+            <li>月度配额: ${p.monthly_quota || '无限'} 次</li>
+          </ul>
+          ${p.price > 0 ? `<button class="btn-accent" style="width:100%;" onclick="buyPackage(${p.id})">购买</button>` : '<button class="btn-outline" style="width:100%;" disabled>当前方案</button>'}
+        </div>`).join('');
+
+        const tbody = document.getElementById('my-packages-tbody');
+        tbody.innerHTML = myPkgs.length ? myPkgs.map(p => `<tr>
+          <td style="color:var(--text-primary)">${p.name || '套餐#' + p.package_id}</td>
+          <td>${formatDate(p.started_at)}</td>
+          <td>${formatDate(p.expires_at)}</td>
+          <td>${p.status === 'active' ? '<span class="badge-active">有效</span>' : '<span class="badge-disabled">已过期</span>'}</td>
+        </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无套餐</td></tr>';
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function buyPackage(id) {
+      if (!confirm('确认购买此套餐？将从余额中扣费。')) return;
+      try {
+        const response = await api.buyPackage(id);
+        if (response.api_key) {
+          showApiKeyModal(response.api_key, response.key_display, response.notice);
+        } else {
+          showToast(response.message || '购买成功', 'success');
+        }
+        loadPackages();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function showApiKeyModal(fullKey, displayKey, notice) {
+      const modal = document.createElement('div');
+      modal.className = 'oc-modal-overlay show';
+      modal.innerHTML = `
+        <div class="oc-modal" style="max-width:500px;">
+          <h3>🎉 套餐购买成功</h3>
+          <p style="color:var(--text-secondary);margin-bottom:1rem;">${notice}</p>
+          <div class="form-group">
+            <label>您的 API Key</label>
+            <div style="display:flex;gap:0.5rem;">
+              <input class="oc-input" id="new-api-key" value="${fullKey}" readonly style="font-family:monospace;font-size:0.85rem;">
+              <button class="btn-accent" onclick="copyNewApiKey()">复制</button>
+            </div>
+          </div>
+          <div style="background:var(--bg-secondary);padding:0.75rem;border-radius:6px;margin-top:1rem;">
+            <p style="font-size:0.85rem;color:var(--text-muted);margin:0;">
+              ⚠️ 请立即复制保存此密钥，关闭后将无法再次查看完整密钥
+            </p>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:1rem;">
+            <button class="btn-accent" onclick="this.closest('.oc-modal-overlay').remove();location.reload();">我已保存</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function copyNewApiKey() {
+      const input = document.getElementById('new-api-key');
+      input.select();
+      document.execCommand('copy');
+      showToast('已复制到剪贴板', 'success');
+    }
+
+    // Playground
+    async function loadPlayground() {
+      const sel = document.getElementById('pg-model');
+      if (sel.options.length <= 0) {
+        const models = await api.getModels();
+        models.forEach(m => { sel.innerHTML += `<option value="${m.model_id}">${m.display_name || m.model_id}</option>`; });
+      }
+    }
+
+    async function sendPlayground() {
+      const model = document.getElementById('pg-model').value;
+      const message = document.getElementById('pg-message').value.trim();
+      const stream = document.getElementById('pg-stream').checked;
+      if (!message) return showToast('请输入消息', 'error');
+
+      const respDiv = document.getElementById('pg-response');
+      const statsDiv = document.getElementById('pg-stats');
+      respDiv.textContent = '';
+      statsDiv.textContent = '请求中...';
+      const startTime = Date.now();
+
+      // Find user's first API key or use token
+      let apiKey = null;
+      try {
+        const keys = await api.getApiKeys();
+        const active = keys.find(k => k.status === 'active');
+        if (!active) {
+          showToast('请先创建一个 API Key', 'error');
+          switchPage('apikeys');
+          return;
+        }
+        // We can't get the full key, so use SSO token for playground via a proxy
+        // Actually, playground should use the token-based approach
+      } catch(e) {}
+
+      try {
+        const res = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api.token}` },
+          body: JSON.stringify({ model, messages: [{ role: 'user', content: message }], stream })
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          respDiv.textContent = JSON.stringify(err, null, 2);
+          statsDiv.textContent = '请求失败';
+          return;
+        }
+
+        if (stream) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let text = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+              if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  const content = data.choices?.[0]?.delta?.content || '';
+                  text += content;
+                  respDiv.textContent = text;
+                } catch(e) {}
+              }
+            }
+          }
+          statsDiv.textContent = `耗时: ${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+        } else {
+          const data = await res.json();
+          respDiv.textContent = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+          const u = data.usage || {};
+          statsDiv.textContent = `Tokens: ${u.prompt_tokens || 0} + ${u.completion_tokens || 0} = ${u.total_tokens || 0} | 耗时: ${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+        }
+      } catch(e) {
+        respDiv.textContent = e.message;
+        statsDiv.textContent = '请求失败';
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

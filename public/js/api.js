@@ -1,0 +1,120 @@
+/* OpenClaw AI - API Client */
+const API_BASE = '/api';
+const SSO_LOGIN_URL = 'https://yunjunet.cn/login?return_url=' + encodeURIComponent(window.location.origin + '/console.html');
+
+const api = {
+  token: localStorage.getItem('openclaw_token'),
+
+  setToken(t) { this.token = t; localStorage.setItem('openclaw_token', t); },
+  clearToken() { this.token = null; localStorage.removeItem('openclaw_token'); },
+
+  async request(path, opts = {}) {
+    const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+    const res = await fetch(API_BASE + path, { ...opts, headers });
+    if (res.status === 401) {
+      this.clearToken();
+      window.location.href = SSO_LOGIN_URL;
+      throw new Error('未登录');
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '请求失败');
+    return data;
+  },
+
+  get(path) { return this.request(path); },
+  post(path, body) { return this.request(path, { method: 'POST', body: JSON.stringify(body) }); },
+  put(path, body) { return this.request(path, { method: 'PUT', body: JSON.stringify(body) }); },
+
+  // User
+  getUserInfo() { return this.get('/user/info'); },
+  getBalance() { return this.get('/user/balance'); },
+
+  // API Keys
+  getApiKeys() { return this.get('/api-key/list'); },
+  createApiKey(name) { return this.post('/api-key/create', { name }); },
+  toggleApiKey(id) { return this.post('/api-key/toggle', { id }); },
+  deleteApiKey(id) { return this.post('/api-key/delete', { id }); },
+
+  // Logs
+  getLogs(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get('/logs' + (q ? '?' + q : ''));
+  },
+  getStats() { return this.get('/logs/stats'); },
+
+  // Models
+  async getModels() {
+    const res = await fetch(API_BASE + '/models');
+    return res.json();
+  },
+
+  // Packages
+  getPackages() { return this.get('/package/list'); },
+  buyPackage(package_id) { return this.post('/package/buy', { package_id }); },
+  getMyPackages() { return this.get('/package/my'); },
+
+  // Admin
+  adminOverview() { return this.get('/admin/overview'); },
+  adminUsers(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get('/admin/users' + (q ? '?' + q : ''));
+  },
+  adminCharge(user_id, amount, remark) { return this.post('/admin/charge', { user_id, amount, remark }); },
+  adminGetModels() { return this.get('/admin/models'); },
+  adminUpdateModel(id, data) { return this.put('/admin/models/' + id, data); },
+  adminCreateModel(data) { return this.post('/admin/models', data); },
+};
+
+// Check SSO callback token
+(function checkSSOCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  if (token) {
+    api.setToken(token);
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+})();
+
+// Toast utility
+function showToast(msg, type = 'info') {
+  let container = document.querySelector('.oc-toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'oc-toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `oc-toast ${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => { toast.remove(); }, 3000);
+}
+
+// Copy to clipboard
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => showToast('已复制', 'success')).catch(() => showToast('复制失败', 'error'));
+}
+
+// Format number
+function formatNum(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+// Format date
+function formatDate(d) {
+  if (!d) return '-';
+  const dt = new Date(d);
+  return dt.toLocaleDateString('zh-CN') + ' ' + dt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Auth guard
+function requireAuth() {
+  if (!api.token) {
+    window.location.href = SSO_LOGIN_URL;
+    return false;
+  }
+  return true;
+}

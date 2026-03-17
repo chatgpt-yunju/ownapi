@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理后台 - OpenClaw AI</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <nav class="oc-navbar">
+    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>OpenClaw AI <span style="font-size:0.7rem;color:var(--text-muted);margin-left:0.5rem;">Admin</span></a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <div class="oc-nav-links">
+      <a href="/console.html">控制台</a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+      <a href="/admin.html" class="active">管理后台</a>
+    </div>
+    <div class="oc-nav-right">
+      <span id="nav-username" style="font-size:0.85rem;color:var(--text-secondary);"></span>
+      <button class="btn-outline btn-sm" onclick="api.clearToken();location.href='/';">退出</button>
+    </div>
+  </nav>
+
+  <div class="oc-console">
+    <aside class="oc-sidebar">
+      <div class="oc-sidebar-section">管理</div>
+      <div class="oc-sidebar-item active" data-page="overview" onclick="switchPage('overview')">&#x1f4ca; 总览</div>
+      <div class="oc-sidebar-item" data-page="users" onclick="switchPage('users')">&#x1f465; 用户管理</div>
+      <div class="oc-sidebar-item" data-page="models" onclick="switchPage('models')">&#x1f916; 模型管理</div>
+      <div class="oc-sidebar-section">快捷</div>
+      <div class="oc-sidebar-item" onclick="location.href='/console.html'">&#x2190; 返回控制台</div>
+    </aside>
+
+    <main class="oc-main">
+      <!-- Overview -->
+      <div id="page-overview" class="page-content">
+        <h2 style="margin-bottom:1.5rem;">系统总览</h2>
+        <div class="oc-grid oc-grid-4" id="admin-stats">
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-users">-</div><div class="oc-stat-label">总用户数</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-calls">-</div><div class="oc-stat-label">总调用次数</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-tokens">-</div><div class="oc-stat-label">总 Tokens</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-cost">-</div><div class="oc-stat-label">总费用 (元)</div></div>
+        </div>
+        <div class="oc-grid oc-grid-2" style="margin-top:1.5rem;">
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-calls">-</div><div class="oc-stat-label">今日调用</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-cost">-</div><div class="oc-stat-label">今日费用 (元)</div></div>
+        </div>
+      </div>
+
+      <!-- Users -->
+      <div id="page-users" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">用户管理</h2>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;gap:0.75rem;align-items:center;">
+            <input class="oc-input" id="user-search" placeholder="搜索用户名..." style="width:250px;">
+            <button class="btn-accent btn-sm" onclick="loadUsers()">搜索</button>
+          </div>
+        </div>
+        <div class="oc-card">
+          <table class="oc-table">
+            <thead><tr><th>ID</th><th>用户名</th><th>余额</th><th>API Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
+            <tbody id="users-tbody"></tbody>
+          </table>
+          <div class="oc-pagination" id="users-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Models -->
+      <div id="page-models" class="page-content" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+          <h2>模型管理</h2>
+          <button class="btn-accent" onclick="showAddModelModal()">+ 添加模型</button>
+        </div>
+        <div class="oc-card">
+          <table class="oc-table">
+            <thead><tr><th>模型 ID</th><th>显示名称</th><th>提供商</th><th>输入价格</th><th>输出价格</th><th>排序</th><th>状态</th><th>上游配置</th><th>操作</th></tr></thead>
+            <tbody id="models-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Charge Modal -->
+  <div class="oc-modal-overlay" id="modal-charge">
+    <div class="oc-modal">
+      <h3>充值/扣费</h3>
+      <input type="hidden" id="charge-user-id">
+      <div class="form-group">
+        <label>用户: <strong id="charge-username"></strong></label>
+      </div>
+      <div class="form-group">
+        <label>金额 (正数充值，负数扣费)</label>
+        <input class="oc-input" id="charge-amount" type="number" step="0.01" placeholder="如：10.00 或 -5.00">
+      </div>
+      <div class="form-group">
+        <label>备注</label>
+        <input class="oc-input" id="charge-remark" placeholder="如：管理员手动充值">
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-charge')">取消</button>
+        <button class="btn-accent" onclick="doCharge()">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Model Modal -->
+  <div class="oc-modal-overlay" id="modal-model">
+    <div class="oc-modal" style="min-width:480px;">
+      <h3 id="model-modal-title">编辑模型</h3>
+      <input type="hidden" id="model-edit-id">
+      <div class="form-group">
+        <label>模型 ID</label>
+        <input class="oc-input" id="model-id-input" placeholder="如 gpt-4o-mini">
+      </div>
+      <div class="form-group">
+        <label>显示名称</label>
+        <input class="oc-input" id="model-name-input" placeholder="如 GPT-4o Mini">
+      </div>
+      <div class="form-group">
+        <label>提供商</label>
+        <select class="oc-select" id="model-provider-input" style="width:100%;">
+          <option value="openai">openai</option>
+          <option value="deepseek">deepseek</option>
+          <option value="qwen">qwen</option>
+          <option value="anthropic">anthropic</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:0.75rem;">
+        <div class="form-group" style="flex:1;">
+          <label>输入价格 (¥/1K)</label>
+          <input class="oc-input" id="model-input-price" type="number" step="0.0001">
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label>输出价格 (¥/1K)</label>
+          <input class="oc-input" id="model-output-price" type="number" step="0.0001">
+        </div>
+      </div>
+      <div style="display:flex;gap:0.75rem;">
+        <div class="form-group" style="flex:1;">
+          <label>排序 (越小越前)</label>
+          <input class="oc-input" id="model-sort-input" type="number" value="0">
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label>状态</label>
+          <select class="oc-select" id="model-status-input" style="width:100%;">
+            <option value="active">启用</option>
+            <option value="disabled">禁用</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>上游地址 (可选，覆盖默认)</label>
+        <input class="oc-input" id="model-endpoint-input" placeholder="如 https://custom-api.com/v1">
+      </div>
+      <div class="form-group">
+        <label>上游 Key (可选，覆盖默认)</label>
+        <input class="oc-input" id="model-key-input" placeholder="留空使用默认配置">
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-model')">取消</button>
+        <button class="btn-accent" onclick="saveModel()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth()) throw new Error('need auth');
+
+    let currentPage = 'overview';
+    let usersPage = 1;
+
+    function switchPage(page) {
+      currentPage = page;
+      document.querySelectorAll('.page-content').forEach(el => el.style.display = 'none');
+      document.getElementById('page-' + page).style.display = 'block';
+      document.querySelectorAll('.oc-sidebar-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+      if (page === 'overview') loadOverview();
+      else if (page === 'users') loadUsers();
+      else if (page === 'models') loadModels();
+    }
+
+    function showModal(id) { document.getElementById(id).classList.add('show'); }
+    function hideModal(id) { document.getElementById(id).classList.remove('show'); }
+
+    async function init() {
+      try {
+        const info = await api.getUserInfo();
+        document.getElementById('nav-username').textContent = info.username;
+        if (info.role !== 'admin') { showToast('无管理员权限', 'error'); setTimeout(() => location.href = '/console.html', 1000); return; }
+        loadOverview();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function loadOverview() {
+      try {
+        const data = await api.adminOverview();
+        document.getElementById('a-total-users').textContent = formatNum(data.total_users || 0);
+        document.getElementById('a-total-calls').textContent = formatNum(data.total_calls || 0);
+        document.getElementById('a-total-tokens').textContent = formatNum(data.total_tokens || 0);
+        document.getElementById('a-total-cost').textContent = parseFloat(data.total_cost || 0).toFixed(2);
+        document.getElementById('a-today-calls').textContent = formatNum(data.today_calls || 0);
+        document.getElementById('a-today-cost').textContent = parseFloat(data.today_cost || 0).toFixed(4);
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function loadUsers() {
+      try {
+        const search = document.getElementById('user-search').value.trim();
+        const params = { page: usersPage, limit: 20 };
+        if (search) params.search = search;
+        const data = await api.adminUsers(params);
+        const users = data.users || [];
+        document.getElementById('users-tbody').innerHTML = users.length ? users.map(u => `<tr>
+          <td>${u.user_id}</td>
+          <td style="color:var(--text-primary)">${u.username || '-'}</td>
+          <td style="font-family:var(--font-mono);">¥${parseFloat(u.balance || 0).toFixed(2)}</td>
+          <td>${u.key_count || 0}</td>
+          <td>${formatNum(u.total_calls || 0)}</td>
+          <td style="font-family:var(--font-mono);">¥${parseFloat(u.total_cost || 0).toFixed(4)}</td>
+          <td><button class="btn-outline btn-sm" onclick="showChargeModal(${u.user_id},'${(u.username||'').replace(/'/g,"\\'")}')">充值/扣费</button></td>
+        </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
+
+        const total = data.total || 0;
+        const totalPages = Math.ceil(total / 20);
+        const pagDiv = document.getElementById('users-pagination');
+        pagDiv.innerHTML = '';
+        for (let i = 1; i <= Math.min(totalPages, 10); i++) {
+          pagDiv.innerHTML += `<button class="${i === usersPage ? 'active' : ''}" onclick="usersPage=${i};loadUsers();">${i}</button>`;
+        }
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function showChargeModal(userId, username) {
+      document.getElementById('charge-user-id').value = userId;
+      document.getElementById('charge-username').textContent = username;
+      document.getElementById('charge-amount').value = '';
+      document.getElementById('charge-remark').value = '';
+      showModal('modal-charge');
+    }
+
+    function maskKey(key) {
+      if (!key || key.length < 10) return '***';
+      return `${key.slice(0, 7)}...${key.slice(-4)}`;
+    }
+
+    async function doCharge() {
+      const user_id = parseInt(document.getElementById('charge-user-id').value);
+      const amount = parseFloat(document.getElementById('charge-amount').value);
+      const remark = document.getElementById('charge-remark').value.trim();
+      if (isNaN(amount) || amount === 0) return showToast('请输入有效金额', 'error');
+      try {
+        await api.adminCharge(user_id, amount, remark || '管理员操作');
+        hideModal('modal-charge');
+        showToast('操作成功', 'success');
+        loadUsers();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function loadModels() {
+      try {
+        const models = await api.adminGetModels();
+        document.getElementById('models-tbody').innerHTML = models.map(m => `<tr>
+          <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
+          <td>${m.display_name}</td>
+          <td>${m.provider}</td>
+          <td style="font-family:var(--font-mono);">¥${m.input_price_per_1k}</td>
+          <td style="font-family:var(--font-mono);">¥${m.output_price_per_1k}</td>
+          <td>${m.sort_order}</td>
+          <td>${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
+          <td>${m.upstream_endpoint ? `<span style="font-size:0.75rem;color:var(--text-muted);">${m.upstream_key ? maskKey(m.upstream_key) : '默认'}</span>` : '<span style="color:var(--text-muted);">默认</span>'}</td>
+          <td><button class="btn-outline btn-sm" onclick='editModel(${JSON.stringify(m)})'>编辑</button></td>
+        </tr>`).join('');
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function showAddModelModal() {
+      document.getElementById('model-modal-title').textContent = '添加模型';
+      document.getElementById('model-edit-id').value = '';
+      document.getElementById('model-id-input').value = '';
+      document.getElementById('model-name-input').value = '';
+      document.getElementById('model-provider-input').value = 'openai';
+      document.getElementById('model-input-price').value = '0.01';
+      document.getElementById('model-output-price').value = '0.03';
+      document.getElementById('model-sort-input').value = '0';
+      document.getElementById('model-status-input').value = 'active';
+      document.getElementById('model-endpoint-input').value = '';
+      document.getElementById('model-key-input').value = '';
+      document.getElementById('model-id-input').disabled = false;
+      showModal('modal-model');
+    }
+
+    function editModel(m) {
+      document.getElementById('model-modal-title').textContent = '编辑模型';
+      document.getElementById('model-edit-id').value = m.id;
+      document.getElementById('model-id-input').value = m.model_id;
+      document.getElementById('model-id-input').disabled = true;
+      document.getElementById('model-name-input').value = m.display_name;
+      document.getElementById('model-provider-input').value = m.provider;
+      document.getElementById('model-input-price').value = m.input_price_per_1k;
+      document.getElementById('model-output-price').value = m.output_price_per_1k;
+      document.getElementById('model-sort-input').value = m.sort_order;
+      document.getElementById('model-status-input').value = m.status;
+      document.getElementById('model-endpoint-input').value = m.upstream_endpoint || '';
+      document.getElementById('model-key-input').value = m.upstream_key || '';
+      showModal('modal-model');
+    }
+
+    async function saveModel() {
+      const id = document.getElementById('model-edit-id').value;
+      const data = {
+        model_id: document.getElementById('model-id-input').value.trim(),
+        display_name: document.getElementById('model-name-input').value.trim(),
+        provider: document.getElementById('model-provider-input').value,
+        input_price_per_1k: parseFloat(document.getElementById('model-input-price').value),
+        output_price_per_1k: parseFloat(document.getElementById('model-output-price').value),
+        sort_order: parseInt(document.getElementById('model-sort-input').value) || 0,
+        status: document.getElementById('model-status-input').value,
+        upstream_endpoint: document.getElementById('model-endpoint-input').value.trim() || null,
+        upstream_key: document.getElementById('model-key-input').value.trim() || null,
+      };
+      if (!data.model_id || !data.display_name) return showToast('请填写模型 ID 和名称', 'error');
+      try {
+        if (id) await api.adminUpdateModel(id, data);
+        else await api.adminCreateModel(data);
+        hideModal('modal-model');
+        showToast('已保存', 'success');
+        loadModels();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    init();
+  </script>
+</body>
+</html>

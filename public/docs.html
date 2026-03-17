@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API 文档 - OpenClaw AI</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    .doc-section { margin-bottom: 3rem; }
+    .doc-section h2 { font-size: 1.5rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); }
+    .doc-section h3 { font-size: 1.1rem; margin: 1.5rem 0 0.75rem; color: var(--accent-light); }
+    .doc-method { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; font-family: var(--font-mono); margin-right: 0.5rem; }
+    .doc-method.post { background: rgba(0,206,201,0.15); color: var(--success); }
+    .doc-method.get { background: rgba(84,160,255,0.15); color: var(--info); }
+    .doc-endpoint { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-primary); }
+    .doc-param-table { width: 100%; margin: 0.75rem 0; font-size: 0.85rem; }
+    .doc-param-table th { background: var(--bg-secondary); }
+    .doc-nav { position: sticky; top: 80px; }
+    .doc-nav a { display: block; padding: 0.4rem 0; font-size: 0.85rem; color: var(--text-secondary); }
+    .doc-nav a:hover { color: var(--accent-light); }
+  </style>
+</head>
+<body>
+  <nav class="oc-navbar">
+    <a href="/" class="oc-logo">
+      <div class="oc-logo-icon">&gt;_</div>
+      OpenClaw AI
+    </a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <div class="oc-nav-links">
+      <a href="/">首页</a>
+      <a href="/docs.html" class="active">文档</a>
+      <a href="/console.html">控制台</a>
+    </div>
+    <div class="oc-nav-right">
+      <a href="/console.html" class="btn-accent">控制台</a>
+    </div>
+  </nav>
+
+  <div style="display:flex;max-width:1200px;margin:0 auto;padding:2rem;gap:3rem;">
+    <!-- Sidebar Nav -->
+    <aside style="width:200px;flex-shrink:0;" class="doc-nav">
+      <div class="oc-sidebar-section">快速开始</div>
+      <a href="#intro">简介</a>
+      <a href="#auth">认证方式</a>
+      <a href="#quickstart">快速接入</a>
+      <div class="oc-sidebar-section" style="margin-top:1rem;">API 参考</div>
+      <a href="#chat">Chat Completions</a>
+      <a href="#models">模型列表</a>
+      <a href="#streaming">流式输出</a>
+      <div class="oc-sidebar-section" style="margin-top:1rem;">其他</div>
+      <a href="#errors">错误码</a>
+      <a href="#limits">限制说明</a>
+    </aside>
+
+    <!-- Content -->
+    <main style="flex:1;min-width:0;">
+      <div class="doc-section" id="intro">
+        <h2>简介</h2>
+        <p style="color:var(--text-secondary);">OpenClaw AI 提供与 OpenAI 完全兼容的 API 接口，支持多种主流大语言模型。您只需使用标准的 OpenAI SDK 或 HTTP 请求，修改 <code style="color:var(--accent-light);">base_url</code> 即可接入。</p>
+        <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;">
+          <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
+            <div style="font-size:0.8rem;color:var(--text-muted);">API 地址</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;color:var(--accent-light);">https://api.yunjunet.cn/v1</div>
+          </div>
+          <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
+            <div style="font-size:0.8rem;color:var(--text-muted);">认证方式</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">Bearer API Key</div>
+          </div>
+          <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
+            <div style="font-size:0.8rem;color:var(--text-muted);">响应格式</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">JSON / SSE</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="doc-section" id="auth">
+        <h2>认证方式</h2>
+        <p style="color:var(--text-secondary);">在<a href="/console.html">控制台</a>创建 API Key 后，在请求头中携带：</p>
+        <div class="oc-code" style="margin-top:0.75rem;"><pre style="margin:0;">Authorization: Bearer sk-your-api-key</pre></div>
+        <p style="color:var(--text-secondary);margin-top:0.75rem;font-size:0.85rem;">API Key 以 <code>sk-</code> 开头，创建后仅显示一次，请妥善保管。</p>
+      </div>
+
+      <div class="doc-section" id="quickstart">
+        <h2>快速接入</h2>
+        <h3>Python</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">pip install openai
+
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.yunjunet.cn/v1",
+    api_key="sk-your-api-key"
+)
+
+resp = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "你好"}]
+)
+print(resp.choices[0].message.content)</pre></div>
+
+        <h3>JavaScript / Node.js</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">import OpenAI from 'openai';
+
+const client = new OpenAI({
+  baseURL: 'https://api.yunjunet.cn/v1',
+  apiKey: 'sk-your-api-key',
+});
+
+const completion = await client.chat.completions.create({
+  model: 'deepseek-chat',
+  messages: [{ role: 'user', content: '你好' }],
+});
+console.log(completion.choices[0].message.content);</pre></div>
+
+        <h3>cURL</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">curl https://api.yunjunet.cn/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'</pre></div>
+      </div>
+
+      <div class="doc-section" id="chat">
+        <h2>Chat Completions</h2>
+        <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1/chat/completions</span></p>
+        <h3>请求参数</h3>
+        <table class="oc-table doc-param-table">
+          <thead><tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>model</code></td><td>string</td><td>是</td><td>模型 ID，如 gpt-4o-mini、deepseek-chat</td></tr>
+            <tr><td><code>messages</code></td><td>array</td><td>是</td><td>消息数组，每项包含 role 和 content</td></tr>
+            <tr><td><code>stream</code></td><td>boolean</td><td>否</td><td>是否流式输出，默认 false</td></tr>
+            <tr><td><code>temperature</code></td><td>number</td><td>否</td><td>温度参数 0-2，默认 1</td></tr>
+            <tr><td><code>max_tokens</code></td><td>integer</td><td>否</td><td>最大输出 token 数</td></tr>
+            <tr><td><code>top_p</code></td><td>number</td><td>否</td><td>核采样参数</td></tr>
+          </tbody>
+        </table>
+
+        <h3>响应示例</h3>
+        <div class="oc-code"><pre style="margin:0;">{
+  "id": "chatcmpl-xxx",
+  "object": "chat.completion",
+  "model": "gpt-4o-mini",
+  "choices": [{
+    "index": 0,
+    "message": { "role": "assistant", "content": "你好！" },
+    "finish_reason": "stop"
+  }],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 5,
+    "total_tokens": 15
+  }
+}</pre></div>
+      </div>
+
+      <div class="doc-section" id="models">
+        <h2>模型列表</h2>
+        <p><span class="doc-method get">GET</span><span class="doc-endpoint">/v1/models</span></p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">返回当前可用的所有模型及其定价信息。无需认证。</p>
+        <div id="models-table" style="margin-top:1rem;"></div>
+      </div>
+
+      <div class="doc-section" id="streaming">
+        <h2>流式输出</h2>
+        <p style="color:var(--text-secondary);">设置 <code>stream: true</code> 后，响应以 Server-Sent Events (SSE) 格式返回：</p>
+        <div class="oc-code" style="margin-top:0.75rem;"><pre style="margin:0;">data: {"id":"chatcmpl-xxx","choices":[{"delta":{"content":"你"},"index":0}]}
+
+data: {"id":"chatcmpl-xxx","choices":[{"delta":{"content":"好"},"index":0}]}
+
+data: {"id":"chatcmpl-xxx","choices":[{"delta":{},"index":0,"finish_reason":"stop"}]}
+
+data: [DONE]</pre></div>
+        <h3>Python 流式读取</h3>
+        <div class="oc-code"><pre style="margin:0;">stream = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "写一首诗"}],
+    stream=True
+)
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")</pre></div>
+      </div>
+
+      <div class="doc-section" id="errors">
+        <h2>错误码</h2>
+        <table class="oc-table">
+          <thead><tr><th>HTTP 状态码</th><th>含义</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>400</td><td>参数错误</td><td>缺少必填参数或参数格式不正确</td></tr>
+            <tr><td>401</td><td>认证失败</td><td>API Key 无效或已禁用</td></tr>
+            <tr><td>402</td><td>余额不足</td><td>账户余额不足以支付本次调用</td></tr>
+            <tr><td>404</td><td>模型不存在</td><td>请求的模型不存在或已下线</td></tr>
+            <tr><td>429</td><td>请求过多</td><td>超出速率限制，请稍后重试</td></tr>
+            <tr><td>500</td><td>服务器错误</td><td>上游模型服务异常</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="doc-section" id="limits">
+        <h2>限制说明</h2>
+        <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
+          <li>单个用户最多创建 10 个 API Key</li>
+          <li>单次请求最大 10MB</li>
+          <li>流式响应无超时限制</li>
+          <li>按实际使用 token 数计费，1K tokens 为计费单位</li>
+          <li>余额为 0 时将无法发起新的 API 调用</li>
+        </ul>
+      </div>
+    </main>
+  </div>
+
+  <footer class="oc-footer">
+    <p>&copy; 2024-2026 OpenClaw AI &middot; Powered by yunjunet.cn</p>
+  </footer>
+
+  <script src="/js/api.js"></script>
+  <script>
+    (async function() {
+      try {
+        const models = await api.getModels();
+        const container = document.getElementById('models-table');
+        let html = '<table class="oc-table"><thead><tr><th>模型 ID</th><th>提供商</th><th>输入价格</th><th>输出价格</th></tr></thead><tbody>';
+        models.forEach(m => {
+          html += `<tr><td><code style="color:var(--accent-light)">${m.model_id}</code></td><td>${m.provider}</td><td>¥${m.input_price_per_1k}/1K</td><td>¥${m.output_price_per_1k}/1K</td></tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      } catch(e) { console.error(e); }
+    })();
+  </script>
+</body>
+</html>

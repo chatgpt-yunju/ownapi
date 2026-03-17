@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw AI - 智能 API 调用平台</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Navbar -->
+  <nav class="oc-navbar">
+    <a href="/" class="oc-logo">
+      <div class="oc-logo-icon">&gt;_</div>
+      OpenClaw AI
+    </a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')">
+      <span></span><span></span><span></span>
+    </div>
+    <div class="oc-nav-links">
+      <a href="/" class="active">首页</a>
+      <a href="/docs.html">文档</a>
+      <a href="/console.html">控制台</a>
+    </div>
+    <div class="oc-nav-right">
+      <a href="/console.html" class="btn-accent">开始使用</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="oc-hero">
+    <div class="oc-hero-grid"></div>
+    <h1>统一 AI 模型调用接口</h1>
+    <p>兼容 OpenAI API 格式，一个密钥接入 GPT、DeepSeek、Qwen、Claude 等主流模型，按量计费，透明定价</p>
+    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
+      <a href="/console.html" class="btn-accent" style="padding:0.75rem 2rem;font-size:1rem;">进入控制台</a>
+      <a href="/docs.html" class="btn-outline" style="padding:0.75rem 2rem;font-size:1rem;">查看文档</a>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="oc-container">
+    <div class="oc-grid oc-grid-3" style="margin-bottom:4rem;">
+      <div class="oc-card oc-feature">
+        <div class="oc-feature-icon">&#x1f517;</div>
+        <h3>OpenAI 兼容接口</h3>
+        <p>完全兼容 OpenAI SDK，只需修改 base_url 和 api_key 即可无缝切换</p>
+      </div>
+      <div class="oc-card oc-feature">
+        <div class="oc-feature-icon">&#x1f4b0;</div>
+        <h3>按量透明计费</h3>
+        <p>Token 级精确计费，每次调用费用清晰可查，无隐藏费用</p>
+      </div>
+      <div class="oc-card oc-feature">
+        <div class="oc-feature-icon">&#x1f916;</div>
+        <h3>多模型支持</h3>
+        <p>GPT-4o、DeepSeek、Qwen、Claude 等主流模型一站式接入</p>
+      </div>
+      <div class="oc-card oc-feature">
+        <div class="oc-feature-icon">&#x1f4ca;</div>
+        <h3>实时监控</h3>
+        <p>详细的调用日志、用量统计、费用分析，一目了然</p>
+      </div>
+      <div class="oc-card oc-feature">
+        <div class="oc-feature-icon">&#x1f512;</div>
+        <h3>安全可靠</h3>
+        <p>API Key 加密存储，SSO 统一认证，调用全程加密传输</p>
+      </div>
+      <div class="oc-card oc-feature">
+        <div class="oc-feature-icon">&#x26a1;</div>
+        <h3>Stream 流式输出</h3>
+        <p>完整支持 SSE 流式响应，实时获取模型输出内容</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Models -->
+  <section class="oc-container" id="models-section">
+    <h2 style="text-align:center;margin-bottom:2rem;font-size:1.75rem;">支持的模型</h2>
+    <div class="oc-grid oc-grid-4" id="models-grid"></div>
+  </section>
+
+  <!-- Quick Start -->
+  <section class="oc-container" style="margin-top:4rem;">
+    <h2 style="text-align:center;margin-bottom:2rem;font-size:1.75rem;">快速开始</h2>
+    <div class="oc-card" style="max-width:720px;margin:0 auto;">
+      <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;white-space:pre-wrap;"><span style="color:#9090b0;"># Python (使用 openai SDK)</span>
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.yunjunet.cn/v1",
+    api_key="sk-your-api-key"
+)
+
+response = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response.choices[0].message.content)</pre></div>
+    </div>
+    <div class="oc-card" style="max-width:720px;margin:1.5rem auto 0;">
+      <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;white-space:pre-wrap;"><span style="color:#9090b0;">// JavaScript (使用 fetch)</span>
+const res = await fetch("https://api.yunjunet.cn/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer sk-your-api-key"
+  },
+  body: JSON.stringify({
+    model: "deepseek-chat",
+    messages: [{ role: "user", content: "Hello!" }],
+    stream: true
+  })
+});</pre></div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="oc-footer" style="margin-top:4rem;">
+    <p>&copy; 2024-2026 OpenClaw AI &middot; Powered by yunjunet.cn</p>
+  </footer>
+
+  <script src="/js/api.js"></script>
+  <script>
+    (async function() {
+      try {
+        const models = await api.getModels();
+        const grid = document.getElementById('models-grid');
+        models.forEach(m => {
+          grid.innerHTML += `<div class="oc-card oc-feature" style="padding:1.25rem;">
+            <div style="font-family:var(--font-mono);font-weight:600;margin-bottom:0.5rem;">${m.display_name || m.model_id}</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">${m.provider}</div>
+            <div style="font-size:0.75rem;color:var(--text-secondary);">
+              输入: ¥${m.input_price_per_1k}/1K tokens<br>
+              输出: ¥${m.output_price_per_1k}/1K tokens
+            </div>
+          </div>`;
+        });
+      } catch(e) { console.error(e); }
+    })();
+  </script>
+</body>
+</html>
