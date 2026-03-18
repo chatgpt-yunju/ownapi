@@ -87,11 +87,11 @@ router.get('/models', async (req, res) => {
 
 // 模型管理 - 更新价格/状态
 router.put('/models/:id', async (req, res) => {
-  const { input_price_per_1k, output_price_per_1k, status, upstream_endpoint, upstream_key } = req.body;
+  const { input_price_per_1k, output_price_per_1k, price_currency, status, upstream_endpoint, upstream_key } = req.body;
   try {
     await db.query(
-      'UPDATE openclaw_models SET input_price_per_1k=?, output_price_per_1k=?, status=?, upstream_endpoint=?, upstream_key=? WHERE id=?',
-      [input_price_per_1k, output_price_per_1k, status, upstream_endpoint || null, upstream_key || null, req.params.id]
+      'UPDATE openclaw_models SET input_price_per_1k=?, output_price_per_1k=?, price_currency=?, status=?, upstream_endpoint=?, upstream_key=? WHERE id=?',
+      [input_price_per_1k, output_price_per_1k, price_currency || 'CNY', status, upstream_endpoint || null, upstream_key || null, req.params.id]
     );
     res.json({ message: '已更新' });
   } catch (err) {
@@ -102,11 +102,11 @@ router.put('/models/:id', async (req, res) => {
 
 // 模型管理 - 新增
 router.post('/models', async (req, res) => {
-  const { model_id, display_name, provider, input_price_per_1k, output_price_per_1k, upstream_endpoint, upstream_key } = req.body;
+  const { model_id, display_name, provider, input_price_per_1k, output_price_per_1k, price_currency, upstream_endpoint, upstream_key } = req.body;
   try {
     await db.query(
-      'INSERT INTO openclaw_models (model_id, display_name, provider, input_price_per_1k, output_price_per_1k, upstream_endpoint, upstream_key) VALUES (?,?,?,?,?,?,?)',
-      [model_id, display_name, provider, input_price_per_1k, output_price_per_1k, upstream_endpoint || null, upstream_key || null]
+      'INSERT INTO openclaw_models (model_id, display_name, provider, input_price_per_1k, output_price_per_1k, price_currency, upstream_endpoint, upstream_key) VALUES (?,?,?,?,?,?,?,?)',
+      [model_id, display_name, provider, input_price_per_1k, output_price_per_1k, price_currency || 'CNY', upstream_endpoint || null, upstream_key || null]
     );
     res.json({ message: '已添加' });
   } catch (err) {

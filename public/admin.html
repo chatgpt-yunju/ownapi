@@ -74,7 +74,7 @@
         </div>
         <div class="oc-card">
           <table class="oc-table">
-            <thead><tr><th>模型 ID</th><th>显示名称</th><th>提供商</th><th>输入价格</th><th>输出价格</th><th>排序</th><th>状态</th><th>上游配置</th><th>操作</th></tr></thead>
+            <thead><tr><th>模型 ID</th><th>显示名称</th><th>提供商</th><th>输入价格</th><th>输出价格</th><th>币种</th><th>排序</th><th>状态</th><th>上游配置</th><th>操作</th></tr></thead>
             <tbody id="models-tbody"></tbody>
           </table>
         </div>
@@ -129,13 +129,21 @@
       </div>
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
-          <label>输入价格 (¥/1K)</label>
+          <label>输入价格 (/1K)</label>
           <input class="oc-input" id="model-input-price" type="number" step="0.0001">
         </div>
         <div class="form-group" style="flex:1;">
-          <label>输出价格 (¥/1K)</label>
+          <label>输出价格 (/1K)</label>
           <input class="oc-input" id="model-output-price" type="number" step="0.0001">
         </div>
+      </div>
+      <div class="form-group">
+        <label>价格币种</label>
+        <select class="oc-select" id="model-currency-input" style="width:100%;" onchange="updatePriceLabel()">
+          <option value="CNY">人民币 (CNY) - 国内模型</option>
+          <option value="USD">美元 (USD) - 国外模型，自动转换为人民币 (汇率 7.2)</option>
+        </select>
+        <small style="color:var(--text-muted);margin-top:0.25rem;display:block;">国内模型（DeepSeek, GLM, Qwen）选择人民币，国外模型（Claude, GPT）选择美元</small>
       </div>
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
@@ -262,17 +270,26 @@
     async function loadModels() {
       try {
         const models = await api.adminGetModels();
-        document.getElementById('models-tbody').innerHTML = models.map(m => `<tr>
-          <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
-          <td>${m.display_name}</td>
-          <td>${m.provider}</td>
-          <td style="font-family:var(--font-mono);">¥${m.input_price_per_1k}</td>
-          <td style="font-family:var(--font-mono);">¥${m.output_price_per_1k}</td>
-          <td>${m.sort_order}</td>
-          <td>${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
-          <td>${m.upstream_endpoint ? `<span style="font-size:0.75rem;color:var(--text-muted);">${m.upstream_key ? maskKey(m.upstream_key) : '默认'}</span>` : '<span style="color:var(--text-muted);">默认</span>'}</td>
-          <td><button class="btn-outline btn-sm" onclick='editModel(${JSON.stringify(m)})'>编辑</button></td>
-        </tr>`).join('');
+        document.getElementById('models-tbody').innerHTML = models.map(m => {
+          const currency = m.price_currency || 'CNY';
+          const currencySymbol = currency === 'USD' ? '$' : '¥';
+          const currencyBadge = currency === 'USD'
+            ? '<span class="badge-active" style="background:var(--accent-light);color:white;">USD</span>'
+            : '<span class="badge-disabled">CNY</span>';
+
+          return `<tr>
+            <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
+            <td>${m.display_name}</td>
+            <td>${m.provider}</td>
+            <td style="font-family:var(--font-mono);">${currencySymbol}${m.input_price_per_1k}</td>
+            <td style="font-family:var(--font-mono);">${currencySymbol}${m.output_price_per_1k}</td>
+            <td>${currencyBadge}</td>
+            <td>${m.sort_order}</td>
+            <td>${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
+            <td>${m.upstream_endpoint ? `<span style="font-size:0.75rem;color:var(--text-muted);">${m.upstream_key ? maskKey(m.upstream_key) : '默认'}</span>` : '<span style="color:var(--text-muted);">默认</span>'}</td>
+            <td><button class="btn-outline btn-sm" onclick='editModel(${JSON.stringify(m)})'>编辑</button></td>
+          </tr>`;
+        }).join('');
       } catch(e) { showToast(e.message, 'error'); }
     }
 
@@ -284,6 +301,7 @@
       document.getElementById('model-provider-input').value = 'openai';
       document.getElementById('model-input-price').value = '0.01';
       document.getElementById('model-output-price').value = '0.03';
+      document.getElementById('model-currency-input').value = 'CNY';
       document.getElementById('model-sort-input').value = '0';
       document.getElementById('model-status-input').value = 'active';
       document.getElementById('model-endpoint-input').value = '';
@@ -301,11 +319,16 @@
       document.getElementById('model-provider-input').value = m.provider;
       document.getElementById('model-input-price').value = m.input_price_per_1k;
       document.getElementById('model-output-price').value = m.output_price_per_1k;
+      document.getElementById('model-currency-input').value = m.price_currency || 'CNY';
       document.getElementById('model-sort-input').value = m.sort_order;
       document.getElementById('model-status-input').value = m.status;
       document.getElementById('model-endpoint-input').value = m.upstream_endpoint || '';
       document.getElementById('model-key-input').value = m.upstream_key || '';
       showModal('modal-model');
+    }
+
+    function updatePriceLabel() {
+      // 可以在这里动态更新价格标签，暂时不需要
     }
 
     async function saveModel() {
@@ -316,6 +339,7 @@
         provider: document.getElementById('model-provider-input').value,
         input_price_per_1k: parseFloat(document.getElementById('model-input-price').value),
         output_price_per_1k: parseFloat(document.getElementById('model-output-price').value),
+        price_currency: document.getElementById('model-currency-input').value,
         sort_order: parseInt(document.getElementById('model-sort-input').value) || 0,
         status: document.getElementById('model-status-input').value,
         upstream_endpoint: document.getElementById('model-endpoint-input').value.trim() || null,

@@ -1,8 +1,18 @@
 const db = require('../config/db');
 
-// 计算调用费用
-function calculateCost(promptTokens, completionTokens, inputPrice, outputPrice) {
-  return (promptTokens * inputPrice + completionTokens * outputPrice) / 1000;
+// 汇率配置
+const EXCHANGE_RATE = 7.2; // USD to CNY
+
+// 计算调用费用（自动处理币种转换）
+function calculateCost(promptTokens, completionTokens, inputPrice, outputPrice, currency = 'CNY') {
+  const costInOriginalCurrency = (promptTokens * inputPrice + completionTokens * outputPrice) / 1000;
+
+  // 如果是美元，转换为人民币
+  if (currency === 'USD') {
+    return costInOriginalCurrency * EXCHANGE_RATE;
+  }
+
+  return costInOriginalCurrency;
 }
 
 // 扣费 + 写日志（事务）
@@ -40,4 +50,4 @@ async function deductBalance(userId, cost, description) {
   }
 }
 
-module.exports = { calculateCost, deductBalance };
+module.exports = { calculateCost, deductBalance, EXCHANGE_RATE };
