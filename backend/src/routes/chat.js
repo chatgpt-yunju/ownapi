@@ -44,7 +44,9 @@ router.post('/chat/completions', async (req, res) => {
 
   try {
     // 构建转发请求
-    const upstreamBody = { model, messages, stream };
+    // 如果有 upstream_model_id，使用它作为上游模型名称（用于火山引擎等需要 endpoint ID 的场景）
+    const upstreamModel = modelConfig.upstream_model_id || model;
+    const upstreamBody = { model: upstreamModel, messages, stream };
     if (temperature !== undefined) upstreamBody.temperature = temperature;
     if (max_tokens !== undefined) upstreamBody.max_tokens = max_tokens;
     if (top_p !== undefined) upstreamBody.top_p = top_p;
