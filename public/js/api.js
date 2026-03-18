@@ -3,10 +3,19 @@ const API_BASE = '/api';
 const SSO_LOGIN_URL = 'https://yunjunet.cn/login?return_url=' + encodeURIComponent(window.location.origin + '/console.html');
 
 const api = {
-  token: localStorage.getItem('openclaw_token'),
+  // 优先使用主站的 token，如果没有则使用 openclaw_token
+  token: localStorage.getItem('token') || localStorage.getItem('openclaw_token'),
 
-  setToken(t) { this.token = t; localStorage.setItem('openclaw_token', t); },
-  clearToken() { this.token = null; localStorage.removeItem('openclaw_token'); },
+  setToken(t) {
+    this.token = t;
+    localStorage.setItem('token', t);
+    localStorage.setItem('openclaw_token', t);
+  },
+  clearToken() {
+    this.token = null;
+    localStorage.removeItem('token');
+    localStorage.removeItem('openclaw_token');
+  },
 
   async request(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -53,6 +62,20 @@ const api = {
   getPackages() { return this.get('/package/list'); },
   buyPackage(package_id) { return this.post('/package/buy', { package_id }); },
   getMyPackages() { return this.get('/package/my'); },
+
+  // Payment
+  createPackagePayment(package_id) { return this.post('/payment/create-package', { package_id }); },
+  getPaymentOrder(out_trade_no) { return this.get('/payment/order/' + out_trade_no); },
+  createRecharge(amount) { return this.post('/payment/create-recharge', { amount }); },
+
+  // User Extend (邀请、奖励、通知)
+  getInviteInfo() { return this.get('/user-extend/invite'); },
+  getRewards() { return this.get('/user-extend/rewards'); },
+  claimReward(id) { return this.post(`/user-extend/rewards/${id}/claim`); },
+  getNotifications() { return this.get('/user-extend/notifications'); },
+  markNotificationRead(id) { return this.post(`/user-extend/notifications/${id}/read`); },
+  markAllNotificationsRead() { return this.post('/user-extend/notifications/read-all'); },
+  getStatistics() { return this.get('/logs/statistics'); },
 
   // Admin
   adminOverview() { return this.get('/admin/overview'); },

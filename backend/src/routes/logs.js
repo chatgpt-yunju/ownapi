@@ -56,4 +56,61 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// 详细统计
+router.get('/statistics', async (req, res) => {
+  try {
+    // 总体统计
+    const [[total]] = await db.query(
+      `SELECT
+        COUNT(*) as total_calls,
+        COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total_tokens,
+        COALESCE(SUM(total_cost), 0) as total_cost,
+        COALESCE(AVG(total_cost), 0) as avg_cost
+       FROM openclaw_call_logs
+       WHERE user_id = ?`,
+      [req.user.id]
+    );
+
+    // 模型使用分布
+    const [models] = await db.query(
+      `SELECT
+        model,
+        COUNT(*) as count,
+        COALESCE(SUM(total_cost), 0) as cost
+       FROM openclaw_call_logs
+       WHERE user_id = ?
+       GROUP BY model
+       ORDER BY count DESC
+       LIMIT 10`,
+      [req.user.id]
+    );
+
+    // 近30天趋势
+    const [trend] = await db.query(
+      `SELECT
+        DATE(created_at) as date,
+        COUNT(*) as calls,
+        COALESCE(SUM(prompt_tokens + completion_tokens), 0) as tokens,
+        COALESCE(SUM(total_cost), 0) as cost
+       FROM openclaw_call_logs
+       WHERE user_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY date`,
+      [req.user.id]
+    );
+
+    res.json({
+      total_calls: total.total_calls,
+      total_tokens: total.total_tokens,
+      total_cost: total.total_cost,
+      avg_cost: total.avg_cost,
+      models,
+      trend
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取详细统计失败' });
+  }
+});
+
 module.exports = router;

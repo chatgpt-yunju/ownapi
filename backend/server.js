@@ -27,6 +27,14 @@ app.use('/api/logs', authMiddleware, require('./src/routes/logs'));
 app.use('/api/package', authMiddleware, require('./src/routes/packages'));
 app.use('/api/admin', authMiddleware, require('./src/routes/admin'));
 
+// 支付路由（需要鉴权，除了回调接口）
+const paymentRoutes = require('./src/routes/payment');
+const userExtendRoutes = require('./src/routes/userExtend');
+app.use('/api/payment', authMiddleware, paymentRoutes);
+app.use('/api/user-extend', authMiddleware, userExtendRoutes); // 邀请、奖励、通知
+// 支付宝回调不需要鉴权
+app.post('/payment/alipay/notify', paymentRoutes);
+
 // 公开路由：模型列表
 app.get('/api/models', async (req, res) => {
   const db = require('./src/config/db');

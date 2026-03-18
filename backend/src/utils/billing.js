@@ -18,17 +18,20 @@ async function deductBalance(userId, cost, description) {
       return { success: false, reason: 'insufficient_balance', balance: quota?.balance ?? 0 };
     }
 
+    const balanceBefore = Number(quota.balance);
+    const balanceAfter = balanceBefore - cost;
+
     // 扣余额
     await conn.query('UPDATE user_quota SET balance = balance - ? WHERE user_id = ?', [cost, userId]);
 
     // 写 balance_logs
     await conn.query(
-      'INSERT INTO balance_logs (user_id, amount, type, description, created_at) VALUES (?, ?, ?, ?, NOW())',
-      [userId, -cost, 'api_deduct', description]
+      'INSERT INTO balance_logs (user_id, amount, balance_before, balance_after, type, description, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+      [userId, -cost, balanceBefore, balanceAfter, 'buy_quota', description]
     );
 
     await conn.commit();
-    return { success: true, balance: Number(quota.balance) - cost };
+    return { success: true, balance: balanceAfter };
   } catch (err) {
     await conn.rollback();
     throw err;

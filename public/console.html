@@ -28,12 +28,24 @@
     <aside class="oc-sidebar">
       <div class="oc-sidebar-section">概览</div>
       <div class="oc-sidebar-item active" data-page="dashboard" onclick="switchPage('dashboard')">&#x1f4ca; 仪表盘</div>
-      <div class="oc-sidebar-section">管理</div>
+      <div class="oc-sidebar-item" data-page="statistics" onclick="switchPage('statistics')">&#x1f4ca; 数据统计</div>
+
+      <div class="oc-sidebar-section">套餐</div>
+      <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐商城</div>
+      <div class="oc-sidebar-item" data-page="booster" onclick="switchPage('booster')">&#x26a1; 加油包</div>
+
+      <div class="oc-sidebar-section">密钥管理</div>
       <div class="oc-sidebar-item" data-page="apikeys" onclick="switchPage('apikeys')">&#x1f511; API Keys</div>
       <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f4dd; 调用日志</div>
-      <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐</div>
-      <div class="oc-sidebar-section">设置</div>
-      <div class="oc-sidebar-item" data-page="playground" onclick="switchPage('playground')">&#x1f9ea; 调试</div>
+
+      <div class="oc-sidebar-section">邀请奖励</div>
+      <div class="oc-sidebar-item" data-page="invite" onclick="switchPage('invite')">&#x1f381; 邀请码</div>
+      <div class="oc-sidebar-item" data-page="rewards" onclick="switchPage('rewards')">&#x1f4b0; 我的奖励</div>
+
+      <div class="oc-sidebar-section">其他</div>
+      <div class="oc-sidebar-item" data-page="notifications" onclick="switchPage('notifications')">&#x1f514; 消息通知</div>
+      <div class="oc-sidebar-item" data-page="playground" onclick="switchPage('playground')">&#x1f9ea; API 调试</div>
+
       <div id="admin-nav" style="display:none;">
         <div class="oc-sidebar-section">管理后台</div>
         <div class="oc-sidebar-item" onclick="window.location.href='/admin.html'">&#x2699;&#xfe0f; 管理面板</div>
@@ -108,6 +120,135 @@
               <thead><tr><th>套餐</th><th>开始时间</th><th>到期时间</th><th>状态</th></tr></thead>
               <tbody id="my-packages-tbody"></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Statistics -->
+      <div id="page-statistics" class="page-content" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+          <h2>数据统计</h2>
+          <button class="btn-outline btn-sm" onclick="loadStatistics()">&#x1f504; 刷新</button>
+        </div>
+        <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-total-calls">-</div><div class="oc-stat-label">总调用次数</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-total-tokens">-</div><div class="oc-stat-label">总 Tokens</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-total-cost">-</div><div class="oc-stat-label">总费用 (元)</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-avg-cost">-</div><div class="oc-stat-label">平均费用</div></div>
+        </div>
+        <div class="oc-grid oc-grid-2">
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">模型使用分布</span></div>
+            <canvas id="chart-models" height="250"></canvas>
+          </div>
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">近30天趋势</span></div>
+            <canvas id="chart-trend" height="250"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- Booster Packages -->
+      <div id="page-booster" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">加油包</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">购买加油包可以快速充值余额，享受更多 API 调用额度</p>
+        <div class="oc-grid oc-grid-4" id="booster-grid">
+          <div class="oc-card" style="text-align:center;padding:1.5rem;">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x26a1;</div>
+            <h3 style="margin-bottom:0.5rem;">小额充值</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥50</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">适合轻度使用</p>
+            <button class="btn-accent" onclick="buyBooster(50)">立即购买</button>
+          </div>
+          <div class="oc-card" style="text-align:center;padding:1.5rem;">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f525;</div>
+            <h3 style="margin-bottom:0.5rem;">标准充值</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥100</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">最受欢迎</p>
+            <button class="btn-accent" onclick="buyBooster(100)">立即购买</button>
+          </div>
+          <div class="oc-card" style="text-align:center;padding:1.5rem;">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f680;</div>
+            <h3 style="margin-bottom:0.5rem;">大额充值</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥500</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">送 ¥50 额外余额</p>
+            <button class="btn-accent" onclick="buyBooster(500)">立即购买</button>
+          </div>
+          <div class="oc-card" style="text-align:center;padding:1.5rem;">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f4b0;</div>
+            <h3 style="margin-bottom:0.5rem;">超值充值</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥1000</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">送 ¥150 额外余额</p>
+            <button class="btn-accent" onclick="buyBooster(1000)">立即购买</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Invite -->
+      <div id="page-invite" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">邀请码</h2>
+        <div class="oc-card" style="margin-bottom:1.5rem;">
+          <h3 style="margin-bottom:1rem;">我的邀请码</h3>
+          <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+            <div class="oc-code" style="flex:1;padding:1rem;font-size:1.2rem;text-align:center;" id="my-invite-code">加载中...</div>
+            <button class="btn-accent" onclick="copyInviteCode()">复制</button>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.85rem;">分享你的邀请码，邀请好友注册即可获得奖励</p>
+        </div>
+        <div class="oc-card">
+          <h3 style="margin-bottom:1rem;">邀请统计</h3>
+          <div class="oc-grid oc-grid-3">
+            <div style="text-align:center;padding:1rem;">
+              <div style="font-size:2rem;font-weight:700;color:var(--accent);" id="invite-count">0</div>
+              <div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.5rem;">邀请人数</div>
+            </div>
+            <div style="text-align:center;padding:1rem;">
+              <div style="font-size:2rem;font-weight:700;color:var(--success);" id="invite-rewards">¥0</div>
+              <div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.5rem;">累计奖励</div>
+            </div>
+            <div style="text-align:center;padding:1rem;">
+              <div style="font-size:2rem;font-weight:700;color:var(--warning);" id="invite-pending">¥0</div>
+              <div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.5rem;">待发放</div>
+            </div>
+          </div>
+        </div>
+        <div class="oc-card" style="margin-top:1.5rem;">
+          <h3 style="margin-bottom:1rem;">邀请记录</h3>
+          <table class="oc-table">
+            <thead><tr><th>用户</th><th>注册时间</th><th>状态</th><th>奖励</th></tr></thead>
+            <tbody id="invite-list-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Rewards -->
+      <div id="page-rewards" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">我的奖励</h2>
+        <div class="oc-grid oc-grid-3" style="margin-bottom:1.5rem;">
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-total">¥0</div><div class="oc-stat-label">累计奖励</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-received">¥0</div><div class="oc-stat-label">已领取</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-pending">¥0</div><div class="oc-stat-label">待领取</div></div>
+        </div>
+        <div class="oc-card">
+          <h3 style="margin-bottom:1rem;">奖励记录</h3>
+          <table class="oc-table">
+            <thead><tr><th>时间</th><th>类型</th><th>金额</th><th>说明</th><th>状态</th></tr></thead>
+            <tbody id="rewards-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Notifications -->
+      <div id="page-notifications" class="page-content" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+          <h2>消息通知</h2>
+          <button class="btn-outline btn-sm" onclick="markAllRead()">全部标记为已读</button>
+        </div>
+        <div class="oc-card">
+          <div id="notifications-list"></div>
+          <div id="notifications-empty" style="display:none;text-align:center;padding:3rem;color:var(--text-muted);">
+            <div style="font-size:3rem;margin-bottom:1rem;">&#x1f4ed;</div>
+            <p>暂无消息通知</p>
           </div>
         </div>
       </div>
@@ -187,6 +328,11 @@
       else if (page === 'logs') loadLogs();
       else if (page === 'packages') loadPackages();
       else if (page === 'playground') loadPlayground();
+      else if (page === 'statistics') loadStatistics();
+      else if (page === 'booster') loadBooster();
+      else if (page === 'invite') loadInvite();
+      else if (page === 'rewards') loadRewards();
+      else if (page === 'notifications') loadNotifications();
     }
 
     function showModal(id) { document.getElementById(id).classList.add('show'); }
@@ -406,16 +552,54 @@
     }
 
     async function buyPackage(id) {
-      if (!confirm('确认购买此套餐？将从余额中扣费。')) return;
+      if (!confirm('确认购买此套餐？如果余额不足将跳转支付宝支付。')) return;
       try {
-        const response = await api.buyPackage(id);
-        if (response.api_key) {
-          showApiKeyModal(response.api_key, response.key_display, response.notice);
+        const response = await api.createPackagePayment(id);
+
+        if (response.paid_by_balance) {
+          // 完全使用余额支付
+          showApiKeyModal(response.api_key, response.key_display, response.message);
+          loadPackages();
+          loadDashboard();
         } else {
-          showToast(response.message || '购买成功', 'success');
+          // 需要支付宝支付
+          if (response.mobile) {
+            // 移动端：跳转到 H5 支付页面
+            window.location.href = `/payment/h5/${response.tradeNo}`;
+          } else {
+            // PC端：新窗口打开支付宝
+            const payWindow = window.open(response.payUrl, '_blank');
+            showToast(`请在新窗口完成支付（余额抵扣 ¥${response.balance_used}，需支付 ¥${response.need_pay}）`, 'info');
+            // 轮询订单状态
+            checkPaymentStatus(response.out_trade_no);
+          }
         }
-        loadPackages();
       } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function checkPaymentStatus(outTradeNo) {
+      let attempts = 0;
+      const maxAttempts = 150; // 5分钟（每2秒检查一次）
+
+      const interval = setInterval(async () => {
+        attempts++;
+        try {
+          const order = await api.getPaymentOrder(outTradeNo);
+          if (order.status === 'paid') {
+            clearInterval(interval);
+            showToast('支付成功！正在刷新...', 'success');
+            setTimeout(() => {
+              loadPackages();
+              loadDashboard();
+            }, 1000);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            showToast('支付超时，请刷新页面查看订单状态', 'warning');
+          }
+        } catch (e) {
+          // 继续轮询
+        }
+      }, 2000);
     }
 
     function showApiKeyModal(fullKey, displayKey, notice) {
@@ -531,6 +715,264 @@
       } catch(e) {
         respDiv.textContent = e.message;
         statsDiv.textContent = '请求失败';
+      }
+    }
+
+    // Statistics
+    async function loadStatistics() {
+      try {
+        const stats = await api.getStatistics();
+        document.getElementById('stats-total-calls').textContent = formatNum(stats.total_calls || 0);
+        document.getElementById('stats-total-tokens').textContent = formatNum(stats.total_tokens || 0);
+        document.getElementById('stats-total-cost').textContent = '¥' + (stats.total_cost || 0).toFixed(2);
+        document.getElementById('stats-avg-cost').textContent = '¥' + (stats.avg_cost || 0).toFixed(4);
+
+        // 绘制模型使用分布图
+        if (stats.models && stats.models.length > 0) {
+          drawModelsChart(stats.models);
+        }
+
+        // 绘制近30天趋势图
+        if (stats.trend && stats.trend.length > 0) {
+          drawTrendChart(stats.trend);
+        }
+      } catch(e) {
+        showToast('加载统计数据失败', 'error');
+      }
+    }
+
+    function drawModelsChart(models) {
+      const canvas = document.getElementById('chart-models');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const w = rect.width, h = rect.height;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // 计算总调用数
+      const total = models.reduce((sum, m) => sum + m.calls, 0);
+      if (total === 0) return;
+
+      // 绘制饼图
+      const centerX = w / 2;
+      const centerY = h / 2;
+      const radius = Math.min(w, h) / 3;
+
+      const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
+      let startAngle = -Math.PI / 2;
+
+      models.forEach((model, i) => {
+        const sliceAngle = (model.calls / total) * 2 * Math.PI;
+        const endAngle = startAngle + sliceAngle;
+
+        // 绘制扇形
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+        ctx.closePath();
+        ctx.fill();
+
+        // 绘制标签
+        const labelAngle = startAngle + sliceAngle / 2;
+        const labelX = centerX + Math.cos(labelAngle) * (radius + 30);
+        const labelY = centerY + Math.sin(labelAngle) * (radius + 30);
+        const percentage = ((model.calls / total) * 100).toFixed(1);
+
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '11px Inter';
+        ctx.textAlign = labelX > centerX ? 'left' : 'right';
+        ctx.fillText(`${model.model} (${percentage}%)`, labelX, labelY);
+
+        startAngle = endAngle;
+      });
+    }
+
+    function drawTrendChart(trend) {
+      const canvas = document.getElementById('chart-trend');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      const w = rect.width, h = rect.height;
+      const pad = { top: 20, right: 20, bottom: 30, left: 50 };
+      const plotW = w - pad.left - pad.right;
+      const plotH = h - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, w, h);
+
+      const vals = trend.map(d => d.calls || 0);
+      const max = Math.max(...vals, 1);
+
+      // 绘制网格线
+      ctx.strokeStyle = 'rgba(42,42,74,0.5)';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (plotH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(w - pad.right, y);
+        ctx.stroke();
+      }
+
+      // 绘制折线
+      ctx.strokeStyle = '#6366f1';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      vals.forEach((v, i) => {
+        const x = pad.left + (plotW / (vals.length - 1)) * i;
+        const y = pad.top + plotH - (v / max) * plotH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      // 绘制数据点
+      ctx.fillStyle = '#6366f1';
+      vals.forEach((v, i) => {
+        const x = pad.left + (plotW / (vals.length - 1)) * i;
+        const y = pad.top + plotH - (v / max) * plotH;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      });
+
+      // 绘制日期标签（每隔几天显示一次）
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '10px Inter';
+      ctx.textAlign = 'center';
+      const step = Math.ceil(trend.length / 6);
+      trend.forEach((d, i) => {
+        if (i % step === 0 || i === trend.length - 1) {
+          const x = pad.left + (plotW / (vals.length - 1)) * i;
+          const date = new Date(d.date);
+          const label = `${date.getMonth() + 1}/${date.getDate()}`;
+          ctx.fillText(label, x, h - 10);
+        }
+      });
+    }
+
+    // Booster
+    function loadBooster() {
+      // 加油包页面已经是静态的，不需要加载数据
+    }
+
+    async function buyBooster(amount) {
+      if (!confirm(`确认购买 ¥${amount} 加油包？`)) return;
+      try {
+        const result = await api.post('/payment/create-recharge', { amount });
+        if (result.payUrl) {
+          window.open(result.payUrl, '_blank');
+          showToast('请在新窗口完成支付', 'info');
+        } else {
+          showToast('充值成功', 'success');
+          loadDashboard();
+        }
+      } catch(e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    // Invite
+    async function loadInvite() {
+      try {
+        const data = await api.getInviteInfo();
+        document.getElementById('my-invite-code').textContent = data.invite_code || '暂无邀请码';
+        document.getElementById('invite-count').textContent = data.invite_count || 0;
+        document.getElementById('invite-rewards').textContent = '¥' + (data.total_rewards || 0).toFixed(2);
+        document.getElementById('invite-pending').textContent = '¥' + (data.pending_rewards || 0).toFixed(2);
+
+        const tbody = document.getElementById('invite-list-tbody');
+        if (data.invites && data.invites.length > 0) {
+          tbody.innerHTML = data.invites.map(inv => `<tr>
+            <td>${inv.username}</td>
+            <td>${formatDate(inv.created_at)}</td>
+            <td><span class="badge-${inv.status === 'active' ? 'success' : 'warning'}">${inv.status === 'active' ? '已激活' : '待激活'}</span></td>
+            <td>¥${inv.reward || 0}</td>
+          </tr>`).join('');
+        } else {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无邀请记录</td></tr>';
+        }
+      } catch(e) {
+        showToast('加载邀请数据失败', 'error');
+      }
+    }
+
+    function copyInviteCode() {
+      const code = document.getElementById('my-invite-code').textContent;
+      if (code && code !== '暂无邀请码' && code !== '加载中...') {
+        copyText(code);
+      } else {
+        showToast('邀请码无效', 'error');
+      }
+    }
+
+    // Rewards
+    async function loadRewards() {
+      try {
+        const data = await api.getRewards();
+        document.getElementById('reward-total').textContent = '¥' + (data.total || 0).toFixed(2);
+        document.getElementById('reward-received').textContent = '¥' + (data.received || 0).toFixed(2);
+        document.getElementById('reward-pending').textContent = '¥' + (data.pending || 0).toFixed(2);
+
+        const tbody = document.getElementById('rewards-tbody');
+        if (data.rewards && data.rewards.length > 0) {
+          tbody.innerHTML = data.rewards.map(r => `<tr>
+            <td>${formatDate(r.created_at)}</td>
+            <td>${r.type}</td>
+            <td style="color:var(--success);">+¥${r.amount}</td>
+            <td>${r.description}</td>
+            <td><span class="badge-${r.status === 'received' ? 'success' : 'warning'}">${r.status === 'received' ? '已领取' : '待领取'}</span></td>
+          </tr>`).join('');
+        } else {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">暂无奖励记录</td></tr>';
+        }
+      } catch(e) {
+        showToast('加载奖励数据失败', 'error');
+      }
+    }
+
+    // Notifications
+    async function loadNotifications() {
+      try {
+        const data = await api.getNotifications();
+        const container = document.getElementById('notifications-list');
+        const empty = document.getElementById('notifications-empty');
+
+        if (data.notifications && data.notifications.length > 0) {
+          container.innerHTML = data.notifications.map(n => `
+            <div class="oc-notification ${n.is_read ? '' : 'unread'}" style="padding:1rem;border-bottom:1px solid var(--border-color);">
+              <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:0.5rem;">
+                <h4 style="margin:0;">${n.title}</h4>
+                <span style="font-size:0.75rem;color:var(--text-muted);">${formatDate(n.created_at)}</span>
+              </div>
+              <p style="color:var(--text-muted);font-size:0.85rem;margin:0;">${n.content}</p>
+            </div>
+          `).join('');
+          empty.style.display = 'none';
+          container.style.display = 'block';
+        } else {
+          empty.style.display = 'block';
+          container.style.display = 'none';
+        }
+      } catch(e) {
+        showToast('加载通知失败', 'error');
+      }
+    }
+
+    async function markAllRead() {
+      try {
+        await api.markAllNotificationsRead();
+        showToast('已标记为已读', 'success');
+        loadNotifications();
+      } catch(e) {
+        showToast(e.message, 'error');
       }
     }
 

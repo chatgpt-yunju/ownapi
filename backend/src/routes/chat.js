@@ -35,26 +35,64 @@ router.post('/chat/completions', async (req, res) => {
 
   // 确定上游地址
   const provider = PROVIDERS[modelConfig.provider] || {};
-  const baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
+  let baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
   const apiKey = modelConfig.upstream_key || provider.apiKey;
 
   if (!baseUrl || !apiKey) {
     return res.status(503).json({ error: { message: 'Model provider not configured', type: 'server_error' } });
   }
 
+  // 判断是否使用 Anthropic API 格式（CC Club）
+  const isAnthropicAPI = modelConfig.provider === 'ccclub' || baseUrl.includes('claude-code.club');
+
+  // 根据 API 类型确定 URL
+  let upstreamUrl;
+  if (isAnthropicAPI) {
+    upstreamUrl = baseUrl.includes('/messages') ? baseUrl : `${baseUrl}/v1/messages`;
+  } else {
+    upstreamUrl = baseUrl.includes('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
+  }
+
   try {
     // 构建转发请求
     // 如果有 upstream_model_id，使用它作为上游模型名称（用于火山引擎等需要 endpoint ID 的场景）
     const upstreamModel = modelConfig.upstream_model_id || model;
-    const upstreamBody = { model: upstreamModel, messages, stream };
-    if (temperature !== undefined) upstreamBody.temperature = temperature;
-    if (max_tokens !== undefined) upstreamBody.max_tokens = max_tokens;
-    if (top_p !== undefined) upstreamBody.top_p = top_p;
+
+    let upstreamBody, headers;
+
+    if (isAnthropicAPI) {
+      // Anthropic API 格式
+      upstreamBody = {
+        model: upstreamModel,
+        messages,
+        max_tokens: max_tokens || 4096
+      };
+      if (temperature !== undefined) upstreamBody.temperature = temperature;
+      if (top_p !== undefined) upstreamBody.top_p = top_p;
+      if (stream) upstreamBody.stream = true;
+
+      headers = {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      };
+    } else {
+      // OpenAI 兼容格式
+      upstreamBody = { model: upstreamModel, messages, stream };
+      if (temperature !== undefined) upstreamBody.temperature = temperature;
+      if (max_tokens !== undefined) upstreamBody.max_tokens = max_tokens;
+      if (top_p !== undefined) upstreamBody.top_p = top_p;
+
+      headers = {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      };
+    }
 
     if (stream) {
       // 流式响应
-      const upstreamRes = await axios.post(`${baseUrl}/chat/completions`, upstreamBody, {
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      const upstreamRes = await axios.post(upstreamUrl, upstreamBody, {
+        headers,
         responseType: 'stream',
         timeout: 120000
       });
@@ -67,25 +105,90 @@ router.post('/chat/completions', async (req, res) => {
       let fullContent = '';
       let promptTokens = 0;
       let completionTokens = 0;
+      let anthropicBuffer = ''; // 缓存 Anthropic SSE 数据
 
       upstreamRes.data.on('data', (chunk) => {
         const text = chunk.toString();
-        res.write(text);
 
-        // 解析 SSE 数据收集 token
-        const lines = text.split('\n').filter(l => l.startsWith('data: '));
-        for (const line of lines) {
-          const data = line.slice(6);
-          if (data === '[DONE]') continue;
-          try {
-            const parsed = JSON.parse(data);
-            if (parsed.usage) {
-              promptTokens = parsed.usage.prompt_tokens || promptTokens;
-              completionTokens = parsed.usage.completion_tokens || completionTokens;
+        if (isAnthropicAPI) {
+          // 转换 Anthropic SSE 为 OpenAI 格式
+          anthropicBuffer += text;
+          const lines = anthropicBuffer.split('\n');
+
+          // 保留最后一行（可能不完整）
+          anthropicBuffer = lines.pop() || '';
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
+              if (!data) continue;
+
+              try {
+                const parsed = JSON.parse(data);
+
+                if (parsed.type === 'message_start') {
+                  promptTokens = parsed.message?.usage?.input_tokens || 0;
+                  console.log(`[Anthropic Stream] message_start: input_tokens=${promptTokens}`);
+                } else if (parsed.type === 'content_block_delta') {
+                  const delta = parsed.delta?.text || '';
+                  if (delta) {
+                    fullContent += delta;
+                    // 发送 OpenAI 格式的 chunk
+                    const openaiChunk = {
+                      id: requestId,
+                      object: 'chat.completion.chunk',
+                      created: Math.floor(Date.now() / 1000),
+                      model,
+                      choices: [{
+                        index: 0,
+                        delta: { content: delta },
+                        finish_reason: null
+                      }]
+                    };
+                    res.write(`data: ${JSON.stringify(openaiChunk)}\n\n`);
+                  }
+                } else if (parsed.type === 'message_delta') {
+                  completionTokens = parsed.usage?.output_tokens || 0;
+                  console.log(`[Anthropic Stream] message_delta: output_tokens=${completionTokens}`);
+                } else if (parsed.type === 'message_stop') {
+                  // 发送结束标记
+                  const finalChunk = {
+                    id: requestId,
+                    object: 'chat.completion.chunk',
+                    created: Math.floor(Date.now() / 1000),
+                    model,
+                    choices: [{
+                      index: 0,
+                      delta: {},
+                      finish_reason: 'stop'
+                    }]
+                  };
+                  res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+                  res.write('data: [DONE]\n\n');
+                }
+              } catch (e) { /* ignore parse errors */ }
             }
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) fullContent += delta;
-          } catch (e) { /* ignore parse errors */ }
+          }
+        } else {
+          // OpenAI 格式直接转发
+          res.write(text);
+
+          // 解析 SSE 数据收集 token
+          const lines = text.split('\n').filter(l => l.startsWith('data: '));
+          for (const line of lines) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.usage) {
+                promptTokens = parsed.usage.prompt_tokens || promptTokens;
+                completionTokens = parsed.usage.completion_tokens || completionTokens;
+              }
+              const delta = parsed.choices?.[0]?.delta?.content;
+              if (delta) fullContent += delta;
+            } catch (e) { /* ignore parse errors */ }
+          }
         }
       });
 
@@ -95,7 +198,9 @@ router.post('/chat/completions', async (req, res) => {
         if (!promptTokens) promptTokens = estimateTokens(messages);
         if (!completionTokens) completionTokens = estimateTokens(fullContent);
 
-        const cost = calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k));
+        console.log(`[Stream End] Model: ${model}, Prompt: ${promptTokens}, Completion: ${completionTokens}, Content: "${fullContent}"`);
+
+        const cost = calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`);
         await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
       });
@@ -108,35 +213,73 @@ router.post('/chat/completions', async (req, res) => {
 
     } else {
       // 非流式响应
-      const upstreamRes = await axios.post(`${baseUrl}/chat/completions`, upstreamBody, {
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      const upstreamRes = await axios.post(upstreamUrl, upstreamBody, {
+        headers,
         timeout: 120000
       });
 
       const data = upstreamRes.data;
-      const promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
-      const completionTokens = data.usage?.completion_tokens || estimateTokens(data.choices?.[0]?.message?.content || '');
+      let promptTokens, completionTokens, responseContent;
 
-      const cost = calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k));
+      if (isAnthropicAPI) {
+        // Anthropic API 响应格式
+        console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage));
+        promptTokens = data.usage?.input_tokens || estimateTokens(messages);
+        completionTokens = data.usage?.output_tokens || 0;
+        responseContent = data.content?.[0]?.text || '';
+        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Completion: ${completionTokens}, Currency: ${modelConfig.price_currency || 'CNY'}`);
 
-      // 扣费
-      const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`);
-      if (!result.success) {
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId);
-        return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
+        // 转换为 OpenAI 格式返回
+        const cost = calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+        const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`);
+
+        if (!result.success) {
+          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId);
+          return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
+        }
+
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+
+        res.json({
+          id: requestId,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: responseContent },
+            finish_reason: data.stop_reason || 'stop'
+          }],
+          usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
+        });
+      } else {
+        // OpenAI 兼容格式
+        console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage));
+        promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
+        completionTokens = data.usage?.completion_tokens || estimateTokens(data.choices?.[0]?.message?.content || '');
+        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Completion: ${completionTokens}`);
+
+        const cost = calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+
+        // 扣费
+        const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`);
+        if (!result.success) {
+          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId);
+          return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
+        }
+
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+
+        // 统一返回格式
+        res.json({
+          id: requestId,
+          object: 'chat.completion',
+          created: Math.floor(Date.now() / 1000),
+          model,
+          choices: data.choices,
+          usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
+        });
       }
-
-      await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
-
-      // 统一返回格式
-      res.json({
-        id: requestId,
-        object: 'chat.completion',
-        created: Math.floor(Date.now() / 1000),
-        model,
-        choices: data.choices,
-        usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
-      });
     }
   } catch (err) {
     const errMsg = err.response?.data?.error?.message || err.message;
