@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>API 文档 - OpenClaw AI</title>
+  <title>API 文档 - OpenClaw AI LLM</title>
   <link rel="stylesheet" href="/css/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -25,7 +25,7 @@
   <nav class="oc-navbar">
     <a href="/" class="oc-logo">
       <div class="oc-logo-icon">&gt;_</div>
-      OpenClaw AI
+      OpenClaw AI LLM
     </a>
     <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
     <div class="oc-nav-links">
@@ -47,8 +47,11 @@
       <a href="#quickstart">快速接入</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">API 参考</div>
       <a href="#chat">Chat Completions</a>
+      <a href="#messages">Messages API</a>
       <a href="#models">模型列表</a>
       <a href="#streaming">流式输出</a>
+      <div class="oc-sidebar-section" style="margin-top:1rem;">集成指南</div>
+      <a href="#claude-code">Claude Code CLI</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">其他</div>
       <a href="#errors">错误码</a>
       <a href="#limits">限制说明</a>
@@ -58,15 +61,15 @@
     <main style="flex:1;min-width:0;">
       <div class="doc-section" id="intro">
         <h2>简介</h2>
-        <p style="color:var(--text-secondary);">OpenClaw AI 提供与 OpenAI 完全兼容的 API 接口，支持多种主流大语言模型。您只需使用标准的 OpenAI SDK 或 HTTP 请求，修改 <code style="color:var(--accent-light);">base_url</code> 即可接入。</p>
+        <p style="color:var(--text-secondary);">OpenClaw AI LLM 同时兼容 <strong>OpenAI Chat Completions</strong> 和 <strong>Anthropic Messages</strong> 两种 API 格式，支持多种主流大语言模型。您可以使用 OpenAI SDK、Anthropic SDK、Claude Code CLI 或 HTTP 请求直接接入。</p>
         <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;">
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
             <div style="font-size:0.8rem;color:var(--text-muted);">API 地址</div>
-            <div style="font-family:var(--font-mono);margin-top:0.25rem;color:var(--accent-light);">https://api.yunjunet.cn/v1</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;color:var(--accent-light);">https://api.yunjunet.cn</div>
           </div>
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
-            <div style="font-size:0.8rem;color:var(--text-muted);">认证方式</div>
-            <div style="font-family:var(--font-mono);margin-top:0.25rem;">Bearer API Key</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);">兼容格式</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">OpenAI + Anthropic</div>
           </div>
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
             <div style="font-size:0.8rem;color:var(--text-muted);">响应格式</div>
@@ -77,9 +80,13 @@
 
       <div class="doc-section" id="auth">
         <h2>认证方式</h2>
-        <p style="color:var(--text-secondary);">在<a href="/console.html">控制台</a>创建 API Key 后，在请求头中携带：</p>
-        <div class="oc-code" style="margin-top:0.75rem;"><pre style="margin:0;">Authorization: Bearer sk-your-api-key</pre></div>
-        <p style="color:var(--text-secondary);margin-top:0.75rem;font-size:0.85rem;">API Key 以 <code>sk-</code> 开头，创建后仅显示一次，请妥善保管。</p>
+        <p style="color:var(--text-secondary);">在<a href="/console.html">控制台</a>创建 API Key 后，支持两种认证头格式（使用同一个 Key）：</p>
+        <div class="oc-code" style="margin-top:0.75rem;"><pre style="margin:0;"># OpenAI 格式（适用于 /v1/chat/completions）
+Authorization: Bearer sk-your-api-key
+
+# Anthropic 格式（适用于 /v1/messages）
+x-api-key: sk-your-api-key</pre></div>
+        <p style="color:var(--text-secondary);margin-top:0.75rem;font-size:0.85rem;">API Key 以 <code>sk-</code> 开头，创建后仅显示一次，请妥善保管。两种认证头均可用于任意端点。</p>
       </div>
 
       <div class="doc-section" id="quickstart">
@@ -90,7 +97,7 @@
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://api.yunjunet.cn/v1",
+    base_url="https://api.yunjunet.cn",
     api_key="sk-your-api-key"
 )
 
@@ -104,7 +111,7 @@ print(resp.choices[0].message.content)</pre></div>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">import OpenAI from 'openai';
 
 const client = new OpenAI({
-  baseURL: 'https://api.yunjunet.cn/v1',
+  baseURL: 'https://api.yunjunet.cn',
   apiKey: 'sk-your-api-key',
 });
 
@@ -158,6 +165,143 @@ console.log(completion.choices[0].message.content);</pre></div>
 }</pre></div>
       </div>
 
+      <div class="doc-section" id="messages">
+        <h2>Messages API（Anthropic 兼容）</h2>
+        <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1/messages</span></p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">完全兼容 Anthropic Messages API 格式，支持 Claude Code CLI、Anthropic SDK 等原生客户端直接接入。所有模型（包括 OpenAI、DeepSeek、NVIDIA 等非 Anthropic 模型）均可通过此端点调用，平台自动完成格式转换。</p>
+
+        <h3>请求参数</h3>
+        <table class="oc-table doc-param-table">
+          <thead><tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>model</code></td><td>string</td><td>是</td><td>模型 ID，如 claude-haiku-4-5、deepseek-chat</td></tr>
+            <tr><td><code>messages</code></td><td>array</td><td>是</td><td>消息数组，Anthropic 格式（content blocks）</td></tr>
+            <tr><td><code>max_tokens</code></td><td>integer</td><td>是</td><td>最大输出 token 数</td></tr>
+            <tr><td><code>system</code></td><td>string|array</td><td>否</td><td>系统提示词</td></tr>
+            <tr><td><code>stream</code></td><td>boolean</td><td>否</td><td>是否流式输出，默认 false</td></tr>
+            <tr><td><code>temperature</code></td><td>number</td><td>否</td><td>温度参数 0-1</td></tr>
+            <tr><td><code>tools</code></td><td>array</td><td>否</td><td>工具定义（Anthropic tool 格式）</td></tr>
+          </tbody>
+        </table>
+
+        <h3>请求示例</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">curl https://api.yunjunet.cn/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-your-api-key" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-haiku-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'</pre></div>
+
+        <h3>响应示例</h3>
+        <div class="oc-code"><pre style="margin:0;">{
+  "id": "msg_01XFDUDYJgAACzvnp...",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-haiku-4-5",
+  "content": [
+    { "type": "text", "text": "Hello! How can I help you today?" }
+  ],
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 10,
+    "output_tokens": 12
+  }
+}</pre></div>
+
+        <h3>流式响应格式</h3>
+        <p style="color:var(--text-secondary);">设置 <code>stream: true</code> 后，返回 Anthropic 标准 SSE 事件流：</p>
+        <div class="oc-code"><pre style="margin:0;">event: message_start
+data: {"type":"message_start","message":{"id":"msg_...","type":"message","role":"assistant","model":"claude-haiku-4-5","content":[],"usage":{"input_tokens":10,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":12}}
+
+event: message_stop
+data: {"type":"message_stop"}</pre></div>
+
+        <h3>格式自动转换</h3>
+        <p style="color:var(--text-secondary);">通过 <code>/v1/messages</code> 端点调用非 Anthropic 模型（如 DeepSeek、GPT、NVIDIA）时，平台自动完成双向格式转换：</p>
+        <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
+          <li>请求：Anthropic Messages 格式 → OpenAI Chat Completions 格式（含 tool_use 转换）</li>
+          <li>响应：OpenAI 格式 → Anthropic Messages 格式（含 SSE 事件流转换）</li>
+          <li>对客户端完全透明，无需关心上游差异</li>
+        </ul>
+      </div>
+
+      <div class="doc-section" id="claude-code">
+        <h2>Claude Code CLI 接入</h2>
+        <p style="color:var(--text-secondary);">OpenClaw AI 完全兼容 <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent-light);">Claude Code CLI</a>，您可以直接使用 OpenClaw 的 API Key 替代官方 Anthropic Key。</p>
+
+        <h3>环境变量配置</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># 在终端中设置环境变量（注意：不要加 /v1，CLI 会自动拼接）
+export ANTHROPIC_BASE_URL=https://api.yunjunet.cn
+export ANTHROPIC_AUTH_TOKEN=sk-your-api-key
+
+# 启动 Claude Code（可指定任意已启用的模型）
+claude
+claude --model deepseek-chat
+claude --model claude-haiku-4-5</pre></div>
+
+        <h3>写入 Shell 配置（永久生效）</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># Bash 用户
+echo 'export ANTHROPIC_BASE_URL=https://api.yunjunet.cn' >> ~/.bashrc
+echo 'export ANTHROPIC_AUTH_TOKEN=sk-your-api-key' >> ~/.bashrc
+source ~/.bashrc
+
+# Zsh 用户
+echo 'export ANTHROPIC_BASE_URL=https://api.yunjunet.cn' >> ~/.zshrc
+echo 'export ANTHROPIC_AUTH_TOKEN=sk-your-api-key' >> ~/.zshrc
+source ~/.zshrc</pre></div>
+
+        <h3>支持的模型</h3>
+        <p style="color:var(--text-secondary);">Claude Code CLI 通过 <code>/v1/messages</code> 端点通信，平台上所有已启用的模型均可使用：</p>
+        <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
+          <li><strong>Anthropic 模型</strong>：claude-opus-4-6、claude-haiku-4-5 等（直接透传，原生体验）</li>
+          <li><strong>其他模型</strong>：deepseek-chat、GPT 系列、NVIDIA NIM 模型等（自动格式转换）</li>
+        </ul>
+
+        <h3>重要说明</h3>
+        <div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.25);border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
+          <p style="color:var(--text-secondary);font-size:0.85rem;margin:0;">
+            <strong style="color:var(--warning);">⚠ 注意：</strong><br>
+            • <strong>统一 Base URL</strong>：<code>https://api.yunjunet.cn</code>（所有 SDK 和 CLI 均使用此地址，无需加 /v1）<br>
+            • <strong>Claude Code CLI</strong>：使用环境变量 <code>ANTHROPIC_AUTH_TOKEN</code> 认证<br>
+            • <strong>Anthropic Python SDK</strong>：使用 <code>api_key</code> 参数认证
+          </p>
+        </div>
+
+        <h3>Anthropic Python SDK</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">pip install anthropic
+
+import anthropic
+
+client = anthropic.Anthropic(
+    base_url="https://api.yunjunet.cn",
+    api_key="sk-your-api-key"
+)
+
+message = client.messages.create(
+    model="claude-haiku-4-5",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(message.content[0].text)</pre></div>
+      </div>
+
       <div class="doc-section" id="models">
         <h2>模型列表</h2>
         <p><span class="doc-method get">GET</span><span class="doc-endpoint">/v1/models</span></p>
@@ -201,13 +345,23 @@ for chunk in stream:
         </table>
       </div>
 
+      <div class="doc-section" id="billing">
+        <h2>计费说明</h2>
+        <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
+          <li>按实际使用 token 数计费，精确到每次 API 调用</li>
+          <li>token 用量优先使用上游模型返回的真实数据，仅在上游未返回时使用估算</li>
+          <li>账户余额以美元 (USD) 计价，人民币定价模型自动按汇率折算</li>
+          <li>每次调用的 token 数和费用均记录在调用日志中，可在控制台查看</li>
+          <li>支持流式 (stream) 和非流式两种调用方式，计费规则一致</li>
+        </ul>
+      </div>
+
       <div class="doc-section" id="limits">
         <h2>限制说明</h2>
         <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
           <li>单个用户最多创建 10 个 API Key</li>
           <li>单次请求最大 10MB</li>
           <li>流式响应无超时限制</li>
-          <li>按实际使用 token 数计费，1K tokens 为计费单位</li>
           <li>余额为 0 时将无法发起新的 API 调用</li>
         </ul>
       </div>
@@ -215,7 +369,7 @@ for chunk in stream:
   </div>
 
   <footer class="oc-footer">
-    <p>&copy; 2024-2026 OpenClaw AI &middot; Powered by yunjunet.cn</p>
+    <p>&copy; 2024-2026 OpenClaw AI LLM &middot; Powered by yunjunet.cn</p>
   </footer>
 
   <script src="/js/api.js"></script>
@@ -224,9 +378,12 @@ for chunk in stream:
       try {
         const models = await api.getModels();
         const container = document.getElementById('models-table');
-        let html = '<table class="oc-table"><thead><tr><th>模型 ID</th><th>提供商</th><th>输入价格</th><th>输出价格</th></tr></thead><tbody>';
+        const EXCHANGE_RATE = 7.2;
+        let html = '<table class="oc-table"><thead><tr><th>模型 ID</th><th>输入价格</th><th>输出价格</th></tr></thead><tbody>';
         models.forEach(m => {
-          html += `<tr><td><code style="color:var(--accent-light)">${m.model_id}</code></td><td>${m.provider}</td><td>¥${m.input_price_per_1k}/1K</td><td>¥${m.output_price_per_1k}/1K</td></tr>`;
+          const inputPrice = m.price_currency === 'CNY' ? parseFloat((m.input_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.input_price_per_1k;
+          const outputPrice = m.price_currency === 'CNY' ? parseFloat((m.output_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.output_price_per_1k;
+          html += `<tr><td><code style="color:var(--accent-light)">${m.model_id}</code></td><td>$${inputPrice}/1K</td><td>$${outputPrice}/1K</td></tr>`;
         });
         html += '</tbody></table>';
         container.innerHTML = html;

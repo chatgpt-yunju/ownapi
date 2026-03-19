@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>控制台 - OpenClaw AI</title>
+  <title>控制台 - OpenClaw AI LLM</title>
   <link rel="stylesheet" href="/css/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>body { visibility: hidden; }</style>
+  <script>setTimeout(function(){document.body.style.visibility='visible';},8000);</script>
 </head>
 <body>
   <nav class="oc-navbar">
-    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>OpenClaw AI</a>
-    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <button class="oc-sidebar-toggle" onclick="toggleSidebar()" style="display:none;background:none;border:none;color:var(--text-primary);font-size:1.5rem;cursor:pointer;padding:0.5rem;">☰</button>
+    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>OpenClaw AI LLM</a>
     <div class="oc-nav-links">
       <a href="/">首页</a>
-    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
       <a href="/docs.html">文档</a>
       <a href="/console.html" class="active">控制台</a>
     </div>
@@ -25,7 +26,8 @@
 
   <div class="oc-console">
     <!-- Sidebar -->
-    <aside class="oc-sidebar">
+    <aside class="oc-sidebar" id="sidebar">
+      <div class="oc-sidebar-close" onclick="toggleSidebar()" style="display:none;text-align:right;padding:1rem;font-size:1.5rem;cursor:pointer;color:var(--text-muted);">✕</div>
       <div class="oc-sidebar-section">概览</div>
       <div class="oc-sidebar-item active" data-page="dashboard" onclick="switchPage('dashboard')">&#x1f4ca; 仪表盘</div>
       <div class="oc-sidebar-item" data-page="statistics" onclick="switchPage('statistics')">&#x1f4ca; 数据统计</div>
@@ -33,6 +35,7 @@
       <div class="oc-sidebar-section">套餐</div>
       <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐商城</div>
       <div class="oc-sidebar-item" data-page="booster" onclick="switchPage('booster')">&#x26a1; 加油包</div>
+ <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f4dd; 我的订单</div>
 
       <div class="oc-sidebar-section">密钥管理</div>
       <div class="oc-sidebar-item" data-page="apikeys" onclick="switchPage('apikeys')">&#x1f511; API Keys</div>
@@ -58,11 +61,111 @@
       <div id="page-dashboard" class="page-content">
         <h2 style="margin-bottom:1.5rem;">仪表盘</h2>
         <div class="oc-grid oc-grid-4" id="stats-grid">
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-balance">-</div><div class="oc-stat-label">余额 (元)</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-balance">-</div><div class="oc-stat-label">剩余额度</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-calls">-</div><div class="oc-stat-label">今日调用</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-tokens">-</div><div class="oc-stat-label">今日 Tokens</div></div>
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-cost">-</div><div class="oc-stat-label">今日费用 (元)</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-cost">-</div><div class="oc-stat-label">今日费用</div></div>
         </div>
+<!-- 三个独立卡片 -->
+<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1.5rem;">
+
+<!-- 时间窗口限制 (5小时) -->
+<div class="oc-card" style="flex:1;min-width:280px;padding:1.25rem;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+<span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">时间窗口限制 (5小时)</span>
+<span id="dash-window-reset" style="font-size:0.7rem;color:var(--text-muted);">窗口将于 --:-- 重置</span>
+</div>
+<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;">
+当前套餐：<span id="dash-pkg-name" class="badge-model" style="font-size:0.7rem;padding:0.15rem 0.5rem;">-</span>
+</div>
+<!-- 请求次数 -->
+<div style="margin-bottom:1rem;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+<span style="font-size:0.8rem;color:var(--text-secondary);">请求次数</span>
+<span style="font-size:0.8rem;color:var(--text-secondary);"><span id="dash-req-pct">0</span>%</span>
+</div>
+<div class="dash-progress-track">
+<div class="dash-progress-bar" id="dash-req-bar" style="width:0%"></div>
+</div>
+<div style="text-align:right;font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">
+<span id="dash-req-detail">0/0 次</span>
+</div>
+</div>
+<!-- 费用使用 -->
+<div style="margin-bottom:0.75rem;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+<span style="font-size:0.8rem;color:var(--text-secondary);">费用使用</span>
+<span style="font-size:0.8rem;color:var(--text-secondary);"><span id="dash-cost-pct">0</span>%</span>
+</div>
+<div class="dash-progress-track">
+<div class="dash-progress-bar" id="dash-cost-bar" style="width:0%"></div>
+</div>
+<div style="text-align:right;font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">
+<span id="dash-cost-detail">$0.00 / $0.00</span>
+</div>
+</div>
+<div style="font-size:0.72rem;color:var(--text-muted);padding:0.5rem 0.75rem;background:rgba(108,92,231,0.08);border-radius:var(--radius-sm);line-height:1.5;">
+请求次数和费用限制为"或"的关系，任一达到限制即触发限流
+</div>
+</div>
+
+<!-- 每月用量限制 -->
+<div class="oc-card" style="flex:1;min-width:280px;padding:1.25rem;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+<span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">每月用量限制</span>
+<a href="#" onclick="switchPage('packages');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">提高用量</a>
+</div>
+<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;">
+当前周期：<span id="dash-week-period">-</span>
+</div>
+<div style="margin-bottom:0.5rem;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+<span style="font-size:0.8rem;color:var(--text-secondary);">当前用量</span>
+<span style="font-size:0.8rem;color:var(--text-secondary);"><span id="dash-week-pct">0</span>%</span>
+</div>
+<div class="dash-progress-track">
+<div class="dash-progress-bar dash-progress-bar-info" id="dash-week-bar" style="width:0%"></div>
+</div>
+<div style="text-align:right;font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">
+<span id="dash-week-detail">无限制</span>
+</div>
+</div>
+<div style="font-size:0.72rem;color:var(--text-muted);padding:0.5rem 0.75rem;background:rgba(84,160,255,0.08);border-radius:var(--radius-sm);line-height:1.5;">
+月限制为30天固定窗口，窗口期过自动重置。周期内超过限制后将无法继续使用（可以使用加油包），直到月限窗口重置。
+</div>
+</div>
+
+<!-- 加油包余额 -->
+<div class="oc-card" style="flex:1;min-width:280px;padding:1.25rem;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+<span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">加油包余额</span>
+<a href="#" onclick="switchPage('booster');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">购买加油包</a>
+</div>
+<div class="oc-grid oc-grid-4" style="gap:0.75rem;margin-bottom:0.75rem;">
+<div style="text-align:center;">
+<div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);" id="dash-booster-balance">$0.00</div>
+<div style="font-size:0.7rem;color:var(--text-muted);">剩余额度</div>
+</div>
+<div style="text-align:center;">
+<div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);" id="dash-booster-used">$0.00</div>
+<div style="font-size:0.7rem;color:var(--text-muted);">已使用</div>
+</div>
+<div style="text-align:center;">
+<div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);" id="dash-booster-total">$0.00</div>
+<div style="font-size:0.7rem;color:var(--text-muted);">总额度</div>
+</div>
+<div style="text-align:center;">
+<div style="font-size:1.1rem;font-weight:700;color:var(--warning);" id="dash-booster-cny">¥0.00</div>
+<div style="font-size:0.7rem;color:var(--text-muted);">总购买</div>
+</div>
+</div>
+<div style="font-size:0.72rem;color:var(--text-muted);padding:0.5rem 0.75rem;background:rgba(254,202,87,0.08);border-radius:var(--radius-sm);line-height:1.5;">
+💡 购买加油包可获得独立额度，不受套餐限制影响
+</div>
+</div>
+
+</div>
+
         <div class="oc-grid oc-grid-2" style="margin-top:1.5rem;">
           <div class="oc-card">
             <div class="oc-card-header"><span class="oc-card-title">近7天调用量</span></div>
@@ -133,7 +236,7 @@
         <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-total-calls">-</div><div class="oc-stat-label">总调用次数</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-total-tokens">-</div><div class="oc-stat-label">总 Tokens</div></div>
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-total-cost">-</div><div class="oc-stat-label">总费用 (元)</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-total-cost">-</div><div class="oc-stat-label">总费用 ($)</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-avg-cost">-</div><div class="oc-stat-label">平均费用</div></div>
         </div>
         <div class="oc-grid oc-grid-2">
@@ -152,37 +255,53 @@
       <div id="page-booster" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">加油包</h2>
         <p style="color:var(--text-muted);margin-bottom:1.5rem;">购买加油包可以快速充值余额，享受更多 API 调用额度</p>
-        <div class="oc-grid oc-grid-4" id="booster-grid">
+        <div class="oc-grid oc-grid-3" id="booster-grid">
           <div class="oc-card" style="text-align:center;padding:1.5rem;">
             <div style="font-size:2rem;margin-bottom:0.5rem;">&#x26a1;</div>
-            <h3 style="margin-bottom:0.5rem;">小额充值</h3>
-            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥50</div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">适合轻度使用</p>
-            <button class="btn-accent" onclick="buyBooster(50)">立即购买</button>
+            <h3 style="margin-bottom:0.5rem;">基础加油包</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥10</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $10 API 额度</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合轻度使用，快速补充额度</p>
+            <button class="btn-accent" onclick="buyBooster(10)">立即购买</button>
           </div>
-          <div class="oc-card" style="text-align:center;padding:1.5rem;">
+          <div class="oc-card" style="text-align:center;padding:1.5rem;border:2px solid var(--accent);">
             <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f525;</div>
-            <h3 style="margin-bottom:0.5rem;">标准充值</h3>
-            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥100</div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">最受欢迎</p>
-            <button class="btn-accent" onclick="buyBooster(100)">立即购买</button>
+            <h3 style="margin-bottom:0.5rem;">标准加油包</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥20</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $20 API 额度</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">最受欢迎的选择</p>
+            <button class="btn-accent" onclick="buyBooster(20)">立即购买</button>
           </div>
           <div class="oc-card" style="text-align:center;padding:1.5rem;">
             <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f680;</div>
-            <h3 style="margin-bottom:0.5rem;">大额充值</h3>
-            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥500</div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">送 ¥50 额外余额</p>
-            <button class="btn-accent" onclick="buyBooster(500)">立即购买</button>
-          </div>
-          <div class="oc-card" style="text-align:center;padding:1.5rem;">
-            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f4b0;</div>
-            <h3 style="margin-bottom:0.5rem;">超值充值</h3>
-            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥1000</div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:1rem;">送 ¥150 额外余额</p>
-            <button class="btn-accent" onclick="buyBooster(1000)">立即购买</button>
+            <h3 style="margin-bottom:0.5rem;">超值加油包</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥45</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $50 API 额度</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">大容量补充，享受更多优惠</p>
+            <button class="btn-accent" onclick="buyBooster(45)">立即购买</button>
           </div>
         </div>
       </div>
+ <!-- Orders -->
+ <div id="page-orders" class="page-content" style="display:none;">
+ <h2 style="margin-bottom:1.5rem;">我的订单</h2>
+ <p style="color:var(--text-muted);margin-bottom:1.5rem;">查看您的订单记录，支付完成后可点击"验证支付"完成订单</p>
+ <div class="oc-card">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+ <h3 style="margin:0;">订单列表</h3>
+ <select id="order-filter-status" onchange="loadOrders()" style="padding:0.4rem 0.8rem;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-primary);">
+ <option value="">全部状态</option>
+ <option value="pending">待支付</option>
+ <option value="paid">已完成</option>
+ </select>
+ </div>
+ <table class="oc-table">
+ <thead><tr><th>订单号</th><th>类型</th><th>金额</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+ <tbody id="orders-tbody"></tbody>
+ </table>
+ </div>
+ </div>
+
 
       <!-- Invite -->
       <div id="page-invite" class="page-content" style="display:none;">
@@ -260,6 +379,10 @@
           <div class="oc-card">
             <div class="oc-card-header"><span class="oc-card-title">请求</span></div>
             <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">API Key（留空则使用登录凭证）</label>
+              <input class="oc-input" id="pg-apikey" placeholder="sk-..." style="font-family:monospace;font-size:0.85rem;">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
               <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">模型</label>
               <select class="oc-select" id="pg-model" style="width:100%;"></select>
             </div>
@@ -310,9 +433,16 @@
     </div>
   </div>
 
-  <script src="/js/api.js"></script>
+  <script src="/js/api.js?v=20260319"></script>
   <script>
-    if (!requireAuth()) throw new Error('need auth');
+    try {
+      if (typeof requireAuth !== 'function') throw new Error('api.js not loaded');
+      if (!requireAuth()) { document.body.style.visibility = 'visible'; throw new Error('need auth'); }
+    } catch(e) {
+      document.body.style.visibility = 'visible';
+      window.location.href = (typeof SSO_LOGIN_URL !== 'undefined') ? SSO_LOGIN_URL : 'https://yunjunet.cn/login';
+      throw e;
+    }
 
     let currentPage = 'dashboard';
     let logsPage = 1;
@@ -323,6 +453,12 @@
       document.querySelectorAll('.page-content').forEach(el => el.style.display = 'none');
       document.getElementById('page-' + page).style.display = 'block';
       document.querySelectorAll('.oc-sidebar-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+
+      // 关闭移动端侧边栏
+      if (window.innerWidth <= 768) {
+        document.getElementById('sidebar').classList.remove('show');
+      }
+
       if (page === 'dashboard') loadDashboard();
       else if (page === 'apikeys') loadApiKeys();
       else if (page === 'logs') loadLogs();
@@ -330,6 +466,7 @@
       else if (page === 'playground') loadPlayground();
       else if (page === 'statistics') loadStatistics();
       else if (page === 'booster') loadBooster();
+ else if (page === 'orders') loadOrders();
       else if (page === 'invite') loadInvite();
       else if (page === 'rewards') loadRewards();
       else if (page === 'notifications') loadNotifications();
@@ -341,24 +478,124 @@
 
     function logout() { api.clearToken(); window.location.href = '/'; }
 
+    // Toggle sidebar for mobile
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      sidebar.classList.toggle('show');
+    }
+
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener('click', (e) => {
+      const sidebar = document.getElementById('sidebar');
+      const toggle = document.querySelector('.oc-sidebar-toggle');
+      if (window.innerWidth <= 768 && sidebar.classList.contains('show')) {
+        if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
+          sidebar.classList.remove('show');
+        }
+      }
+    });
+
     // Init
     async function init() {
       try {
         userInfo = await api.getUserInfo();
+        document.body.style.visibility = 'visible';
         document.getElementById('nav-username').textContent = userInfo.username;
         if (userInfo.role === 'admin') document.getElementById('admin-nav').style.display = '';
         loadDashboard();
-      } catch(e) { showToast(e.message, 'error'); }
+      } catch(e) {
+        document.body.style.visibility = 'visible';
+        api.clearToken();
+        window.location.href = SSO_LOGIN_URL;
+      }
     }
 
     // Dashboard
     async function loadDashboard() {
       try {
         const [info, stats] = await Promise.all([api.getUserInfo(), api.getStats()]);
-        document.getElementById('stat-balance').textContent = parseFloat(info.balance || 0).toFixed(2);
-        document.getElementById('stat-today-calls').textContent = formatNum(stats.today?.calls || 0);
+
+        // 剩余额度：$2.00 / $10.00（月度配额）
+        const balance = parseFloat(info.balance || 0);
+        const monthlyQuota = info.monthly_quota != null ? parseFloat(info.monthly_quota) : null;
+        if (monthlyQuota != null) {
+          document.getElementById('stat-balance').textContent = `$${balance.toFixed(2)} / $${monthlyQuota.toFixed(2)}`;
+        } else {
+          document.getElementById('stat-balance').textContent = `$${balance.toFixed(2)}`;
+        }
+
+        // 今日调用：3 / 200次
+        const todayCalls = stats.today?.calls || 0;
+        const dailyLimit = info.daily_limit != null ? info.daily_limit : null;
+        if (dailyLimit != null) {
+          document.getElementById('stat-today-calls').textContent = `${formatNum(todayCalls)} / ${formatNum(dailyLimit)}次`;
+        } else {
+          document.getElementById('stat-today-calls').textContent = `${formatNum(todayCalls)}次`;
+        }
+
         document.getElementById('stat-today-tokens').textContent = formatNum(stats.today?.tokens || 0);
-        document.getElementById('stat-today-cost').textContent = parseFloat(stats.today?.cost || 0).toFixed(4);
+        document.getElementById('stat-today-cost').textContent = `$${parseFloat(stats.today?.cost || 0).toFixed(4)}`;
+
+        // 当前套餐区域
+        document.getElementById('dash-pkg-name').textContent = info.package_name || 'Free';
+
+        // 时间窗口重置
+        if (info.window_end) {
+          const we = new Date(info.window_end);
+          const h = String(we.getHours()).padStart(2, '0');
+          const m = String(we.getMinutes()).padStart(2, '0');
+          document.getElementById('dash-window-reset').textContent = `窗口将于 ${h}:${m} 重置`;
+        }
+
+        // 请求次数进度
+        const wCalls = info.month_calls || 0;
+        const wCallLimit = info.monthly_call_limit;
+        if (wCallLimit) {
+          const reqPct = Math.min(Math.round(wCalls / wCallLimit * 100), 100);
+          document.getElementById('dash-req-pct').textContent = reqPct;
+          const reqBar = document.getElementById('dash-req-bar');
+          reqBar.style.width = Math.min(reqPct, 100) + '%';
+          if (reqPct >= 90) reqBar.classList.add('dash-progress-bar-danger');
+          else if (reqPct >= 70) reqBar.classList.add('dash-progress-bar-warning');
+          document.getElementById('dash-req-detail').textContent = `${formatNum(wCalls)}/${formatNum(wCallLimit)} 次`;
+        } else {
+          document.getElementById('dash-req-pct').textContent = '0';
+          document.getElementById('dash-req-detail').textContent = `${formatNum(wCalls)} 次 / 无限制`;
+        }
+
+        // 费用使用进度
+        const wCost = info.month_cost || 0;
+        const wCostLimit = info.monthly_quota;
+        if (wCostLimit) {
+          const costPct = Math.min(Math.round(wCost / wCostLimit * 100), 100);
+          document.getElementById('dash-cost-pct').textContent = costPct;
+          const costBar = document.getElementById('dash-cost-bar');
+          costBar.style.width = Math.min(costPct, 100) + '%';
+          if (costPct >= 90) costBar.classList.add('dash-progress-bar-danger');
+          else if (costPct >= 70) costBar.classList.add('dash-progress-bar-warning');
+          document.getElementById('dash-cost-detail').textContent = `$${wCost.toFixed(4)} / $${wCostLimit.toFixed(2)}`;
+        } else {
+          document.getElementById('dash-cost-pct').textContent = '0';
+          document.getElementById('dash-cost-detail').textContent = `$${wCost.toFixed(4)} / 无限制`;
+        }
+
+        // 每月用量周期
+        if (info.month_start && info.month_end) {
+          const ms = new Date(info.month_start);
+          const me = new Date(info.month_end);
+          const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+          document.getElementById('dash-week-period').textContent = `${fmt(ms)} - ${fmt(me)}`;
+        }
+        // 每周用量目前无独立限制，显示"无限制"
+        document.getElementById('dash-week-pct').textContent = '0';
+        document.getElementById('dash-week-detail').textContent = '无限制';
+        document.getElementById('dash-week-bar').style.width = '0%';
+
+        // 加油包余额
+        document.getElementById('dash-booster-balance').textContent = `$${(info.booster_balance || 0).toFixed(2)}`;
+        document.getElementById('dash-booster-used').textContent = `$${(info.booster_used || 0).toFixed(2)}`;
+        document.getElementById('dash-booster-total').textContent = `$${(info.booster_total || 0).toFixed(2)}`;
+        document.getElementById('dash-booster-cny').innerHTML = `&#165;${(info.booster_total_purchased_cny || 0).toFixed(2)}`;
 
         // Chart
         if (stats.daily && stats.daily.length > 0) drawChart(stats.daily);
@@ -441,7 +678,8 @@
     // API Keys
     async function loadApiKeys() {
       try {
-        const keys = await api.getApiKeys();
+        const data = await api.getApiKeys();
+        const keys = data.keys || data;
         const tbody = document.getElementById('keys-tbody');
         const empty = document.getElementById('keys-empty');
         if (keys.length === 0) {
@@ -502,7 +740,7 @@
           <td>${formatDate(l.created_at)}</td>
           <td><span class="badge-model">${l.model}</span></td>
           <td style="font-family:var(--font-mono);font-size:0.8rem;">${l.prompt_tokens} / ${l.completion_tokens}</td>
-          <td style="font-family:var(--font-mono);">¥${parseFloat(l.total_cost).toFixed(4)}</td>
+          <td style="font-family:var(--font-mono);">$${parseFloat(l.total_cost).toFixed(6)}</td>
           <td>${l.status === 'success' ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">失败</span>'}</td>
           <td style="font-size:0.75rem;color:var(--text-muted);">${l.ip || '-'}</td>
         </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">暂无记录</td></tr>';
@@ -528,7 +766,8 @@
     // Packages
     async function loadPackages() {
       try {
-        const [pkgs, myPkgs] = await Promise.all([api.getPackages(), api.getMyPackages()]);
+        const [pkgsData, myPkgsData] = await Promise.all([api.getPackages(), api.getMyPackages()]);
+        const pkgs = pkgsData.packages || pkgsData; // 兼容两种数据格式
         const grid = document.getElementById('packages-grid');
         grid.innerHTML = pkgs.map((p, i) => `<div class="oc-card oc-pricing-card ${i === 1 ? 'popular' : ''}">
           <h3 style="margin-bottom:0.5rem;">${p.name}</h3>
@@ -536,12 +775,14 @@
           <div class="oc-pricing-unit">${p.type === 'monthly' ? '/月' : p.type === 'yearly' ? '/年' : '一次性'}</div>
           <ul style="text-align:left;font-size:0.8rem;color:var(--text-secondary);padding-left:1rem;margin:1rem 0;">
             <li>每日限制: ${p.daily_limit || '无限'} 次</li>
-            <li>月度配额: ${p.monthly_quota || '无限'} 次</li>
+            <li>月度配额: ${p.monthly_quota ? '$' + p.monthly_quota : '无限'}</li>
           </ul>
           ${p.price > 0 ? `<button class="btn-accent" style="width:100%;" onclick="buyPackage(${p.id})">购买</button>` : '<button class="btn-outline" style="width:100%;" disabled>当前方案</button>'}
         </div>`).join('');
 
         const tbody = document.getElementById('my-packages-tbody');
+        // 后端返回 { package: ... } 格式，需要转换为数组
+        const myPkgs = myPkgsData.package ? [myPkgsData.package] : [];
         tbody.innerHTML = myPkgs.length ? myPkgs.map(p => `<tr>
           <td style="color:var(--text-primary)">${p.name || '套餐#' + p.package_id}</td>
           <td>${formatDate(p.started_at)}</td>
@@ -565,7 +806,7 @@
           // 需要支付宝支付
           if (response.mobile) {
             // 移动端：跳转到 H5 支付页面
-            window.location.href = `/payment/h5/${response.tradeNo}`;
+            if (response.payUrl) { showToast('正在跳转支付宝...', 'info'); window.location.href = response.payUrl; } else { showToast('获取支付链接失败', 'error'); }
           } else {
             // PC端：新窗口打开支付宝
             const payWindow = window.open(response.payUrl, '_blank');
@@ -724,8 +965,8 @@
         const stats = await api.getStatistics();
         document.getElementById('stats-total-calls').textContent = formatNum(stats.total_calls || 0);
         document.getElementById('stats-total-tokens').textContent = formatNum(stats.total_tokens || 0);
-        document.getElementById('stats-total-cost').textContent = '¥' + (stats.total_cost || 0).toFixed(2);
-        document.getElementById('stats-avg-cost').textContent = '¥' + (stats.avg_cost || 0).toFixed(4);
+        document.getElementById('stats-total-cost').textContent = '$' + (stats.total_cost || 0).toFixed(2);
+        document.getElementById('stats-avg-cost').textContent = '$' + (stats.avg_cost || 0).toFixed(6);
 
         // 绘制模型使用分布图
         if (stats.models && stats.models.length > 0) {
@@ -867,9 +1108,15 @@
       if (!confirm(`确认购买 ¥${amount} 加油包？`)) return;
       try {
         const result = await api.post('/payment/create-recharge', { amount });
-        if (result.payUrl) {
-          window.open(result.payUrl, '_blank');
-          showToast('请在新窗口完成支付', 'info');
+        if (result.pay_url || result.payUrl) {
+          const payUrl = result.pay_url || result.payUrl;
+          if (/Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+            showToast('正在跳转支付宝...', 'info');
+            window.location.href = payUrl;
+          } else {
+            window.open(payUrl, '_blank');
+            showToast('请在新窗口完成支付', 'info');
+          }
         } else {
           showToast('充值成功', 'success');
           loadDashboard();
@@ -878,6 +1125,66 @@
         showToast(e.message, 'error');
       }
     }
+
+ // Orders
+ async function loadOrders() {
+ try {
+ const status = document.getElementById('order-filter-status').value;
+ const params = status ? { status } : {};
+ const data = await api.getMyOrders(params);
+ const tbody = document.getElementById('orders-tbody');
+ const orders = data.orders || [];
+
+ if (orders.length === 0) {
+ tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">暂无订单记录</td></tr>';
+ return;
+ }
+
+ tbody.innerHTML = orders.map(o => {
+ const typeLabel = o.order_type === 'package' ? '套餐' : '加油包';
+ const statusBadge = o.status === 'paid'
+ ? '<span class="badge-active">已完成</span>'
+ : '<span class="badge-disabled">待支付</span>';
+ const verifyBtn = o.status === 'pending'
+ ? `<button class="btn-sm btn-accent" onclick="verifyOrder('${o.out_trade_no}')">验证支付</button>`
+ : '<span style="color:var(--text-muted);">-</span>';
+
+ return `<tr>
+ <td style="font-family:var(--font-mono);font-size:0.8rem;">${o.out_trade_no.slice(0, 16)}...</td>
+ <td>${typeLabel}${o.package_name ? ' - ' + o.package_name : ''}</td>
+ <td>¥${Number(o.amount).toFixed(2)}</td>
+ <td>${statusBadge}</td>
+ <td style="font-size:0.8rem;">${formatDate(o.created_at)}</td>
+ <td>${verifyBtn}</td>
+ </tr>`;
+ }).join('');
+ } catch(e) {
+ showToast(e.message, 'error');
+ }
+ }
+
+ async function verifyOrder(outTradeNo) {
+ showToast('正在验证订单...', 'info');
+ try {
+ const result = await api.verifyPayment(outTradeNo);
+ if (result.success) {
+ if (result.already_paid) {
+ showToast('订单已完成', 'success');
+ } else {
+ showToast(result.message || '订单验证成功！', 'success');
+ if (result.api_key) {
+ showApiKeyModal(result.api_key, result.key_display, result.message);
+ }
+ }
+ loadOrders();
+ loadDashboard();
+ } else {
+ showToast(result.message || '订单验证失败', 'warning');
+ }
+ } catch(e) {
+ showToast(e.message, 'error');
+ }
+ }
 
     // Invite
     async function loadInvite() {

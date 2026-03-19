@@ -16,6 +16,10 @@ const PROVIDERS = {
   anthropic: {
     baseUrl: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1',
     apiKey: process.env.ANTHROPIC_API_KEY || ''
+  },
+  nvidia: {
+    baseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
+    apiKey: process.env.NVIDIA_API_KEY || ''
   }
 };
 

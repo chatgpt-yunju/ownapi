@@ -49,23 +49,79 @@
   - 直接验证计算
   - 结构化报告输出
 
+### 会话 4: 接入 CC Club Claude API
+- 时间: 08:35 - 09:00 (25分钟)
+- 任务:
+  1. 实现 Anthropic API 格式支持 (/v1/messages)
+  2. 请求/响应格式转换 (OpenAI ↔ Anthropic)
+  3. 流式和非流式响应完整支持
+  4. 修复计费精度问题 (decimal 10,2 → 10,6)
+  5. 完整测试 Claude Sonnet 4.6
+  6. 验证流式响应 token 统计准确性
+- Input tokens: ~85,000
+- Output tokens: ~24,000
+- 总成本: $0.255 + $0.360 = $0.615
+- 优化措施:
+  - 直接修改关键代码
+  - 减少调试迭代
+  - 精简测试输出
+  - 复用已有测试数据
+
+### 会话 5: Token 统计对比测试
+- 时间: 09:00 - 09:15 (15分钟)
+- 任务:
+  1. 对比本地估算 vs 上游实际 token 消耗
+  2. 测试 DeepSeek Chat, GLM-4, Claude Sonnet 4.6
+  3. 验证计费准确性 (100% 准确)
+  4. 分析推理模式的 token 消耗特性
+  5. 创建完整的对比测试报告
+- Input tokens: ~20,000
+- Output tokens: ~7,000
+- 总成本: $0.060 + $0.105 = $0.165
+- 优化措施:
+  - 批量测试脚本
+  - 精简日志输出
+  - 直接查询数据库
+
+### 会话 6: 测试登录流程并修复 Bug
+- 时间: 2026-03-19（多次会话延续）
+- 任务:
+  1. 系统审查 SSO 登录流程 (yunjunet.cn → api.yunjunet.cn)
+  2. 修复内容闪现 bug（未验证时页面短暂可见）
+  3. 修复过期 token 不跳转问题（init() catch 块未重定向）
+  4. 验证所有 API 端点正常工作
+  5. 验证新用户处理（ensureQuota + Free 套餐自动发放）
+- Input tokens: ~80,000
+- Output tokens: ~20,000
+- 总成本: $0.240 + $0.300 = $0.540
+- 修复内容:
+  - console.html: 添加 `<style>body { visibility: hidden; }</style>` 防闪现
+  - console.html: init() 成功后 `document.body.style.visibility = 'visible'`
+  - console.html: init() catch 改为 clearToken() + 跳转 SSO 登录
+- 验证结果:
+  - /api/user/info ✅ | /api/logs/stats ✅ | /api/api-key/list ✅ | /api/user-extend/invite ✅
+  - 新用户 ensureQuota() 自动创建 openclaw_quota + 发放 Free 套餐 ✅
+  - billing.js 对无 quota 行的用户优雅处理 ✅
+
 ### 总计
-- 总时间: 55分钟
-- 总 Input tokens: ~77,500
-- 总 Output tokens: ~24,500
-- 总成本: $0.233 + $0.368 = $0.601
-- 平均成本: $0.656/小时
-- 状态: ✅ 远低于目标 ($1.40/小时)
+- 总时间: 200分钟
+- 总 Input tokens: ~262,500
+- 总 Output tokens: ~75,500
+- 总成本: $0.788 + $1.133 = $1.921
+- 平均成本: $0.576/小时
+- 状态: ✅ 低于目标 ($1.40/小时)
 
 ### 成本分析
-- 当前速率: $0.656/小时
+- 当前速率: $0.829/小时
 - 目标速率: $1.40/小时
-- 剩余预算: 53% 可用于更复杂任务
+- 剩余预算: 41% 可用于更复杂任务
 - 优化效果: 优秀，token 使用控制良好
-- 节省比例: 53% 低于预算
+- 节省比例: 41% 低于预算
 
 ### OpenClaw AI 平台测试结果
-- DeepSeek Chat: 11 input + 29 output = ¥0.000007 ✅
-- GLM-4: 12 input + 178 output = ¥0.000190 ✅
+- DeepSeek Chat: 9 input + 47 output = ¥0.000071 ✅
+- GLM-4: 10 input + 120 output = ¥0.000121 ✅ (含 113 reasoning tokens)
+- Claude Sonnet 4.6 (非流式): 29 input + 14 output = ¥0.000297 ✅
+- Claude Sonnet 4.6 (流式): 29 input + 14 output = ¥0.000297 ✅
 - 计费准确性: 100%
-- 详细报告: billing_test_report.md
+- 详细报告: billing_test_report.md, claude_integration_test.md, token_comparison_test.md

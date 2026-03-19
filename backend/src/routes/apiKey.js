@@ -42,18 +42,21 @@ router.post('/create', async (req, res) => {
   }
 });
 
-// 禁用/启用密钥
+// 禁用/启用密钥（自动切换）
 router.post('/toggle', async (req, res) => {
-  const { id, status } = req.body;
-  if (!['active', 'disabled'].includes(status)) return res.status(400).json({ error: '无效状态' });
-
+  const { id } = req.body;
   try {
-    const [result] = await db.query(
-      'UPDATE openclaw_api_keys SET status = ? WHERE id = ? AND user_id = ?',
-      [status, id, req.user.id]
+    const [[key]] = await db.query(
+      'SELECT status FROM openclaw_api_keys WHERE id = ? AND user_id = ?',
+      [id, req.user.id]
     );
-    if (result.affectedRows === 0) return res.status(404).json({ error: '密钥不存在' });
-    res.json({ message: status === 'active' ? '已启用' : '已禁用' });
+    if (!key) return res.status(404).json({ error: '密钥不存在' });
+    const newStatus = key.status === 'active' ? 'disabled' : 'active';
+    await db.query(
+      'UPDATE openclaw_api_keys SET status = ? WHERE id = ? AND user_id = ?',
+      [newStatus, id, req.user.id]
+    );
+    res.json({ message: newStatus === 'active' ? '已启用' : '已禁用', status: newStatus });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '操作失败' });

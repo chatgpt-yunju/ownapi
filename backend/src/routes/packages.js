@@ -20,7 +20,6 @@ router.post('/buy', async (req, res) => {
     if (!pkg) return res.status(404).json({ error: '套餐不存在' });
 
     if (pkg.type === 'free') {
-      // 免费套餐：检查密钥上限并自动创建密钥
       const conn = await db.getConnection();
       try {
         await conn.beginTransaction();
@@ -33,6 +32,27 @@ router.post('/buy', async (req, res) => {
         if (cnt >= 10) {
           await conn.rollback();
           return res.status(400).json({ error: '已达到10个密钥上限，请先删除旧密钥' });
+        }
+
+        // 充值月度配额
+        const monthlyQuota = Number(pkg.monthly_quota);
+        if (monthlyQuota > 0) {
+          // 确保 openclaw_quota 记录存在
+          await conn.query(
+            'INSERT INTO openclaw_quota (user_id, balance) VALUES (?, 0) ON DUPLICATE KEY UPDATE user_id = user_id',
+            [req.user.id]
+          );
+
+          const [[currentQuota]] = await conn.query('SELECT balance FROM openclaw_quota WHERE user_id = ?', [req.user.id]);
+          const balanceBefore = Number(currentQuota?.balance || 0);
+          const balanceAfter = balanceBefore + monthlyQuota;
+
+          await conn.query('UPDATE openclaw_quota SET balance = ? WHERE user_id = ?', [balanceAfter, req.user.id]);
+
+          await conn.query(
+            'INSERT INTO balance_logs (user_id, amount, balance_before, balance_after, type, description) VALUES (?, ?, ?, ?, "recharge", ?)',
+            [req.user.id, monthlyQuota, balanceBefore, balanceAfter, `购买${pkg.name}套餐，获得月度配额 $${monthlyQuota}`]
+          );
         }
 
         // 创建用户套餐记录
@@ -56,7 +76,7 @@ router.post('/buy', async (req, res) => {
 
         await conn.commit();
         return res.json({
-          message: `已购买${pkg.name}套餐`,
+          message: `已购买${pkg.name}套餐，获得 ¥${monthlyQuota} 月度配额`,
           api_key: key,
           key_display: keyDisplay,
           notice: '请保存此密钥，后续无法再次查看完整密钥'
@@ -69,8 +89,8 @@ router.post('/buy', async (req, res) => {
       }
     }
 
-    // 付费套餐：从余额扣费
-    const [[quota]] = await db.query('SELECT balance FROM user_quota WHERE user_id = ?', [req.user.id]);
+    // 付费套餐：从 openclaw_quota 余额扣费
+    const [[quota]] = await db.query('SELECT balance FROM openclaw_quota WHERE user_id = ?', [req.user.id]);
     if (!quota || Number(quota.balance) < Number(pkg.price)) {
       return res.status(400).json({ error: '余额不足，请先充值' });
     }
@@ -79,7 +99,6 @@ router.post('/buy', async (req, res) => {
     try {
       await conn.beginTransaction();
 
-      // 检查10密钥上限
       const [[{ cnt }]] = await conn.query(
         'SELECT COUNT(*) as cnt FROM openclaw_api_keys WHERE user_id = ?',
         [req.user.id]
@@ -89,28 +108,23 @@ router.post('/buy', async (req, res) => {
         return res.status(400).json({ error: '已达到10个密钥上限，请先删除旧密钥' });
       }
 
-      // 获取当前余额
-      const [[currentQuota]] = await conn.query('SELECT balance FROM user_quota WHERE user_id = ?', [req.user.id]);
+      const [[currentQuota]] = await conn.query('SELECT balance FROM openclaw_quota WHERE user_id = ?', [req.user.id]);
       const balanceBefore = Number(currentQuota.balance);
       const balanceAfter = balanceBefore - Number(pkg.price);
 
-      // 扣除余额
-      await conn.query('UPDATE user_quota SET balance = balance - ? WHERE user_id = ?', [pkg.price, req.user.id]);
+      await conn.query('UPDATE openclaw_quota SET balance = balance - ? WHERE user_id = ?', [pkg.price, req.user.id]);
 
-      // 记录交易日志
       await conn.query(
         'INSERT INTO balance_logs (user_id, amount, balance_before, balance_after, type, description, created_at) VALUES (?, ?, ?, ?, "buy_quota", ?, NOW())',
         [req.user.id, -pkg.price, balanceBefore, balanceAfter, `购买套餐: ${pkg.name}`]
       );
 
-      // 创建用户套餐记录
       const [pkgResult] = await conn.query(
         'INSERT INTO openclaw_user_packages (user_id, package_id, expires_at, status) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), "active")',
         [req.user.id, pkg.id]
       );
       const userPackageId = pkgResult.insertId;
 
-      // 创建API密钥
       const key = generateApiKey();
       const keyHash = hashApiKey(key);
       const keyDisplay = maskApiKey(key);

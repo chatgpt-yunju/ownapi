@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenClaw AI - 智能 API 调用平台</title>
+  <title>OpenClaw AI LLM - 智能 API 调用平台</title>
   <link rel="stylesheet" href="/css/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -13,7 +13,7 @@
   <nav class="oc-navbar">
     <a href="/" class="oc-logo">
       <div class="oc-logo-icon">&gt;_</div>
-      OpenClaw AI
+      OpenClaw AI LLM
     </a>
     <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')">
       <span></span><span></span><span></span>
@@ -118,7 +118,7 @@ const res = await fetch("https://api.yunjunet.cn/v1/chat/completions", {
 
   <!-- Footer -->
   <footer class="oc-footer" style="margin-top:4rem;">
-    <p>&copy; 2024-2026 OpenClaw AI &middot; Powered by yunjunet.cn</p>
+    <p>&copy; 2024-2026 OpenClaw AI LLM &middot; Powered by yunjunet.cn</p>
   </footer>
 
   <script src="/js/api.js"></script>
@@ -127,13 +127,16 @@ const res = await fetch("https://api.yunjunet.cn/v1/chat/completions", {
       try {
         const models = await api.getModels();
         const grid = document.getElementById('models-grid');
+        const EXCHANGE_RATE = 7.2;
         models.forEach(m => {
+          const inputPrice = m.price_currency === 'CNY' ? parseFloat((m.input_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.input_price_per_1k;
+          const outputPrice = m.price_currency === 'CNY' ? parseFloat((m.output_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.output_price_per_1k;
           grid.innerHTML += `<div class="oc-card oc-feature" style="padding:1.25rem;">
             <div style="font-family:var(--font-mono);font-weight:600;margin-bottom:0.5rem;">${m.display_name || m.model_id}</div>
             <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">${m.provider}</div>
             <div style="font-size:0.75rem;color:var(--text-secondary);">
-              输入: ¥${m.input_price_per_1k}/1K tokens<br>
-              输出: ¥${m.output_price_per_1k}/1K tokens
+              输入: $${inputPrice}/1K tokens<br>
+              输出: $${outputPrice}/1K tokens
             </div>
           </div>`;
         });

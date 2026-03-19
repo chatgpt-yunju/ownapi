@@ -34,6 +34,7 @@ const api = {
   get(path) { return this.request(path); },
   post(path, body) { return this.request(path, { method: 'POST', body: JSON.stringify(body) }); },
   put(path, body) { return this.request(path, { method: 'PUT', body: JSON.stringify(body) }); },
+  del(path) { return this.request(path, { method: 'DELETE' }); },
 
   // User
   getUserInfo() { return this.get('/user/info'); },
@@ -67,6 +68,11 @@ const api = {
   createPackagePayment(package_id) { return this.post('/payment/create-package', { package_id }); },
   getPaymentOrder(out_trade_no) { return this.get('/payment/order/' + out_trade_no); },
   createRecharge(amount) { return this.post('/payment/create-recharge', { amount }); },
+  getMyOrders(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get('/payment/my-orders' + (q ? '?' + q : ''));
+  },
+  verifyPayment(out_trade_no) { return this.post('/payment/verify/' + out_trade_no); },
 
   // User Extend (邀请、奖励、通知)
   getInviteInfo() { return this.get('/user-extend/invite'); },
@@ -87,15 +93,34 @@ const api = {
   adminGetModels() { return this.get('/admin/models'); },
   adminUpdateModel(id, data) { return this.put('/admin/models/' + id, data); },
   adminCreateModel(data) { return this.post('/admin/models', data); },
+  adminGetProviders() { return this.get('/admin/providers'); },
+  adminCreateProvider(data) { return this.post('/admin/providers', data); },
+  adminUpdateProvider(id, data) { return this.put('/admin/providers/' + id, data); },
+  adminDeleteProvider(id) { return this.del('/admin/providers/' + id); },
 };
 
 // Check SSO callback token
 (function checkSSOCallback() {
   const params = new URLSearchParams(window.location.search);
   const token = params.get('token');
+  const error = params.get('error');
+
   if (token) {
     api.setToken(token);
     window.history.replaceState({}, '', window.location.pathname);
+  } else if (error) {
+    const msg = params.get('msg') || 'QQ登录失败';
+    console.error('SSO Login Error:', error, msg);
+    // 清除错误参数
+    window.history.replaceState({}, '', window.location.pathname);
+    // 显示错误提示（如果页面已加载完成）
+    if (document.readyState === 'complete') {
+      showToast(decodeURIComponent(msg), 'error');
+    } else {
+      window.addEventListener('DOMContentLoaded', () => {
+        showToast(decodeURIComponent(msg), 'error');
+      });
+    }
   }
 })();
 

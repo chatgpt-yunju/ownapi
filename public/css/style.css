@@ -175,6 +175,31 @@ a:hover { color: var(--accent); }
   letter-spacing: 0.05em;
 }
 
+/* Dashboard Progress Bars */
+.dash-progress-track {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.dash-progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--gradient-primary);
+  transition: width 0.6s ease;
+  min-width: 0;
+}
+.dash-progress-bar-warning {
+  background: linear-gradient(135deg, #feca57 0%, #ff9f43 100%);
+}
+.dash-progress-bar-danger {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+}
+.dash-progress-bar-info {
+  background: linear-gradient(135deg, #54a0ff 0%, #2e86de 100%);
+}
+
 /* Tables */
 .oc-table {
   width: 100%;
@@ -448,18 +473,37 @@ a:hover { color: var(--accent); }
   .oc-grid-2, .oc-grid-3, .oc-grid-4 { grid-template-columns: 1fr; }
   .oc-hero h1 { font-size: 2rem; }
   .oc-hero { padding: 3rem 1rem 2rem; }
-  .oc-sidebar { display: none; }
+
+  /* Mobile sidebar */
+  .oc-sidebar {
+    position: fixed;
+    left: -280px;
+    top: 0;
+    height: 100vh;
+    width: 280px;
+    z-index: 1000;
+    transition: left 0.3s ease;
+    overflow-y: auto;
+    box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+  }
+  .oc-sidebar.show {
+    left: 0;
+  }
+  .oc-sidebar-toggle {
+    display: block !important;
+  }
+  .oc-sidebar-close {
+    display: block !important;
+  }
+  .oc-main {
+    margin-left: 0;
+  }
+
   .oc-navbar { padding: 0 1rem; flex-wrap: wrap; }
   .oc-nav-links {
-    display: none;
-    width: 100%;
-    flex-direction: column;
-    padding: 1rem 0;
-    gap: 0.5rem;
+    display: flex !important;
+    gap: 1rem;
   }
-  .oc-nav-links.active { display: flex; }
-  .oc-nav-links a { padding: 0.5rem 0; }
-  .oc-menu-toggle { display: flex; }
   .oc-nav-right { margin-left: auto; }
   .oc-container { padding: 1rem; }
   .oc-modal { min-width: unset; width: 95vw; }
