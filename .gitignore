@@ -1,0 +1,12 @@
+# 忽略所有内容
+/*
+
+# 但保留以下目录
+!.gitignore
+!.claude/
+
+# Claude 敏感文件（不同步）
+.claude/settings.local.json
+.claude/*/statsig.json
+.claude/projects/*/*.jsonl
+.claude/projects/*/statsig.json
