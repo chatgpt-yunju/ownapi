@@ -13,6 +13,7 @@ const PORT = process.env.PORT || 3020;
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // 信任代理（Nginx）
 app.set('trust proxy', true);

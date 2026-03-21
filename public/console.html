@@ -515,14 +515,9 @@
       try {
         const [info, stats] = await Promise.all([api.getUserInfo(), api.getStats()]);
 
-        // 剩余额度：$2.00 / $10.00（月度配额）
-        const balance = parseFloat(info.balance || 0);
-        const monthlyQuota = info.monthly_quota != null ? parseFloat(info.monthly_quota) : null;
-        if (monthlyQuota != null) {
-          document.getElementById('stat-balance').textContent = `$${balance.toFixed(2)} / $${monthlyQuota.toFixed(2)}`;
-        } else {
-          document.getElementById('stat-balance').textContent = `$${balance.toFixed(2)}`;
-        }
+      // 剩余额度
+      const balance = parseFloat(info.balance || 0);
+      document.getElementById('stat-balance').textContent = `$${balance.toFixed(2)}`;
 
         // 今日调用：3 / 200次
         const todayCalls = stats.today?.calls || 0;
@@ -772,10 +767,12 @@
         grid.innerHTML = pkgs.map((p, i) => `<div class="oc-card oc-pricing-card ${i === 1 ? 'popular' : ''}">
           <h3 style="margin-bottom:0.5rem;">${p.name}</h3>
           <div class="oc-pricing-price">¥${parseFloat(p.price).toFixed(0)}</div>
-          <div class="oc-pricing-unit">${p.type === 'monthly' ? '/月' : p.type === 'yearly' ? '/年' : '一次性'}</div>
+          <div class="oc-pricing-unit">${p.name.includes('年付') ? '/年' : '/月'}</div>
           <ul style="text-align:left;font-size:0.8rem;color:var(--text-secondary);padding-left:1rem;margin:1rem 0;">
             <li>每日限制: ${p.daily_limit || '无限'} 次</li>
-            <li>月度配额: ${p.monthly_quota ? '$' + p.monthly_quota : '无限'}</li>
+            <li>${p.name.includes('年付') ? '年度配额' : '月度配额'}: ${p.monthly_quota ? '$' + p.monthly_quota : '无限'}</li>
+ ${p.price > 0 && !p.name.includes('年付') ? '<li style="color:var(--accent);font-weight:500;">✓ 月付套餐</li>' : ''}
+ ${p.name.includes('年付') ? '<li style="color:var(--accent);font-weight:500;">✓ 年付套餐</li>' : ''}
           </ul>
           ${p.price > 0 ? `<button class="btn-accent" style="width:100%;" onclick="buyPackage(${p.id})">购买</button>` : '<button class="btn-outline" style="width:100%;" disabled>当前方案</button>'}
         </div>`).join('');

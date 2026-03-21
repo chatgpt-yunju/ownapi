@@ -62,10 +62,10 @@ router.get('/info', async (req, res) => {
       [req.user.id, monthStart]
     );
 
-    // 加油包：统计充值记录总额（CNY）
+    // 加油包：统计充值记录总额（只计type='booster'，排除套餐自动发放的recharge）
     const [[boosterStats]] = await db.query(
       `SELECT COALESCE(SUM(amount), 0) as total_purchased_cny
-       FROM balance_logs WHERE user_id = ? AND type IN ('recharge','booster') AND amount > 0`,
+       FROM balance_logs WHERE user_id = ? AND type = 'booster' AND amount > 0`,
       [req.user.id]
     );
 
@@ -90,11 +90,10 @@ router.get('/info', async (req, res) => {
       windowCostLimit = Math.round(windowCostLimit * 100) / 100;
     }
 
-    // 加油包独立余额：从balance_logs中计算booster充值总额 - booster消费总额
-    // 简化处理：booster余额 = 总余额中非套餐部分（暂用0，后续可细化）
-    const boosterBalance = 0;
-    const boosterUsed = 0;
-    const boosterTotal = 0;
+    // 加油包余额统计（套餐配额优先消耗，加油包后消耗）
+    const boosterTotal = boosterPurchasedCNY;
+    const boosterUsed = Math.max(0, monthCost - (monthlyQuota || 0));
+    const boosterBalance = Math.max(0, boosterTotal - boosterUsed);
 
     res.json({
       id: req.user.id,

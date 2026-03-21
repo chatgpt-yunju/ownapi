@@ -420,7 +420,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
     console.log(`[Payment Verify] Order ${out_trade_no} query result:`, JSON.stringify(queryResult));
 
     // 检查支付状态
-    const tradeStatus = queryResult?.alipay_trade_query_response?.trade_status;
+    const tradeStatus = queryResult?.tradeStatus || queryResult?.alipay_trade_query_response?.trade_status;
     if (tradeStatus !== 'TRADE_SUCCESS' && tradeStatus !== 'TRADE_FINISHED') {
       return res.json({
         success: false,
@@ -430,7 +430,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
     }
 
     // 支付成功，执行完成订单逻辑
-    const trade_no = queryResult.alipay_trade_query_response.trade_no;
+    const trade_no = queryResult?.tradeNo || queryResult?.alipay_trade_query_response?.trade_no;
 
     const conn = await db.getConnection();
     try {
@@ -642,7 +642,7 @@ router.post('/create-recharge', async (req, res) => {
     const rawResult = await alipaySdk.pageExecute(apiMethod, bizParams);
 
     if (mobile) {
-      return res.json({ mobile: true, tradeNo: outTradeNo, payUrl: rawResult.includes('<form') ? rawResult.match(/action="([^"]+)"/)[1].replace(/&amp;/g, '&') : rawResult, out_trade_no: outTradeNo, amount: packagePrice, need_pay: needPay });
+      return res.json({ mobile: true, tradeNo: outTradeNo, payUrl: rawResult.includes('<form') ? rawResult.match(/action="([^"]+)"/)[1].replace(/&amp;/g, '&') : rawResult, out_trade_no: outTradeNo, amount: payAmount, need_pay: payAmount });
     }
 
     // PC端：提取纯 URL

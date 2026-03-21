@@ -3,16 +3,15 @@ const API_BASE = '/api';
 const SSO_LOGIN_URL = 'https://yunjunet.cn/login?return_url=' + encodeURIComponent(window.location.origin + '/console.html');
 
 const api = {
-  // 优先使用主站的 token，如果没有则使用 openclaw_token
-  token: localStorage.getItem('token') || localStorage.getItem('openclaw_token'),
+  // 动态获取 token，每次请求时重新读取
+  get token() { return localStorage.getItem('token') || localStorage.getItem('openclaw_token'); },
+  set token(t) { localStorage.setItem('token', t); localStorage.setItem('openclaw_token', t); },
 
   setToken(t) {
-    this.token = t;
     localStorage.setItem('token', t);
     localStorage.setItem('openclaw_token', t);
   },
   clearToken() {
-    this.token = null;
     localStorage.removeItem('token');
     localStorage.removeItem('openclaw_token');
   },
@@ -97,6 +96,7 @@ const api = {
   adminCreateProvider(data) { return this.post('/admin/providers', data); },
   adminUpdateProvider(id, data) { return this.put('/admin/providers/' + id, data); },
   adminDeleteProvider(id) { return this.del('/admin/providers/' + id); },
+  adminGetUserDetail(userId) { return this.get('/admin/users/' + userId); },
 };
 
 // Check SSO callback token
@@ -160,7 +160,8 @@ function formatDate(d) {
 
 // Auth guard
 function requireAuth() {
-  if (!api.token) {
+  const token = localStorage.getItem('token') || localStorage.getItem('openclaw_token');
+  if (!token) {
     window.location.href = SSO_LOGIN_URL;
     return false;
   }

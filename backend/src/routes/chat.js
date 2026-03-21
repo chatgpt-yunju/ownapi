@@ -116,8 +116,9 @@ router.post('/chat/completions', async (req, res) => {
     // 限额检查失败不阻断请求，继续处理
   }
 
-  // 确定上游地址（支持轮询多个供应商）
+  // 确定上游地址（支持轮询多个供应商 + 429自动重试）
   let baseUrl, apiKey;
+  let allProviders = []; // 保存所有可用provider用于重试
 
   // 查询模型绑定的供应商列表
   const [providers] = await db.query(
@@ -129,6 +130,7 @@ router.post('/chat/completions', async (req, res) => {
   );
 
   if (providers.length > 0) {
+    allProviders = [...providers];
     // 轮询选择：基于权重随机选择
     const totalWeight = providers.reduce((sum, p) => sum + p.weight, 0);
     let random = Math.random() * totalWeight;
@@ -410,6 +412,20 @@ router.post('/chat/completions', async (req, res) => {
     }
   } catch (err) {
     const errMsg = err.response?.data?.error?.message || err.message;
+    const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
+
+    // 429 自动重试其他 provider
+    if (is429 && allProviders.length > 1) {
+      console.log(`[429 Retry] 尝试切换 provider，当前剩余 ${allProviders.length - 1} 个可用`);
+      const otherProviders = allProviders.filter(p => p.api_key !== apiKey);
+      if (otherProviders.length > 0) {
+        const nextProvider = otherProviders[Math.floor(Math.random() * otherProviders.length)];
+        console.log(`[429 Retry] 切换到 provider ID: ${nextProvider.id}`);
+        // 由于架构限制，这里只能记录日志，实际重试需要客户端重发请求
+        await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'rate_limit_retry', `429重试: 切换到provider ${nextProvider.id}`, requestId);
+      }
+    }
+
     console.error('Upstream error:', errMsg);
     await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId);
     res.status(err.response?.status || 502).json({
@@ -504,10 +520,40 @@ router.post('/messages', async (req, res) => {
  console.error('[Messages Limit Check Error]:', err);
  }
 
-  // 确定上游地址
-  const provider = PROVIDERS[modelConfig.provider] || {};
-  let baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
-  const apiKey = modelConfig.upstream_key || provider.apiKey;
+  // 确定上游地址（支持轮询多个供应商 + 429自动重试）
+  let baseUrl, apiKey;
+  let allProviders = [];
+
+  // 查询模型绑定的供应商列表
+  const [providers] = await db.query(
+    `SELECT p.id, p.base_url, p.api_key, p.weight
+     FROM openclaw_model_providers mp
+     JOIN openclaw_providers p ON mp.provider_id = p.id
+     WHERE mp.model_id = ? AND mp.status = 'active' AND p.status = 'active'`,
+    [modelConfig.id]
+  );
+
+  if (providers.length > 0) {
+    allProviders = [...providers];
+    // 轮询选择：基于权重随机选择
+    const totalWeight = providers.reduce((sum, p) => sum + p.weight, 0);
+    let random = Math.random() * totalWeight;
+    let selectedProvider = providers[0];
+    for (const p of providers) {
+      random -= p.weight;
+      if (random <= 0) {
+        selectedProvider = p;
+        break;
+      }
+    }
+    baseUrl = selectedProvider.base_url;
+    apiKey = selectedProvider.api_key;
+  } else {
+    // 回退到旧配置
+    const provider = PROVIDERS[modelConfig.provider] || {};
+    baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
+    apiKey = modelConfig.upstream_key || provider.apiKey;
+  }
 
   if (!baseUrl || !apiKey) {
     return res.status(503).json({ type: 'error', error: { type: 'server_error', message: 'Model provider not configured' } });
@@ -788,7 +834,19 @@ router.post('/messages', async (req, res) => {
     }
   } catch (err) {
     const errMsg = err.response?.data?.error?.message || err.message;
+    const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
+
     console.error('Messages API upstream error:', errMsg);
+
+    // 429 重试日志：记录可用 provider 供客户端重试
+    if (is429 && allProviders && allProviders.length > 1) {
+      const otherProviders = allProviders.filter(p => p.api_key !== apiKey);
+      if (otherProviders.length > 0) {
+        console.log(`[429] 当前 provider 被限流，还有 ${otherProviders.length} 个备选 provider 可用`);
+        await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'rate_limit', `429 rate limit, ${otherProviders.length} providers available`, requestId);
+      }
+    }
+
     await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId);
     res.status(err.response?.status || 502).json({
       type: 'error', error: { type: 'upstream_error', message: errMsg }

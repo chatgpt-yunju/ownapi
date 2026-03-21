@@ -75,12 +75,12 @@ router.get('/statistics', async (req, res) => {
     const [models] = await db.query(
       `SELECT
         model,
-        COUNT(*) as count,
+        COUNT(*) as calls,
         COALESCE(SUM(total_cost), 0) as cost
        FROM openclaw_call_logs
        WHERE user_id = ?
        GROUP BY model
-       ORDER BY count DESC
+       ORDER BY calls DESC
        LIMIT 10`,
       [req.user.id]
     );
@@ -100,12 +100,12 @@ router.get('/statistics', async (req, res) => {
     );
 
     res.json({
-      total_calls: total.total_calls,
-      total_tokens: total.total_tokens,
-      total_cost: total.total_cost,
-      avg_cost: total.avg_cost,
-      models,
-      trend
+      total_calls: Number(total.total_calls),
+      total_tokens: Number(total.total_tokens),
+      total_cost: Number(total.total_cost),
+      avg_cost: Number(total.avg_cost),
+      models: models.map(m => ({ ...m, calls: Number(m.calls), cost: Number(m.cost) })),
+      trend: trend.map(t => ({ ...t, calls: Number(t.calls), tokens: Number(t.tokens), cost: Number(t.cost) }))
     });
   } catch (err) {
     console.error(err);

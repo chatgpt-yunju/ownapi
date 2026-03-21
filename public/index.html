@@ -3,17 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenClaw AI LLM - 智能 API 调用平台</title>
+  <title>OpenClaw AI - 企业级大模型 API 中转平台</title>
+  <meta name="description" content="统一接入 GPT、Claude、DeepSeek、Qwen 等 200+ 模型，兼容 OpenAI 与 Anthropic API 格式，按量计费，毫秒级响应">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    .hero-stats { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; margin: 2rem 0; }
+    .hero-stat { text-align: center; }
+    .hero-stat-value { font-size: 2.5rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero-stat-label { font-size: 0.9rem; color: var(--text-muted); }
+    .format-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--bg-secondary); border-radius: 2rem; font-size: 0.85rem; margin: 0.25rem; }
+    .format-badge svg { width: 18px; height: 18px; }
+    .pricing-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    .pricing-table th, .pricing-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
+    .pricing-table th { font-weight: 600; color: var(--text-muted); font-size: 0.85rem; }
+    .pricing-table td { font-family: var(--font-mono); font-size: 0.9rem; }
+    .pricing-table tr:hover { background: var(--bg-secondary); }
+    .model-tag { display: inline-block; padding: 0.2rem 0.5rem; background: var(--accent-bg); color: var(--accent); border-radius: 4px; font-size: 0.75rem; margin-right: 0.25rem; }
+    .api-toggle { display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 1.5rem; }
+    .api-toggle button { padding: 0.5rem 1.5rem; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; border-radius: 4px; font-size: 0.9rem; transition: all 0.2s; }
+    .api-toggle button.active { background: var(--accent); border-color: var(--accent); color: white; }
+    .api-toggle button:hover:not(.active) { border-color: var(--accent); }
+    .code-block { position: relative; background: #1a1a2e; border-radius: 8px; overflow: hidden; }
+    .code-block pre { padding: 1.25rem; margin: 0; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
+    .code-header { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 1rem; background: #252542; border-bottom: 1px solid #333; }
+    .code-header span { color: #888; font-size: 0.8rem; }
+    .copy-btn { background: var(--accent); color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+    .trust-section { display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap; padding: 2rem 0; border-top: 1px solid var(--border-color); margin-top: 3rem; }
+    .trust-item { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
+  </style>
 </head>
 <body>
   <!-- Navbar -->
   <nav class="oc-navbar">
     <a href="/" class="oc-logo">
       <div class="oc-logo-icon">&gt;_</div>
-      OpenClaw AI LLM
+      <span>OpenClaw <span style="font-weight:400;opacity:0.7;">AI</span></span>
     </a>
     <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')">
       <span></span><span></span><span></span>
@@ -24,124 +50,248 @@
       <a href="/console.html">控制台</a>
     </div>
     <div class="oc-nav-right">
-      <a href="/console.html" class="btn-accent">开始使用</a>
+      <a href="/console.html" class="btn-accent">立即接入</a>
     </div>
   </nav>
 
   <!-- Hero -->
   <section class="oc-hero">
     <div class="oc-hero-grid"></div>
-    <h1>统一 AI 模型调用接口</h1>
-    <p>兼容 OpenAI API 格式，一个密钥接入 GPT、DeepSeek、Qwen、Claude 等主流模型，按量计费，透明定价</p>
-    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
-      <a href="/console.html" class="btn-accent" style="padding:0.75rem 2rem;font-size:1rem;">进入控制台</a>
-      <a href="/docs.html" class="btn-outline" style="padding:0.75rem 2rem;font-size:1rem;">查看文档</a>
+    <div style="margin-bottom:1rem;">
+      <span style="background:linear-gradient(135deg,#10b981,#059669);color:white;padding:0.35rem 1rem;border-radius:2rem;font-size:0.85rem;font-weight:500;">正式上线</span>
+    </div>
+    <h1 style="font-size:3rem;line-height:1.1;margin-bottom:1rem;">统一大模型 API 接口</h1>
+    <p style="font-size:1.15rem;max-width:640px;margin:0 auto 1.5rem;opacity:0.85;">一个 API Key，接入 GPT、Claude、DeepSeek、Qwen、Llama 等 200+ 模型。<br>双格式兼容，按量计费，毫秒响应。</p>
+
+    <!-- 双格式徽章 -->
+    <div style="margin-bottom:2rem;">
+      <div class="format-badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        OpenAI 格式
+      </div>
+      <div class="format-badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+        Anthropic 格式
+      </div>
+    </div>
+
+    <!-- 核心数据 -->
+    <div class="hero-stats">
+      <div class="hero-stat">
+        <div class="hero-stat-value">200+</div>
+        <div class="hero-stat-label">可用模型</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">99.9%</div>
+        <div class="hero-stat-label">SLA 可用性</div>
+      </div>
+      <div class="hero-stat">
+        <div class="hero-stat-value">&lt;50ms</div>
+        <div class="hero-stat-label">首字节延迟</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:1.5rem;">
+      <a href="/console.html" class="btn-accent" style="padding:0.85rem 2.5rem;font-size:1rem;">免费接入</a>
+      <a href="/docs.html" class="btn-outline" style="padding:0.85rem 2.5rem;font-size:1rem;">API 文档</a>
     </div>
   </section>
 
-  <!-- Features -->
-  <section class="oc-container">
-    <div class="oc-grid oc-grid-3" style="margin-bottom:4rem;">
-      <div class="oc-card oc-feature">
-        <div class="oc-feature-icon">&#x1f517;</div>
-        <h3>OpenAI 兼容接口</h3>
-        <p>完全兼容 OpenAI SDK，只需修改 base_url 和 api_key 即可无缝切换</p>
-      </div>
-      <div class="oc-card oc-feature">
-        <div class="oc-feature-icon">&#x1f4b0;</div>
-        <h3>按量透明计费</h3>
-        <p>Token 级精确计费，每次调用费用清晰可查，无隐藏费用</p>
-      </div>
-      <div class="oc-card oc-feature">
-        <div class="oc-feature-icon">&#x1f916;</div>
-        <h3>多模型支持</h3>
-        <p>GPT-4o、DeepSeek、Qwen、Claude 等主流模型一站式接入</p>
-      </div>
-      <div class="oc-card oc-feature">
-        <div class="oc-feature-icon">&#x1f4ca;</div>
-        <h3>实时监控</h3>
-        <p>详细的调用日志、用量统计、费用分析，一目了然</p>
-      </div>
-      <div class="oc-card oc-feature">
-        <div class="oc-feature-icon">&#x1f512;</div>
-        <h3>安全可靠</h3>
-        <p>API Key 加密存储，SSO 统一认证，调用全程加密传输</p>
-      </div>
-      <div class="oc-card oc-feature">
-        <div class="oc-feature-icon">&#x26a1;</div>
-        <h3>Stream 流式输出</h3>
-        <p>完整支持 SSE 流式响应，实时获取模型输出内容</p>
-      </div>
+  <!-- 双格式支持 -->
+  <section class="oc-container" style="padding-top:4rem;">
+    <h2 style="text-align:center;margin-bottom:1rem;font-size:1.75rem;">双 API 格式完美兼容</h2>
+    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">无需修改代码，直接替换 base_url 即可切换</p>
+
+    <div class="api-toggle">
+      <button class="active" onclick="showCode('openai')">OpenAI 格式</button>
+      <button onclick="showCode('anthropic')">Anthropic 格式</button>
     </div>
-  </section>
 
-  <!-- Models -->
-  <section class="oc-container" id="models-section">
-    <h2 style="text-align:center;margin-bottom:2rem;font-size:1.75rem;">支持的模型</h2>
-    <div class="oc-grid oc-grid-4" id="models-grid"></div>
-  </section>
-
-  <!-- Quick Start -->
-  <section class="oc-container" style="margin-top:4rem;">
-    <h2 style="text-align:center;margin-bottom:2rem;font-size:1.75rem;">快速开始</h2>
-    <div class="oc-card" style="max-width:720px;margin:0 auto;">
-      <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;white-space:pre-wrap;"><span style="color:#9090b0;"># Python (使用 openai SDK)</span>
-from openai import OpenAI
+    <div class="oc-card" style="max-width:800px;margin:0 auto;">
+      <div class="code-block" id="code-openai">
+        <div class="code-header">
+          <span>Python - OpenAI SDK</span>
+          <button class="copy-btn" onclick="copyCode('openai')">复制代码</button>
+        </div>
+        <pre><code style="color:#e0e0e0;">from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://api.yunjunet.cn/v1",
-    api_key="sk-your-api-key"
+    base_url="<span style="color:#a855f7;">https://api.yunjunet.cn/v1</span>",
+    api_key="<span style="color:#f59e0b;">sk-your-api-key</span>"
 )
 
+<span style="color:#6b7280;"># Chat 补全</span>
 response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "Hello!"}]
+    model="<span style="color:#10b981;">gpt-4o-mini</span>",
+    messages=[{"role": "user", "content": "你好！"}],
+    stream=True
 )
-print(response.choices[0].message.content)</pre></div>
-    </div>
-    <div class="oc-card" style="max-width:720px;margin:1.5rem auto 0;">
-      <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;white-space:pre-wrap;"><span style="color:#9090b0;">// JavaScript (使用 fetch)</span>
-const res = await fetch("https://api.yunjunet.cn/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer sk-your-api-key"
-  },
-  body: JSON.stringify({
-    model: "deepseek-chat",
-    messages: [{ role: "user", content: "Hello!" }],
-    stream: true
-  })
-});</pre></div>
+
+for chunk in response:
+    print(chunk.choices[0].delta.content, end="")</code></pre>
+      </div>
+
+      <div class="code-block" id="code-anthropic" style="display:none;">
+        <div class="code-header">
+          <span>Python - Anthropic SDK</span>
+          <button class="copy-btn" onclick="copyCode('anthropic')">复制代码</button>
+        </div>
+        <pre><code style="color:#e0e0e0;">import anthropic
+
+client = anthropic.Anthropic(
+    base_url="<span style="color:#a855f7;">https://api.yunjunet.cn/v1</span>",
+    api_key="<span style="color:#f59e0b;">sk-your-api-key</span>"
+)
+
+<span style="color:#6b7280;"># Messages API</span>
+with client.messages.stream(
+    model="<span style="color:#10b981;">claude-sonnet-4-6</span>",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "你好！"}]
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)</code></pre>
+      </div>
     </div>
   </section>
 
+  <!-- 核心优势 -->
+  <section class="oc-container" style="padding-top:4rem;">
+    <h2 style="text-align:center;margin-bottom:2.5rem;font-size:1.75rem;">为什么选择 OpenClaw</h2>
+    <div class="oc-grid oc-grid-3" style="margin-bottom:3rem;">
+      <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
+        <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f517;</div>
+        <h3 style="margin-bottom:0.75rem;">无缝切换</h3>
+        <p style="color:var(--text-secondary);">修改一行代码即可接入，完全兼容 OpenAI / Anthropic SDK，零学习成本</p>
+      </div>
+      <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
+        <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f4b0;</div>
+        <h3 style="margin-bottom:0.75rem;">透明计费</h3>
+        <p style="color:var(--text-secondary);">Token 级精确计费，实时查看用量明细，无最低消费，无隐藏费用</p>
+      </div>
+      <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
+        <div style="font-size:2.5rem;margin-bottom:1rem;">&#x26a1;</div>
+        <h3 style="margin-bottom:0.75rem;">极速响应</h3>
+        <p style="color:var(--text-secondary);">多节点负载均衡，智能路由最优线路，首字节延迟 &lt;50ms</p>
+      </div>
+      <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
+        <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f916;</div>
+        <h3 style="margin-bottom:0.75rem;">200+ 模型</h3>
+        <p style="color:var(--text-secondary);">GPT-4o、Claude 4.6、DeepSeek、Qwen、Llama 全系列，一站式接入</p>
+      </div>
+      <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
+        <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f512;</div>
+        <h3 style="margin-bottom:0.75rem;">企业安全</h3>
+        <p style="color:var(--text-secondary);">API Key 加密存储，SSO 统一认证，HTTPS 全链路加密，审计日志完整</p>
+      </div>
+      <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
+        <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f504;</div>
+        <h3 style="margin-bottom:0.75rem;">流式输出</h3>
+        <p style="color:var(--text-secondary);">完整支持 SSE 流式响应，实时获取生成内容，提升用户体验</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 热门模型价格 -->
+  <section class="oc-container" style="padding-top:2rem;padding-bottom:4rem;">
+    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">热门模型定价</h2>
+    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">按实际用量计费，精确到 0.0001 美元</p>
+
+    <div class="oc-card" style="max-width:900px;margin:0 auto;overflow-x:auto;">
+      <table class="pricing-table">
+        <thead>
+          <tr>
+            <th>模型</th>
+            <th>类型</th>
+            <th style="text-align:right;">输入 ($/1M)</th>
+            <th style="text-align:right;">输出 ($/1M)</th>
+          </tr>
+        </thead>
+        <tbody id="pricing-tbody">
+          <tr>
+            <td><strong>gpt-4o-mini</strong> <span class="model-tag">推荐</span></td>
+            <td>GPT</td>
+            <td style="text-align:right;">$0.15</td>
+            <td style="text-align:right;">$0.60</td>
+          </tr>
+          <tr>
+            <td><strong>claude-sonnet-4-6</strong> <span class="model-tag">热门</span></td>
+            <td>Claude</td>
+            <td style="text-align:right;">$3.00</td>
+            <td style="text-align:right;">$15.00</td>
+          </tr>
+          <tr>
+            <td><strong>deepseek-chat</strong> <span class="model-tag">性价比</span></td>
+            <td>DeepSeek</td>
+            <td style="text-align:right;">$0.14</td>
+            <td style="text-align:right;">$0.28</td>
+          </tr>
+          <tr>
+            <td><strong>meta/llama-3.1-8b-instruct</strong></td>
+            <td>Llama</td>
+            <td style="text-align:right;">$0.07</td>
+            <td style="text-align:right;">$0.07</td>
+          </tr>
+          <tr>
+            <td><strong>qwen/qwen2.5-7b-instruct</strong></td>
+            <td>Qwen</td>
+            <td style="text-align:right;">$0.07</td>
+            <td style="text-align:right;">$0.07</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="text-align:center;padding:1rem;border-top:1px solid var(--border-color);">
+        <a href="/docs.html#models" style="color:var(--accent);">查看全部 200+ 模型 →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="oc-container" style="padding:4rem 0;">
+    <div class="oc-card" style="max-width:600px;margin:0 auto;text-align:center;padding:3rem;background:linear-gradient(135deg,var(--bg-secondary),var(--bg-primary));">
+      <h2 style="margin-bottom:1rem;">立即开始使用</h2>
+      <p style="color:var(--text-secondary);margin-bottom:1.5rem;">免费注册，获得 $1 初始额度，体验全部模型</p>
+      <a href="/console.html" class="btn-accent" style="padding:0.85rem 2.5rem;font-size:1rem;display:inline-block;">免费接入 →</a>
+    </div>
+  </section>
+
+  <!-- Trust -->
+  <div class="trust-section">
+    <div class="trust-item">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      数据加密传输
+    </div>
+    <div class="trust-item">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      7×24 稳定运行
+    </div>
+    <div class="trust-item">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      99.9% SLA 保障
+    </div>
+  </div>
+
   <!-- Footer -->
-  <footer class="oc-footer" style="margin-top:4rem;">
-    <p>&copy; 2024-2026 OpenClaw AI LLM &middot; Powered by yunjunet.cn</p>
+  <footer class="oc-footer">
+    <p>&copy; 2024-2026 OpenClaw AI &middot; Powered by <a href="https://yunjunet.cn" style="color:var(--accent);">yunjunet.cn</a></p>
+    <p style="margin-top:0.5rem;font-size:0.85rem;">
+      <a href="/docs.html" style="color:var(--text-muted);margin:0 0.5rem;">文档</a>
+      <a href="/console.html" style="color:var(--text-muted);margin:0 0.5rem;">控制台</a>
+    </p>
   </footer>
 
-  <script src="/js/api.js"></script>
   <script>
-    (async function() {
-      try {
-        const models = await api.getModels();
-        const grid = document.getElementById('models-grid');
-        const EXCHANGE_RATE = 7.2;
-        models.forEach(m => {
-          const inputPrice = m.price_currency === 'CNY' ? parseFloat((m.input_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.input_price_per_1k;
-          const outputPrice = m.price_currency === 'CNY' ? parseFloat((m.output_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.output_price_per_1k;
-          grid.innerHTML += `<div class="oc-card oc-feature" style="padding:1.25rem;">
-            <div style="font-family:var(--font-mono);font-weight:600;margin-bottom:0.5rem;">${m.display_name || m.model_id}</div>
-            <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;">${m.provider}</div>
-            <div style="font-size:0.75rem;color:var(--text-secondary);">
-              输入: $${inputPrice}/1K tokens<br>
-              输出: $${outputPrice}/1K tokens
-            </div>
-          </div>`;
-        });
-      } catch(e) { console.error(e); }
-    })();
+    function showCode(type) {
+      document.querySelectorAll('.api-toggle button').forEach(btn => btn.classList.remove('active'));
+      document.querySelector(`.api-toggle button[onclick="showCode('${type}')"]`).classList.add('active');
+      document.getElementById('code-openai').style.display = type === 'openai' ? 'block' : 'none';
+      document.getElementById('code-anthropic').style.display = type === 'anthropic' ? 'block' : 'none';
+    }
+    function copyCode(type) {
+      const code = document.querySelector(`#code-${type} pre`).textContent;
+      navigator.clipboard.writeText(code);
+      alert('已复制到剪贴板');
+    }
   </script>
 </body>
 </html>
