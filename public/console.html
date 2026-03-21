@@ -69,14 +69,15 @@
 <!-- 三个独立卡片 -->
 <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1.5rem;">
 
-<!-- 时间窗口限制 (5小时) -->
+<!-- 周期配额使用 -->
 <div class="oc-card" style="flex:1;min-width:280px;padding:1.25rem;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
-<span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">时间窗口限制 (5小时)</span>
-<span id="dash-window-reset" style="font-size:0.7rem;color:var(--text-muted);">窗口将于 --:-- 重置</span>
+<span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">周期配额使用</span>
+<span id="dash-window-reset" style="font-size:0.7rem;color:var(--text-muted);"></span>
 </div>
-<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;">
+<div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
 当前套餐：<span id="dash-pkg-name" class="badge-model" style="font-size:0.7rem;padding:0.15rem 0.5rem;">-</span>
+<span id="dash-rate-limit" style="font-size:0.7rem;color:var(--text-muted);background:rgba(108,92,231,0.1);padding:0.15rem 0.5rem;border-radius:4px;"></span>
 </div>
 <!-- 请求次数 -->
 <div style="margin-bottom:1rem;">
