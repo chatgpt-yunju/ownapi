@@ -87,3 +87,26 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`OpenClaw AI Backend running on port ${PORT}`);
 });
+
+// 每天凌晨 3 点清理 30 天前的请求日志（节省磁盘空间）
+const db = require('./src/config/db');
+function scheduleCleanup() {
+  const now = new Date();
+  const next = new Date();
+  next.setHours(3, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  setTimeout(async function run() {
+    try {
+      const [result] = await db.query(
+        'DELETE FROM openclaw_request_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)'
+      );
+      if (result.affectedRows > 0) {
+        console.log(`[Cleanup] 已清理 ${result.affectedRows} 条超过30天的请求日志`);
+      }
+    } catch (e) {
+      console.error('[Cleanup] 清理失败:', e.message);
+    }
+    setTimeout(run, 24 * 60 * 60 * 1000); // 每24小时执行一次
+  }, next - now);
+}
+scheduleCleanup();

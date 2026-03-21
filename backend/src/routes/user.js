@@ -1,9 +1,13 @@
 const router = require('express').Router();
 const db = require('../config/db');
+const { ensureQuota } = require('../middleware/apiKeyAuth');
 
 // 获取用户信息
 router.get('/info', async (req, res) => {
   try {
+    // 确保 openclaw_quota 行存在，新用户首次访问仪表盘时自动初始化配额
+    await ensureQuota(req.user.id);
+
     const [[quota]] = await db.query(
       'SELECT balance FROM openclaw_quota WHERE user_id = ?',
       [req.user.id]
@@ -129,7 +133,7 @@ router.get('/info', async (req, res) => {
 // 获取余额
 router.get('/balance', async (req, res) => {
   try {
-    const [[quota]] = await db.query('SELECT balance FROM user_quota WHERE user_id = ?', [req.user.id]);
+    const [[quota]] = await db.query('SELECT balance FROM openclaw_quota WHERE user_id = ?', [req.user.id]);
     res.json({ balance: quota?.balance ?? 0 });
   } catch (err) {
     res.status(500).json({ error: '获取余额失败' });

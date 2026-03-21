@@ -221,6 +221,10 @@ router.post('/chat/completions', async (req, res) => {
       let fullContent = '';
       let promptTokens = 0;
       let completionTokens = 0;
+      let cacheWriteTokens = 0;
+      let cacheReadTokens = 0;
+      let cachedTokens = 0;
+      let streamUsageAnth = {}; // 完整 usage 对象，供 end 回调使用
       let tokenCountIsEstimated = false;
       let anthropicBuffer = ''; // 缓存 Anthropic SSE 数据
 
@@ -245,10 +249,14 @@ router.post('/chat/completions', async (req, res) => {
                 const parsed = JSON.parse(data);
 
                 if (parsed.type === 'message_start') {
-                  promptTokens = parsed.message?.usage?.input_tokens || 0;
-                  console.log(`[Anthropic Stream] message_start: input_tokens=${promptTokens}`);
+                  streamUsageAnth = parsed.message?.usage || {};
+                  promptTokens    = streamUsageAnth.input_tokens || 0;
+                  cacheWriteTokens = streamUsageAnth.cache_creation_input_tokens || 0;
+                  cacheReadTokens  = streamUsageAnth.cache_read_input_tokens || 0;
+                  console.log(`[Anthropic Stream] message_start: input=${promptTokens} cache_write=${cacheWriteTokens} cache_read=${cacheReadTokens}`);
                 } else if (parsed.type === 'content_block_delta') {
-                  const delta = parsed.delta?.text || '';
+                  // 只转发 text_delta，跳过 thinking_delta
+                  const delta = parsed.delta?.type === 'text_delta' ? (parsed.delta?.text || '') : '';
                   if (delta) {
                     fullContent += delta;
                     // 发送 OpenAI 格式的 chunk
@@ -299,8 +307,9 @@ router.post('/chat/completions', async (req, res) => {
             try {
               const parsed = JSON.parse(data);
               if (parsed.usage) {
-                promptTokens = parsed.usage.prompt_tokens || promptTokens;
+                promptTokens     = parsed.usage.prompt_tokens || promptTokens;
                 completionTokens = parsed.usage.completion_tokens || completionTokens;
+                cachedTokens     = parsed.usage.prompt_tokens_details?.cached_tokens || cachedTokens;
               }
               const delta = parsed.choices?.[0]?.delta?.content;
               if (delta) fullContent += delta;
@@ -322,14 +331,19 @@ router.post('/chat/completions', async (req, res) => {
         }
 
         const tokenSource = tokenCountIsEstimated ? 'estimated' : 'upstream';
-        console.log(`[Stream End] Model: ${model}, Prompt: ${promptTokens}, Completion: ${completionTokens}, Source: ${tokenSource}`);
+        const effectivePrompt = tokenCountIsEstimated ? promptTokens
+          : isAnthropicAPI ? calcEffectiveInputTokens(streamUsageAnth, true)
+          : calcEffectiveInputTokens({ prompt_tokens: promptTokens, prompt_tokens_details: { cached_tokens: cachedTokens } }, false);
+        console.log(`[Stream End] Model: ${model}, Prompt: ${promptTokens}, Effective: ${effectivePrompt.toFixed(1)}, Completion: ${completionTokens}, Source: ${tokenSource}`);
 
-        const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+        const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
         if (result.success) {
           await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, tokenSource);
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
         } else {
           await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, tokenSource);
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
           console.error(`[Billing] Stream billing failed for user ${req.apiUserId}, cost: ${cost}, balance: ${result.balance}`);
         }
       });
@@ -338,6 +352,7 @@ router.post('/chat/completions', async (req, res) => {
         console.error('Stream error:', err);
         res.end();
         await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', err.message, requestId);
+        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, null);
       });
 
     } else {
@@ -355,11 +370,12 @@ router.post('/chat/completions', async (req, res) => {
         console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage));
         promptTokens = data.usage?.input_tokens || estimateTokens(messages);
         completionTokens = data.usage?.output_tokens || 0;
-        responseContent = data.content?.[0]?.text || '';
-        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Completion: ${completionTokens}, Currency: ${modelConfig.price_currency || 'CNY'}`);
+        responseContent = extractTextFromContent(data.content);
+        const effectivePrompt1 = calcEffectiveInputTokens(data.usage, true);
+        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Effective: ${effectivePrompt1.toFixed(1)}, Completion: ${completionTokens}`);
 
         // 转换为 OpenAI 格式返回
-        const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+        const cost = await calculateCost(effectivePrompt1, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
 
         if (!result.success) {
@@ -368,6 +384,7 @@ router.post('/chat/completions', async (req, res) => {
         }
 
         await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, responseContent);
 
         res.json({
           id: requestId,
@@ -386,9 +403,10 @@ router.post('/chat/completions', async (req, res) => {
         console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage));
         promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
         completionTokens = data.usage?.completion_tokens || estimateTokens(data.choices?.[0]?.message?.content || '');
-        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Completion: ${completionTokens}`);
+        const effectivePrompt2 = calcEffectiveInputTokens(data.usage, false);
+        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Effective: ${effectivePrompt2.toFixed(1)}, Completion: ${completionTokens}`);
 
-        const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+        const cost = await calculateCost(effectivePrompt2, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
 
         // 扣费
         const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
@@ -398,6 +416,7 @@ router.post('/chat/completions', async (req, res) => {
         }
 
         await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, data.choices?.[0]?.message?.content || '');
 
         // 统一返回格式
         res.json({
@@ -591,14 +610,17 @@ router.post('/messages', async (req, res) => {
         res.setHeader('X-Request-Id', requestId);
 
         let promptTokens = 0, completionTokens = 0;
+        let cacheWriteTokens5 = 0, cacheReadTokens5 = 0;
+        let streamUsage5 = {};
         let sseBuffer = '';
+        let fullContent = '';
 
         upstreamRes.data.on('data', (chunk) => {
           const text = chunk.toString();
           // 直接转发 SSE 给客户端
           res.write(text);
 
-          // 解析 token usage
+          // 解析 token usage 和内容
           sseBuffer += text;
           const lines = sseBuffer.split('\n');
           sseBuffer = lines.pop() || '';
@@ -607,9 +629,15 @@ router.post('/messages', async (req, res) => {
             try {
               const parsed = JSON.parse(line.slice(6));
               if (parsed.type === 'message_start') {
-                promptTokens = parsed.message?.usage?.input_tokens || 0;
+                streamUsage5      = parsed.message?.usage || {};
+                promptTokens      = streamUsage5.input_tokens || 0;
+                cacheWriteTokens5 = streamUsage5.cache_creation_input_tokens || 0;
+                cacheReadTokens5  = streamUsage5.cache_read_input_tokens || 0;
               } else if (parsed.type === 'message_delta') {
                 completionTokens = parsed.usage?.output_tokens || 0;
+              } else if (parsed.type === 'content_block_delta') {
+                // 只累积文本内容，跳过 thinking_delta
+                if (parsed.delta?.type === 'text_delta') fullContent += parsed.delta?.text || '';
               }
             } catch (e) { /* ignore */ }
           }
@@ -618,16 +646,21 @@ router.post('/messages', async (req, res) => {
         upstreamRes.data.on('end', async () => {
           res.end();
           if (!promptTokens) promptTokens = estimateTokens(messages);
-          if (!completionTokens) completionTokens = estimateTokens('');
-          const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+          if (!completionTokens) completionTokens = estimateTokens(fullContent);
+          const effectivePrompt5 = promptTokens
+            ? calcEffectiveInputTokens(streamUsage5, true)
+            : promptTokens;
+          const cost = await calculateCost(effectivePrompt5, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
           await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
           await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
         });
 
         upstreamRes.data.on('error', async (err) => {
           console.error('Anthropic stream error:', err);
           res.end();
           await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', err.message, requestId);
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
         });
 
       } else {
@@ -637,8 +670,9 @@ router.post('/messages', async (req, res) => {
 
         const promptTokens = data.usage?.input_tokens || estimateTokens(messages);
         const completionTokens = data.usage?.output_tokens || 0;
+        const effectivePrompt6 = calcEffectiveInputTokens(data.usage, true);
 
-        const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+        const cost = await calculateCost(effectivePrompt6, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
 
         if (!result.success) {
@@ -647,6 +681,7 @@ router.post('/messages', async (req, res) => {
         }
 
         await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+        await saveRequestDetail(requestId, req.apiUserId, model, messages, system, extractTextFromContent(data.content));
 
         // 返回 Anthropic 格式，替换 id 和 model
         data.id = requestId;
@@ -686,6 +721,7 @@ router.post('/messages', async (req, res) => {
         res.setHeader('X-Request-Id', requestId);
 
         let promptTokens = 0, completionTokens = 0;
+        let cachedTokens7 = 0;
         let fullContent = '';
         let sseBuffer = '';
         let contentBlockStarted = false;
@@ -715,8 +751,9 @@ router.post('/messages', async (req, res) => {
             try {
               const parsed = JSON.parse(data);
               if (parsed.usage) {
-                promptTokens = parsed.usage.prompt_tokens || promptTokens;
+                promptTokens     = parsed.usage.prompt_tokens || promptTokens;
                 completionTokens = parsed.usage.completion_tokens || completionTokens;
+                cachedTokens7    = parsed.usage.prompt_tokens_details?.cached_tokens || cachedTokens7;
               }
 
               const choice = parsed.choices?.[0];
@@ -776,15 +813,20 @@ router.post('/messages', async (req, res) => {
           res.end();
           if (!promptTokens) promptTokens = estimateTokens(messages);
           if (!completionTokens) completionTokens = estimateTokens(fullContent);
-          const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+          const effectivePrompt7 = promptTokens
+            ? calcEffectiveInputTokens({ prompt_tokens: promptTokens, prompt_tokens_details: { cached_tokens: cachedTokens7 } }, false)
+            : promptTokens;
+          const cost = await calculateCost(effectivePrompt7, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
           await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
           await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
         });
 
         upstreamRes.data.on('error', async (err) => {
           console.error('OpenAI→Anthropic stream error:', err);
           res.end();
           await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', err.message, requestId);
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
         });
 
       } else {
@@ -794,8 +836,9 @@ router.post('/messages', async (req, res) => {
 
         const promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
         const completionTokens = data.usage?.completion_tokens || 0;
+        const effectivePrompt8 = calcEffectiveInputTokens(data.usage, false);
 
-        const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+        const cost = await calculateCost(effectivePrompt8, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
 
         if (!result.success) {
@@ -804,6 +847,7 @@ router.post('/messages', async (req, res) => {
         }
 
         await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+        await saveRequestDetail(requestId, req.apiUserId, model, messages, system, choice?.message?.content || '');
 
         // 构建 Anthropic Messages API 响应
         const choice = data.choices?.[0];
@@ -954,6 +998,72 @@ async function logCall(userId, apiKeyId, model, promptTokens, completionTokens, 
   } catch (e) {
     console.error('Log write error:', e);
   }
+}
+
+// 从 messages 数组中提取最后一条用户文本输入
+function extractUserPrompt(messages) {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'user') continue;
+    if (typeof msg.content === 'string') return msg.content.slice(0, 5000);
+    if (Array.isArray(msg.content)) {
+      const text = msg.content.filter(b => b.type === 'text').map(b => b.text || '').join('\n');
+      if (text) return text.slice(0, 5000);
+    }
+  }
+  return null;
+}
+
+// 保存请求/响应内容（仅管理员可查）
+// 只保留最后 3 条消息，避免 Claude Code 长上下文撑爆数据库
+async function saveRequestDetail(requestId, userId, model, messages, systemPrompt, responseContent) {
+  try {
+    const msgs = Array.isArray(messages) ? messages : [];
+    const recentMsgs = msgs.slice(-3);
+    const msgStr = JSON.stringify(recentMsgs).slice(0, 50000);
+    const userPrompt = extractUserPrompt(msgs);
+    const sysStr = (typeof systemPrompt === 'string' ? systemPrompt : JSON.stringify(systemPrompt || '')).slice(0, 10000);
+    const respStr = (responseContent || '').slice(0, 20000);
+    await db.query(
+      'INSERT IGNORE INTO openclaw_request_logs (request_id, user_id, model, messages, user_prompt, system_prompt, response_content) VALUES (?,?,?,?,?,?,?)',
+      [requestId, userId, model, msgStr, userPrompt, sysStr || null, respStr || null]
+    );
+  } catch (e) {
+    console.error('saveRequestDetail error:', e.message);
+  }
+}
+
+// 计算有效输入 token 数（与 new-api / one-api 保持一致）
+// Anthropic:
+//   input_tokens                  → 1x   普通输入
+//   cache_creation_input_tokens   → 1.25x 5分钟缓存写入
+//   cache_creation_tokens_1hour   → 2x   1小时缓存写入（beta）
+//   cache_read_input_tokens       → 0.1x 缓存读取
+// OpenAI:
+//   prompt_tokens（含 cached）    → cached 部分 0.5x
+function calcEffectiveInputTokens(usage, isAnthropicApi) {
+  if (isAnthropicApi) {
+    const normal      = usage?.input_tokens || 0;
+    const cacheWrite5m = usage?.cache_creation_input_tokens || 0;          // 5分钟缓存
+    const cacheWrite1h = usage?.cache_creation_tokens_1hour || 0;          // 1小时缓存
+    const cacheRead    = usage?.cache_read_input_tokens || 0;
+    return normal + cacheWrite5m * 1.25 + cacheWrite1h * 2.0 + cacheRead * 0.1;
+  } else {
+    const total  = usage?.prompt_tokens || 0;
+    const cached = usage?.prompt_tokens_details?.cached_tokens || 0;
+    return total - cached * 0.5;
+  }
+}
+
+// 从 Anthropic content 数组中提取纯文本（跳过 thinking 块）
+function extractTextFromContent(content) {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.filter(b => b.type === 'text').map(b => b.text || '').join('\n');
+  }
+  return '';
 }
 
 // Token 估算：区分 CJK 和非 CJK 字符

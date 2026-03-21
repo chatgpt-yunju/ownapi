@@ -96,6 +96,7 @@ const api = {
   adminCreateProvider(data) { return this.post('/admin/providers', data); },
   adminUpdateProvider(id, data) { return this.put('/admin/providers/' + id, data); },
   adminDeleteProvider(id) { return this.del('/admin/providers/' + id); },
+  adminDeleteModel(id) { return this.del('/admin/models/' + id); },
   adminGetUserDetail(userId) { return this.get('/admin/users/' + userId); },
 };
 

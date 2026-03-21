@@ -9,11 +9,10 @@
 </head>
 <body>
   <nav class="oc-navbar">
+    <button class="oc-sidebar-toggle" onclick="toggleSidebar()" style="display:none;background:none;border:none;color:var(--text-primary);font-size:1.5rem;cursor:pointer;padding:0.5rem;">☰</button>
     <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>OpenClaw AI LLM <span style="font-size:0.7rem;color:var(--text-muted);margin-left:0.5rem;">Admin</span></a>
-    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
     <div class="oc-nav-links">
       <a href="/console.html">控制台</a>
-    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
       <a href="/admin.html" class="active">管理后台</a>
     </div>
     <div class="oc-nav-right">
@@ -23,30 +22,42 @@
   </nav>
 
   <div class="oc-console">
-    <aside class="oc-sidebar">
+    <aside class="oc-sidebar" id="sidebar">
+      <div class="oc-sidebar-close" onclick="toggleSidebar()" style="display:none;text-align:right;padding:1rem;font-size:1.5rem;cursor:pointer;color:var(--text-muted);">✕</div>
       <div class="oc-sidebar-section">管理</div>
       <div class="oc-sidebar-item active" data-page="overview" onclick="switchPage('overview')">&#x1f4ca; 总览</div>
       <div class="oc-sidebar-item" data-page="users" onclick="switchPage('users')">&#x1f465; 用户管理</div>
       <div class="oc-sidebar-item" data-page="models" onclick="switchPage('models')">&#x1f916; 模型管理</div>
       <div class="oc-sidebar-item" data-page="providers" onclick="switchPage('providers')">&#x1f3e2; 供应商管理</div>
-    <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f4dd; 订单管理</div>
+      <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f4dd; 订单管理</div>
+      <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f50d; 请求日志</div>
       <div class="oc-sidebar-section">快捷</div>
       <div class="oc-sidebar-item" onclick="location.href='/console.html'">&#x2190; 返回控制台</div>
     </aside>
 
     <main class="oc-main">
+
       <!-- Overview -->
       <div id="page-overview" class="page-content">
         <h2 style="margin-bottom:1.5rem;">系统总览</h2>
-        <div class="oc-grid oc-grid-4" id="admin-stats">
+        <div class="oc-grid oc-grid-4" style="margin-bottom:1rem;">
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-users">-</div><div class="oc-stat-label">总用户数</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-calls">-</div><div class="oc-stat-label">总调用次数</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-tokens">-</div><div class="oc-stat-label">总 Tokens</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-cost">-</div><div class="oc-stat-label">总费用 (元)</div></div>
         </div>
-        <div class="oc-grid oc-grid-2" style="margin-top:1.5rem;">
+        <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-calls">-</div><div class="oc-stat-label">今日调用</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-tokens">-</div><div class="oc-stat-label">今日 Tokens</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-cost">-</div><div class="oc-stat-label">今日费用 (元)</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-active-keys">-</div><div class="oc-stat-label">活跃 API Keys</div></div>
+        </div>
+        <div class="oc-card">
+          <h4 style="margin-bottom:1rem;color:var(--text-primary);">最近调用记录</h4>
+          <table class="oc-table">
+            <thead><tr><th>时间</th><th>用户</th><th>模型</th><th>输入</th><th>输出</th><th>费用</th><th>状态</th></tr></thead>
+            <tbody id="recent-logs-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+          </table>
         </div>
       </div>
 
@@ -55,13 +66,13 @@
         <h2 style="margin-bottom:1.5rem;">用户管理</h2>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
           <div style="display:flex;gap:0.75rem;align-items:center;">
-            <input class="oc-input" id="user-search" placeholder="搜索用户名..." style="width:250px;">
-            <button class="btn-accent btn-sm" onclick="loadUsers()">搜索</button>
+            <input class="oc-input" id="user-search" placeholder="搜索用户名..." style="width:250px;" onkeydown="if(event.key==='Enter')loadUsers()">
+            <button class="btn-accent btn-sm" onclick="usersPage=1;loadUsers()">搜索</button>
           </div>
         </div>
         <div class="oc-card">
           <table class="oc-table">
-            <thead><tr><th>ID</th><th>用户名</th><th>余额</th><th>API Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>余额</th><th>活跃 Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
             <tbody id="users-tbody"></tbody>
           </table>
           <div class="oc-pagination" id="users-pagination"></div>
@@ -94,6 +105,7 @@
           </table>
         </div>
       </div>
+
       <!-- Providers -->
       <div id="page-providers" class="page-content" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
@@ -105,6 +117,142 @@
             <thead><tr><th>ID</th><th>标识</th><th>显示名称</th><th>API 地址</th><th>API Key</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="providers-tbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- Orders -->
+      <div id="page-orders" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">订单管理</h2>
+        <!-- 全部订单 -->
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <input class="oc-input" id="order-filter-user" placeholder="用户ID..." style="width:100px;" type="number">
+            <select class="oc-select" id="order-filter-type" style="width:130px;">
+              <option value="">全部类型</option>
+              <option value="recharge">加油包</option>
+              <option value="package">套餐</option>
+            </select>
+            <select class="oc-select" id="order-filter-status" style="width:120px;">
+              <option value="">全部状态</option>
+              <option value="paid">已支付</option>
+              <option value="pending">待支付</option>
+              <option value="cancelled">已取消</option>
+            </select>
+            <button class="btn-accent btn-sm" onclick="ordersPage=1;loadAllOrders()">查询</button>
+            <button class="btn-outline btn-sm" onclick="document.getElementById('order-filter-user').value='';document.getElementById('order-filter-type').value='';document.getElementById('order-filter-status').value='';ordersPage=1;loadAllOrders()">重置</button>
+          </div>
+        </div>
+        <div class="oc-card" style="margin-bottom:1.5rem;">
+          <table class="oc-table">
+            <thead><tr><th>时间</th><th>用户</th><th>类型</th><th>套餐/备注</th><th>金额</th><th>余额抵扣</th><th>实付</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="orders-all-tbody"><tr><td colspan="9" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+          </table>
+          <div class="oc-pagination" id="orders-pagination"></div>
+        </div>
+
+        <!-- 用户详情（搜索后展开） -->
+        <input type="hidden" id="order-user-search">
+        <div id="user-detail-container" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+            <h3 id="user-detail-title"></h3>
+            <div style="display:flex;gap:0.5rem;">
+              <button class="btn-outline btn-sm" onclick="document.getElementById('user-detail-container').style.display='none'">收起</button>
+              <button class="btn-accent btn-sm" id="btn-charge-from-detail" onclick="">充值/扣费</button>
+            </div>
+          </div>
+          <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
+            <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-balance">-</div><div class="oc-stat-label">账户余额</div></div>
+            <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-total-calls">-</div><div class="oc-stat-label">总调用次数</div></div>
+            <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-total-tokens">-</div><div class="oc-stat-label">总 Tokens</div></div>
+            <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-total-cost">-</div><div class="oc-stat-label">总费用</div></div>
+          </div>
+
+          <div class="oc-card" style="margin-bottom:1rem;">
+            <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">API Keys</h4>
+            <table class="oc-table">
+              <thead><tr><th>Key</th><th>名称</th><th>状态</th><th>创建时间</th><th>最后使用</th></tr></thead>
+              <tbody id="user-apikeys-tbody"></tbody>
+            </table>
+          </div>
+
+          <div class="oc-card" style="margin-bottom:1rem;">
+            <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">套餐记录</h4>
+            <table class="oc-table">
+              <thead><tr><th>套餐名</th><th>类型</th><th>月额度</th><th>日限制</th><th>开始时间</th><th>过期时间</th><th>状态</th></tr></thead>
+              <tbody id="user-packages-tbody"></tbody>
+            </table>
+          </div>
+
+          <div class="oc-card" style="margin-bottom:1rem;">
+            <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">加油包订单</h4>
+            <table class="oc-table">
+              <thead><tr><th>订单号</th><th>金额</th><th>状态</th><th>创建时间</th><th>支付时间</th></tr></thead>
+              <tbody id="user-booster-tbody"></tbody>
+            </table>
+          </div>
+
+          <div class="oc-card" style="margin-bottom:1rem;">
+            <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">套餐订单</h4>
+            <table class="oc-table">
+              <thead><tr><th>订单号</th><th>套餐名</th><th>金额</th><th>余额抵扣</th><th>实付</th><th>状态</th><th>创建时间</th></tr></thead>
+              <tbody id="user-pkg-orders-tbody"></tbody>
+            </table>
+          </div>
+
+          <div class="oc-card" style="margin-bottom:1rem;">
+            <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">余额变动记录</h4>
+            <table class="oc-table">
+              <thead><tr><th>时间</th><th>类型</th><th>变动</th><th>变动前</th><th>变动后</th><th>备注</th></tr></thead>
+              <tbody id="user-balance-logs-tbody"></tbody>
+            </table>
+          </div>
+
+          <div class="oc-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+              <h4 style="color:var(--text-primary);">调用记录</h4>
+              <span id="user-calls-total" style="font-size:0.8rem;color:var(--text-muted);"></span>
+            </div>
+            <table class="oc-table">
+              <thead><tr><th>时间</th><th>模型</th><th>输入 Tokens</th><th>输出 Tokens</th><th>费用</th><th>状态</th><th>错误信息</th></tr></thead>
+              <tbody id="user-calls-tbody"></tbody>
+            </table>
+            <div class="oc-pagination" id="user-calls-pagination"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logs -->
+      <div id="page-logs" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">请求日志</h2>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <input class="oc-input" id="log-filter-user" placeholder="用户ID..." style="width:100px;" type="number">
+            <input class="oc-input" id="log-filter-model" placeholder="模型名..." style="width:160px;">
+            <select class="oc-select" id="log-filter-status" style="width:140px;">
+              <option value="">全部状态</option>
+              <option value="success">成功</option>
+              <option value="error">错误</option>
+              <option value="insufficient_balance">余额不足</option>
+              <option value="quota_exceeded">配额超限</option>
+              <option value="rate_limit_error">限流</option>
+              <option value="model_forbidden">模型禁止</option>
+            </select>
+            <input class="oc-input" id="log-filter-date" type="date" style="width:150px;">
+            <button class="btn-accent btn-sm" onclick="logsPage=1;loadLogs()">查询</button>
+            <button class="btn-outline btn-sm" onclick="clearLogFilters()">重置</button>
+          </div>
+        </div>
+        <div class="oc-card">
+          <table class="oc-table">
+            <thead><tr><th>时间</th><th>用户</th><th>模型</th><th>输入</th><th>输出</th><th>费用</th><th>状态</th><th>Prompt 预览</th><th>操作</th></tr></thead>
+            <tbody id="logs-tbody"><tr><td colspan="9" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+          </table>
+          <div class="oc-pagination" id="logs-pagination"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
 
   <!-- Charge Modal -->
   <div class="oc-modal-overlay" id="modal-charge">
@@ -162,11 +310,11 @@
       </div>
       <div class="form-group">
         <label>价格币种</label>
-        <select class="oc-select" id="model-currency-input" style="width:100%;" onchange="updatePriceLabel()">
+        <select class="oc-select" id="model-currency-input" style="width:100%;">
           <option value="CNY">人民币 (CNY) - 国内模型</option>
-          <option value="USD">美元 (USD) - 国外模型，自动转换为人民币 (汇率 7.2)</option>
+          <option value="USD">美元 (USD) - 国外模型，自动转换 (汇率 7.2)</option>
         </select>
-        <small style="color:var(--text-muted);margin-top:0.25rem;display:block;">国内模型（DeepSeek, GLM, Qwen）选择人民币，国外模型（Claude, GPT）选择美元</small>
+        <small style="color:var(--text-muted);margin-top:0.25rem;display:block;">国内模型（DeepSeek, GLM, Qwen）选人民币，国外模型（Claude, GPT）选美元</small>
       </div>
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
@@ -237,9 +385,32 @@
     </div>
   </div>
 
+  <!-- Log Detail Modal -->
+  <div class="oc-modal-overlay" id="modal-log">
+    <div class="oc-modal" style="min-width:680px;max-width:90vw;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h3>请求详情</h3>
+        <button class="btn-outline btn-sm" onclick="hideModal('modal-log')">关闭</button>
+      </div>
+      <div id="log-detail-meta" style="margin-bottom:1rem;font-size:0.85rem;color:var(--text-secondary);display:flex;gap:1.5rem;flex-wrap:wrap;"></div>
+      <div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--accent-light);font-weight:600;">用户输入 (USER PROMPT)</div>
+      <pre id="log-detail-user-prompt" style="background:rgba(108,92,231,0.08);border:1px solid var(--accent);border-radius:8px;padding:0.75rem;font-size:0.8rem;color:var(--text-primary);overflow:auto;max-height:200px;white-space:pre-wrap;word-break:break-all;margin-bottom:1rem;"></pre>
+      <div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--text-muted);font-weight:600;">SYSTEM PROMPT</div>
+      <pre id="log-detail-system" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;font-size:0.75rem;color:var(--text-secondary);overflow:auto;max-height:120px;white-space:pre-wrap;word-break:break-all;margin-bottom:1rem;"></pre>
+      <div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--text-muted);font-weight:600;">MESSAGES (请求)</div>
+      <pre id="log-detail-messages" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;font-size:0.75rem;color:var(--text-secondary);overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;margin-bottom:1rem;"></pre>
+      <div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--text-muted);font-weight:600;">RESPONSE (回复)</div>
+      <pre id="log-detail-response" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;font-size:0.75rem;color:var(--success);overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
+  </div>
+
   <script src="/js/api.js"></script>
   <script>
-    if (!requireAuth()) { /* 已跳转到登录页，停止执行 */ }
+    if (!requireAuth()) { /* 已跳转到登录页 */ }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('show');
+    }
 
     let currentPage = 'overview';
     let usersPage = 1;
@@ -248,11 +419,16 @@
       currentPage = page;
       document.querySelectorAll('.page-content').forEach(el => el.style.display = 'none');
       document.getElementById('page-' + page).style.display = 'block';
-      document.querySelectorAll('.oc-sidebar-item').forEach(el => el.classList.toggle('active', el.dataset.page === page));
+      document.querySelectorAll('.oc-sidebar-item[data-page]').forEach(el =>
+        el.classList.toggle('active', el.dataset.page === page));
       if (page === 'overview') loadOverview();
       else if (page === 'users') loadUsers();
       else if (page === 'models') loadModels();
       else if (page === 'providers') loadProviders();
+      else if (page === 'orders') { ordersPage = 1; loadAllOrders(); }
+      else if (page === 'logs') { logsPage = 1; loadLogs(); }
+      // 关闭移动端侧边栏
+      document.getElementById('sidebar').classList.remove('show');
     }
 
     function showModal(id) { document.getElementById(id).classList.add('show'); }
@@ -262,39 +438,66 @@
       try {
         const info = await api.getUserInfo();
         document.getElementById('nav-username').textContent = info.username;
-        if (info.role !== 'admin') { showToast('无管理员权限', 'error'); setTimeout(() => location.href = '/console.html', 1000); return; }
+        if (info.role !== 'admin') {
+          showToast('无管理员权限', 'error');
+          setTimeout(() => location.href = '/console.html', 1500);
+          return;
+        }
         loadOverview();
       } catch(e) { showToast(e.message, 'error'); }
     }
 
+    // === 总览 ===
     async function loadOverview() {
       try {
         const data = await api.adminOverview();
         document.getElementById('a-total-users').textContent = formatNum(data.total_users || 0);
         document.getElementById('a-total-calls').textContent = formatNum(data.total_calls || 0);
         document.getElementById('a-total-tokens').textContent = formatNum(data.total_tokens || 0);
-        document.getElementById('a-total-cost').textContent = parseFloat(data.total_cost || 0).toFixed(2);
+        document.getElementById('a-total-cost').textContent = '¥' + parseFloat(data.total_cost || 0).toFixed(2);
         document.getElementById('a-today-calls').textContent = formatNum(data.today_calls || 0);
-        document.getElementById('a-today-cost').textContent = parseFloat(data.today_cost || 0).toFixed(4);
+        document.getElementById('a-today-tokens').textContent = formatNum(data.today_tokens || 0);
+        document.getElementById('a-today-cost').textContent = '¥' + parseFloat(data.today_cost || 0).toFixed(4);
+        document.getElementById('a-active-keys').textContent = formatNum(data.active_keys || 0);
+
+        const logs = data.recent_logs || [];
+        document.getElementById('recent-logs-tbody').innerHTML = logs.length
+          ? logs.map(l => `<tr>
+              <td style="font-size:0.75rem;">${l.created_at || '-'}</td>
+              <td style="color:var(--accent-light);">${l.username || '-'}</td>
+              <td><code style="font-size:0.8rem;">${l.model}</code></td>
+              <td>${formatNum(l.prompt_tokens || 0)}</td>
+              <td>${formatNum(l.completion_tokens || 0)}</td>
+              <td style="font-family:var(--font-mono);">¥${parseFloat(l.total_cost || 0).toFixed(6)}</td>
+              <td>${l.status === 'success' ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">' + l.status + '</span>'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">暂无记录</td></tr>';
       } catch(e) { showToast(e.message, 'error'); }
     }
 
+    // === 用户管理 ===
     async function loadUsers() {
       try {
-        const search = document.getElementById('user-search').value.trim();
+        const keyword = document.getElementById('user-search').value.trim();
         const params = { page: usersPage, limit: 20 };
-        if (search) params.search = search;
+        if (keyword) params.keyword = keyword;
         const data = await api.adminUsers(params);
         const users = data.users || [];
-        document.getElementById('users-tbody').innerHTML = users.length ? users.map(u => `<tr>
-          <td>${u.user_id}</td>
-          <td style="color:var(--text-primary)">${u.username || '-'}</td>
-          <td style="font-family:var(--font-mono);">¥${parseFloat(u.balance || 0).toFixed(2)}</td>
-          <td>${u.key_count || 0}</td>
-          <td>${formatNum(u.total_calls || 0)}</td>
-          <td style="font-family:var(--font-mono);">¥${parseFloat(u.total_cost || 0).toFixed(4)}</td>
-          <td><button class="btn-outline btn-sm" onclick="showChargeModal(${u.user_id},'${(u.username||'').replace(/'/g,"\\'")}')">充值/扣费</button></td>
-        </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
+        document.getElementById('users-tbody').innerHTML = users.length
+          ? users.map(u => `<tr>
+              <td>${u.user_id}</td>
+              <td style="color:var(--text-primary)">${u.username || '-'}</td>
+              <td><span class="badge-${u.role === 'admin' ? 'active' : 'disabled'}">${u.role || 'user'}</span></td>
+              <td style="font-family:var(--font-mono);">¥${parseFloat(u.balance || 0).toFixed(2)}</td>
+              <td>${u.key_count || 0}</td>
+              <td>${formatNum(u.total_calls || 0)}</td>
+              <td style="font-family:var(--font-mono);">¥${parseFloat(u.total_cost || 0).toFixed(4)}</td>
+              <td>
+                <button class="btn-outline btn-sm" onclick="showChargeModal(${u.user_id},'${(u.username||'').replace(/'/g,"\\'")}')">充值/扣费</button>
+                <button class="btn-outline btn-sm" onclick="viewUserDetail(${u.user_id})" style="margin-left:4px;">详情</button>
+              </td>
+            </tr>`).join('')
+          : '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
 
         const total = data.total || 0;
         const totalPages = Math.ceil(total / 20);
@@ -304,6 +507,14 @@
           pagDiv.innerHTML += `<button class="${i === usersPage ? 'active' : ''}" onclick="usersPage=${i};loadUsers();">${i}</button>`;
         }
       } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function viewUserDetail(userId) {
+      if (currentPage !== 'orders') switchPage('orders');
+      document.getElementById('order-user-search').value = userId;
+      loadUserDetail();
+      // 滚动到用户详情区域
+      setTimeout(() => document.getElementById('user-detail-container').scrollIntoView({ behavior: 'smooth' }), 300);
     }
 
     function showChargeModal(userId, username) {
@@ -322,15 +533,20 @@
     async function doCharge() {
       const user_id = parseInt(document.getElementById('charge-user-id').value);
       const amount = parseFloat(document.getElementById('charge-amount').value);
-      const remark = document.getElementById('charge-remark').value.trim();
+      const description = document.getElementById('charge-remark').value.trim() || '管理员操作';
       if (isNaN(amount) || amount === 0) return showToast('请输入有效金额', 'error');
       try {
-        await api.adminCharge(user_id, amount, remark || '管理员操作');
+        await api.adminCharge(user_id, amount, description);
         hideModal('modal-charge');
         showToast('操作成功', 'success');
-        loadUsers();
+        if (currentPage === 'users') loadUsers();
+        else if (currentPage === 'orders') loadUserDetail();
       } catch(e) { showToast(e.message, 'error'); }
     }
+
+    // === 模型管理 ===
+    let allModels = [];
+    let cachedProviders = [];
 
     async function loadModels() {
       try {
@@ -344,8 +560,8 @@
       document.getElementById('model-modal-title').textContent = '添加模型';
       document.getElementById('model-edit-id').value = '';
       document.getElementById('model-id-input').value = '';
+      document.getElementById('model-id-input').disabled = false;
       document.getElementById('model-name-input').value = '';
-      document.getElementById('model-provider-input').value = 'openai';
       document.getElementById('model-input-price').value = '10';
       document.getElementById('model-output-price').value = '30';
       document.getElementById('model-currency-input').value = 'CNY';
@@ -354,7 +570,6 @@
       document.getElementById('model-upstream-model-input').value = '';
       document.getElementById('model-endpoint-input').value = '';
       document.getElementById('model-key-input').value = '';
-      document.getElementById('model-id-input').disabled = false;
       showModal('modal-model');
     }
 
@@ -374,10 +589,6 @@
       document.getElementById('model-endpoint-input').value = m.upstream_endpoint || '';
       document.getElementById('model-key-input').value = m.upstream_key || '';
       showModal('modal-model');
-    }
-
-    function updatePriceLabel() {
-      // 可以在这里动态更新价格标签，暂时不需要
     }
 
     async function saveModel() {
@@ -405,9 +616,57 @@
       } catch(e) { showToast(e.message, 'error'); }
     }
 
-    // === 供应商管理 ===
-    let cachedProviders = [];
+    async function deleteModel(id, name) {
+      if (!confirm(`确认禁用模型「${name}」？`)) return;
+      try {
+        await api.del('/admin/models/' + id);
+        showToast('已禁用', 'success');
+        loadModels();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
 
+    function applyModelFilter() {
+      const provider = document.getElementById('model-filter-provider').value;
+      const status = document.getElementById('model-filter-status').value;
+      const search = document.getElementById('model-filter-search').value.trim().toLowerCase();
+      const filtered = allModels.filter(m => {
+        if (provider && m.provider !== provider) return false;
+        if (status && m.status !== status) return false;
+        if (search && !m.model_id.toLowerCase().includes(search) && !m.display_name.toLowerCase().includes(search)) return false;
+        return true;
+      });
+      renderModelsTable(filtered);
+    }
+
+    function renderModelsTable(models) {
+      document.getElementById('models-tbody').innerHTML = models.length
+        ? models.map(m => {
+            const currency = m.price_currency || 'CNY';
+            const sym = currency === 'USD' ? '$' : '¥';
+            const badge = currency === 'USD'
+              ? '<span class="badge-active" style="background:var(--accent-light);color:white;">USD</span>'
+              : '<span class="badge-disabled">CNY</span>';
+            return `<tr>
+              <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
+              <td>${m.display_name}</td>
+              <td>${m.provider}</td>
+              <td><code style="font-size:0.8rem;color:var(--text-muted);">${m.upstream_model_id || m.model_id}</code></td>
+              <td style="font-family:var(--font-mono);">${sym}${(m.input_price_per_1k * 1000).toFixed(2)}</td>
+              <td style="font-family:var(--font-mono);">${sym}${(m.output_price_per_1k * 1000).toFixed(2)}</td>
+              <td>${badge}</td>
+              <td>${m.sort_order}</td>
+              <td>${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
+              <td>${m.upstream_endpoint ? `<span style="font-size:0.75rem;color:var(--text-muted);">${m.upstream_key ? maskKey(m.upstream_key) : '默认Key'}</span>` : '<span style="color:var(--text-muted);">默认</span>'}</td>
+              <td style="display:flex;gap:0.25rem;">
+                <button class="btn-outline btn-sm" onclick='editModel(${JSON.stringify(m)})'>编辑</button>
+                ${m.status === 'active' ? `<button class="btn-outline btn-sm" style="color:var(--danger);" onclick="deleteModel(${m.id},'${m.model_id}')">禁用</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')
+        : '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">暂无模型</td></tr>';
+    }
+
+    // === 供应商管理 ===
     async function loadProviders() {
       try {
         cachedProviders = await api.adminGetProviders();
@@ -421,7 +680,7 @@
           <td>${p.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
           <td style="display:flex;gap:0.25rem;">
             <button class="btn-outline btn-sm" onclick='editProvider(${JSON.stringify(p)})'>编辑</button>
-            ${p.status === 'active' ? `<button class="btn-outline btn-sm" style="color:var(--error);" onclick="disableProvider(${p.id})">禁用</button>` : ''}
+            ${p.status === 'active' ? `<button class="btn-outline btn-sm" style="color:var(--danger);" onclick="disableProvider(${p.id})">禁用</button>` : ''}
           </td>
         </tr>`).join('');
       } catch(e) { showToast(e.message, 'error'); }
@@ -482,107 +741,270 @@
       } catch(e) { showToast(e.message, 'error'); }
     }
 
-    // === 模型筛选 ===
-    let allModels = [];
-
     async function loadProviderOptions() {
       try {
         if (!cachedProviders.length) cachedProviders = await api.adminGetProviders();
-        // 模型筛选下拉
         const filterSel = document.getElementById('model-filter-provider');
-        filterSel.innerHTML = '<option value="">全部供应商</option>' + cachedProviders.map(p => `<option value="${p.name}">${p.display_name}</option>`).join('');
-        // 模型表单下拉
+        filterSel.innerHTML = '<option value="">全部供应商</option>' +
+          cachedProviders.map(p => `<option value="${p.name}">${p.display_name}</option>`).join('');
         const formSel = document.getElementById('model-provider-input');
         formSel.innerHTML = cachedProviders.map(p => `<option value="${p.name}">${p.display_name} (${p.name})</option>`).join('');
       } catch(e) { console.error('加载供应商列表失败', e); }
     }
 
-    function applyModelFilter() {
-      const provider = document.getElementById('model-filter-provider').value;
-      const status = document.getElementById('model-filter-status').value;
-      const search = document.getElementById('model-filter-search').value.trim().toLowerCase();
-      const filtered = allModels.filter(m => {
-        if (provider && m.provider !== provider) return false;
-        if (status && m.status !== status) return false;
-        if (search && !m.model_id.toLowerCase().includes(search) && !m.display_name.toLowerCase().includes(search)) return false;
-        return true;
-      });
-      renderModelsTable(filtered);
+    // === 订单管理 ===
+    let ordersPage = 1;
+
+    async function loadAllOrders() {
+      const params = { page: ordersPage, limit: 20 };
+      const userId = document.getElementById('order-filter-user').value.trim();
+      const orderType = document.getElementById('order-filter-type').value;
+      const status = document.getElementById('order-filter-status').value;
+      if (userId) params.user_id = userId;
+      if (orderType) params.order_type = orderType;
+      if (status) params.status = status;
+      try {
+        const q = new URLSearchParams(params).toString();
+        const data = await api.get('/admin/orders?' + q);
+        const orders = data.orders || [];
+        const typeLabel = { recharge: '加油包', package: '套餐', quota: '额度' };
+        const statusBadge = { paid: '<span class="badge-active">已支付</span>', pending: '<span class="badge-disabled">待支付</span>', cancelled: '<span style="color:var(--text-muted);">已取消</span>', refunded: '<span style="color:var(--warning);">已退款</span>' };
+        document.getElementById('orders-all-tbody').innerHTML = orders.length
+          ? orders.map(o => `<tr>
+              <td style="font-size:0.75rem;white-space:nowrap;">${o.created_at || '-'}</td>
+              <td><a href="javascript:void(0)" onclick="viewUserDetail(${o.user_id})" style="color:var(--accent-light);">${o.username || o.user_id}</a></td>
+              <td>${typeLabel[o.order_type] || o.order_type}</td>
+              <td style="font-size:0.8rem;color:var(--text-muted);">${o.package_name || '-'}</td>
+              <td style="font-family:var(--font-mono);">¥${parseFloat(o.amount||0).toFixed(2)}</td>
+              <td style="font-family:var(--font-mono);">¥${parseFloat(o.balance_used||0).toFixed(2)}</td>
+              <td style="font-family:var(--font-mono);">¥${parseFloat(o.actual_paid||0).toFixed(2)}</td>
+              <td>${statusBadge[o.status] || o.status}</td>
+              <td><button class="btn-outline btn-sm" onclick="viewUserDetail(${o.user_id})">用户详情</button></td>
+            </tr>`).join('')
+          : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">暂无订单</td></tr>';
+
+        const total = data.total || 0;
+        const totalPages = Math.ceil(total / 20);
+        const pag = document.getElementById('orders-pagination');
+        pag.innerHTML = `<span style="font-size:0.8rem;color:var(--text-muted);margin-right:0.5rem;">共 ${total} 条</span>`;
+        const start = Math.max(1, ordersPage - 4);
+        for (let i = start; i <= Math.min(totalPages, start + 9); i++) {
+          pag.innerHTML += `<button class="${i === ordersPage ? 'active' : ''}" onclick="ordersPage=${i};loadAllOrders();">${i}</button>`;
+        }
+      } catch(e) { showToast(e.message, 'error'); }
     }
 
-    function renderModelsTable(models) {
-      document.getElementById('models-tbody').innerHTML = models.map(m => {
-        const currency = m.price_currency || 'CNY';
-        const currencySymbol = currency === 'USD' ? '$' : '¥';
-        const currencyBadge = currency === 'USD'
-          ? '<span class="badge-active" style="background:var(--accent-light);color:white;">USD</span>'
-          : '<span class="badge-disabled">CNY</span>';
-        return `<tr>
-          <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
-          <td>${m.display_name}</td>
-          <td>${m.provider}</td>
-          <td><code style="font-size:0.8rem;color:var(--text-muted);">${m.upstream_model_id || m.model_id}</code></td>
-          <td style="font-family:var(--font-mono);">${currencySymbol}${(m.input_price_per_1k * 1000).toFixed(2)}</td>
-          <td style="font-family:var(--font-mono);">${currencySymbol}${(m.output_price_per_1k * 1000).toFixed(2)}</td>
-          <td>${currencyBadge}</td>
-          <td>${m.sort_order}</td>
-          <td>${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
-          <td>${m.upstream_endpoint ? `<span style="font-size:0.75rem;color:var(--text-muted);">${m.upstream_key ? maskKey(m.upstream_key) : '默认'}</span>` : '<span style="color:var(--text-muted);">默认</span>'}</td>
-          <td><button class="btn-outline btn-sm" onclick='editModel(${JSON.stringify(m)})'>编辑</button></td>
-        </tr>`;
-      }).join('');
+    async function loadUserDetail() {
+      const userId = document.getElementById('order-user-search').value.trim();
+      if (!userId) return showToast('请输入用户ID', 'error');
+      currentDetailUserId = userId;
+      try {
+        const data = await api.adminGetUserDetail(userId);
+        document.getElementById('user-detail-container').style.display = 'block';
+        document.getElementById('user-detail-title').textContent = `用户: ${data.user.username} (ID: ${data.user.id})`;
+        document.getElementById('btn-charge-from-detail').onclick = () =>
+          showChargeModal(data.user.id, data.user.username);
+        document.getElementById('user-balance').textContent = `¥${parseFloat(data.user.balance || 0).toFixed(2)}`;
+        document.getElementById('user-total-calls').textContent = formatNum(data.stats.total_calls || 0);
+        document.getElementById('user-total-tokens').textContent = formatNum(data.stats.total_tokens || 0);
+        document.getElementById('user-total-cost').textContent = `¥${parseFloat(data.stats.total_cost || 0).toFixed(4)}`;
+
+        // API Keys
+        document.getElementById('user-apikeys-tbody').innerHTML = (data.apiKeys || []).length
+          ? data.apiKeys.map(k => `<tr>
+              <td><code style="color:var(--accent-light);font-size:0.8rem;">${k.key_display}</code></td>
+              <td>${k.name || '-'}</td>
+              <td>${k.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
+              <td style="font-size:0.75rem;">${k.created_at || '-'}</td>
+              <td style="font-size:0.75rem;">${k.last_used_at || '从未使用'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">无 API Key</td></tr>';
+
+        // 套餐
+        document.getElementById('user-packages-tbody').innerHTML = (data.packages || []).length
+          ? data.packages.map(p => `<tr>
+              <td>${p.package_name || '-'}</td><td>${p.type || '-'}</td>
+              <td>${p.monthly_quota ? '¥' + p.monthly_quota : '-'}</td>
+              <td>${p.daily_limit || '-'}</td><td style="font-size:0.75rem;">${p.started_at || '-'}</td>
+              <td style="font-size:0.75rem;">${p.expires_at || '-'}</td>
+              <td>${p.status === 'active' ? '<span class="badge-active">有效</span>' : '<span class="badge-disabled">过期</span>'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无套餐记录</td></tr>';
+
+        // 加油包订单
+        document.getElementById('user-booster-tbody').innerHTML = (data.boosterOrders || []).length
+          ? data.boosterOrders.map(o => `<tr>
+              <td style="font-family:var(--font-mono);font-size:0.75rem;">${o.out_trade_no}</td>
+              <td>¥${parseFloat(o.amount).toFixed(2)}</td>
+              <td>${o.status === 'paid' ? '<span class="badge-active">已支付</span>' : '<span class="badge-disabled">' + o.status + '</span>'}</td>
+              <td style="font-size:0.75rem;">${o.created_at || '-'}</td>
+              <td style="font-size:0.75rem;">${o.paid_at || '-'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">无加油包订单</td></tr>';
+
+        // 套餐订单
+        document.getElementById('user-pkg-orders-tbody').innerHTML = (data.packageOrders || []).length
+          ? data.packageOrders.map(o => `<tr>
+              <td style="font-family:var(--font-mono);font-size:0.75rem;">${o.out_trade_no}</td>
+              <td>${o.package_name || '-'}</td>
+              <td>¥${parseFloat(o.amount || 0).toFixed(2)}</td>
+              <td>¥${parseFloat(o.balance_used || 0).toFixed(2)}</td>
+              <td>¥${parseFloat(o.actual_paid || 0).toFixed(2)}</td>
+              <td>${o.status === 'paid' ? '<span class="badge-active">已支付</span>' : o.status}</td>
+              <td style="font-size:0.75rem;">${o.created_at || '-'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无套餐订单</td></tr>';
+
+        // 余额日志
+        document.getElementById('user-balance-logs-tbody').innerHTML = (data.balanceLogs || []).length
+          ? data.balanceLogs.map(l => `<tr>
+              <td style="font-size:0.75rem;">${l.created_at}</td>
+              <td>${l.type}</td>
+              <td style="color:${parseFloat(l.amount) >= 0 ? 'var(--success)' : 'var(--danger)'};">
+                ${parseFloat(l.amount) >= 0 ? '+' : ''}${parseFloat(l.amount).toFixed(4)}
+              </td>
+              <td>${parseFloat(l.balance_before).toFixed(4)}</td>
+              <td>${parseFloat(l.balance_after).toFixed(4)}</td>
+              <td style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${l.description || '-'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">无余额记录</td></tr>';
+
+        // 调用日志（分页加载）
+        userCallsPage = 1;
+        await loadUserCalls();
+      } catch(e) { showToast(e.message, 'error'); }
     }
 
-// === 订单管理 ===
-async function loadUserDetail() {
-  const userId = document.getElementById('order-user-search').value.trim();
-  if (!userId) return showToast('请输入用户ID', 'error');
-  try {
-    const data = await api.adminGetUserDetail(userId);
-    document.getElementById('user-detail-container').style.display = 'block';
-    document.getElementById('user-detail-title').textContent = `用户: ${data.user.username} (ID: ${data.user.id})`;
-    document.getElementById('user-balance').textContent = `$${parseFloat(data.user.balance || 0).toFixed(2)}`;
-    document.getElementById('user-total-calls').textContent = formatNum(data.stats.total_calls || 0);
-    document.getElementById('user-total-cost').textContent = `$${parseFloat(data.stats.total_cost || 0).toFixed(4)}`;
-    document.getElementById('user-packages-tbody').innerHTML = data.packages.length ? data.packages.map(p => `<tr>
-      <td>${p.package_name || '-'}</td><td>${p.type || '-'}</td><td>${p.monthly_quota ? '$' + p.monthly_quota : '-'}</td>
-      <td>${p.daily_limit || '-'}</td><td>${p.started_at || '-'}</td><td>${p.expires_at || '-'}</td>
-      <td>${p.status === 'active' ? '<span class="badge-active">有效</span>' : '<span class="badge-disabled">过期</span>'}</td>
-    </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无套餐记录</td></tr>';
-    document.getElementById('user-booster-tbody').innerHTML = data.boosterOrders.length ? data.boosterOrders.map(o => `<tr>
-      <td style="font-family:var(--font-mono);font-size:0.75rem;">${o.out_trade_no}</td>
-      <td>¥${parseFloat(o.amount).toFixed(2)}</td>
-      <td>${o.status === 'paid' ? '<span class="badge-active">已支付</span>' : '<span class="badge-disabled">' + o.status + '</span>'}</td>
-      <td>${o.created_at || '-'}</td><td>${o.paid_at || '-'}</td>
-    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">无加油包订单</td></tr>';
-    document.getElementById('user-pkg-orders-tbody').innerHTML = data.packageOrders.length ? data.packageOrders.map(o => `<tr>
-      <td style="font-family:var(--font-mono);font-size:0.75rem;">${o.out_trade_no}</td>
-      <td>${o.package_name || '-'}</td>
-      <td>¥${parseFloat(o.amount || 0).toFixed(2)}</td>
-      <td>¥${parseFloat(o.balance_used || 0).toFixed(2)}</td>
-      <td>¥${parseFloat(o.actual_paid || 0).toFixed(2)}</td>
-      <td>${o.status === 'paid' ? '<span class="badge-active">已支付</span>' : o.status}</td>
-      <td>${o.created_at || '-'}</td>
-    </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无套餐订单</td></tr>';
-    document.getElementById('user-balance-logs-tbody').innerHTML = data.balanceLogs.length ? data.balanceLogs.map(l => `<tr>
-      <td style="font-size:0.75rem;">${l.created_at}</td>
-      <td>${l.type}</td>
-      <td style="color:${parseFloat(l.amount) >= 0 ? 'var(--accent)' : 'var(--error)'};">${parseFloat(l.amount) >= 0 ? '+'': ''}${parseFloat(l.amount).toFixed(4)}</td>
-      <td>${parseFloat(l.balance_before).toFixed(4)}</td>
-      <td>${parseFloat(l.balance_after).toFixed(4)}</td>
-      <td style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${l.description || '-'}</td>
-    </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">无余额记录</td></tr>';
-    document.getElementById('user-calls-tbody').innerHTML = data.callLogs.length ? data.callLogs.map(c => `<tr>
-      <td style="font-size:0.75rem;">${c.created_at}</td>
-      <td><code style="color:var(--accent-light);">${c.model}</code></td>
-      <td>${c.prompt_tokens || 0}</td>
-      <td>${c.completion_tokens || 0}</td>
-      <td style="font-family:var(--font-mono);">$${parseFloat(c.total_cost || 0).toFixed(6)}</td>
-      <td>${c.status === 'success' ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">' + c.status + '</span>'}</td>
-      <td style="font-size:0.7rem;color:var(--error);max-width:150px;overflow:hidden;text-overflow:ellipsis;">${c.error_msg || '-'}</td>
-    </tr>`).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无调用记录</td></tr>';
-  } catch(e) { showToast(e.message, 'error'); }
-}
+    let userCallsPage = 1;
+    let currentDetailUserId = null;
+
+    async function loadUserCalls() {
+      if (!currentDetailUserId) return;
+      try {
+        const data = await api.get(`/admin/users/${currentDetailUserId}/calls?page=${userCallsPage}&limit=20`);
+        const logs = data.logs || [];
+        document.getElementById('user-calls-tbody').innerHTML = logs.length
+          ? logs.map(c => `<tr>
+              <td style="font-size:0.75rem;">${c.created_at}</td>
+              <td><code style="color:var(--accent-light);font-size:0.8rem;">${c.model}</code></td>
+              <td>${formatNum(c.prompt_tokens || 0)}</td>
+              <td>${formatNum(c.completion_tokens || 0)}</td>
+              <td style="font-family:var(--font-mono);">¥${parseFloat(c.total_cost || 0).toFixed(6)}</td>
+              <td>${c.status === 'success' ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">' + c.status + '</span>'}</td>
+              <td style="font-size:0.7rem;color:var(--danger);max-width:150px;overflow:hidden;text-overflow:ellipsis;">${c.error_message || '-'}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无调用记录</td></tr>';
+
+        const total = data.total || 0;
+        const totalPages = Math.ceil(total / 20);
+        document.getElementById('user-calls-total').textContent = `共 ${total} 条`;
+        const pag = document.getElementById('user-calls-pagination');
+        pag.innerHTML = '';
+        for (let i = 1; i <= Math.min(totalPages, 15); i++) {
+          pag.innerHTML += `<button class="${i === userCallsPage ? 'active' : ''}" onclick="userCallsPage=${i};loadUserCalls();">${i}</button>`;
+        }
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // === 请求日志 ===
+    let logsPage = 1;
+
+    function clearLogFilters() {
+      document.getElementById('log-filter-user').value = '';
+      document.getElementById('log-filter-model').value = '';
+      document.getElementById('log-filter-status').value = '';
+      document.getElementById('log-filter-date').value = '';
+      logsPage = 1;
+      loadLogs();
+    }
+
+    async function loadLogs() {
+      const params = { page: logsPage, limit: 10 };
+      const userId = document.getElementById('log-filter-user').value.trim();
+      const model = document.getElementById('log-filter-model').value.trim();
+      const status = document.getElementById('log-filter-status').value;
+      const date = document.getElementById('log-filter-date').value;
+      if (userId) params.user_id = userId;
+      if (model) params.model = model;
+      if (status) params.status = status;
+      if (date) params.date = date;
+
+      try {
+        const q = new URLSearchParams(params).toString();
+        const data = await api.get('/admin/logs?' + q);
+        const logs = data.logs || [];
+        document.getElementById('logs-tbody').innerHTML = logs.length
+          ? logs.map(l => {
+              const promptPreview = (l.user_prompt_preview || '').replace(/\n/g, '↵').slice(0, 100);
+              return `<tr>
+                <td style="font-size:0.75rem;white-space:nowrap;">${l.created_at || '-'}</td>
+                <td><a href="javascript:void(0)" onclick="viewUserDetail(${l.user_id})" style="color:var(--accent-light);">${l.username || l.user_id}</a></td>
+                <td><code style="font-size:0.75rem;">${l.model}</code></td>
+                <td>${formatNum(l.prompt_tokens || 0)}</td>
+                <td>${formatNum(l.completion_tokens || 0)}</td>
+                <td style="font-family:var(--font-mono);">¥${parseFloat(l.total_cost || 0).toFixed(6)}</td>
+                <td>${l.status === 'success' ? '<span class="badge-active">成功</span>' : `<span class="badge-disabled" title="${l.error_message || ''}">${l.status}</span>`}</td>
+                <td style="font-size:0.75rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${promptPreview}">${promptPreview || '—'}</td>
+                <td><button class="btn-outline btn-sm" onclick="viewLogDetail('${l.request_id}')">详情</button></td>
+              </tr>`;
+            }).join('')
+          : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">暂无日志</td></tr>';
+
+        const total = data.total || 0;
+        const totalPages = Math.ceil(total / 10);
+        const pagDiv = document.getElementById('logs-pagination');
+        pagDiv.innerHTML = `<span style="font-size:0.8rem;color:var(--text-muted);margin-right:0.5rem;">共 ${total} 条</span>`;
+        const start = Math.max(1, logsPage - 4);
+        const end = Math.min(totalPages, start + 9);
+        for (let i = start; i <= end; i++) {
+          pagDiv.innerHTML += `<button class="${i === logsPage ? 'active' : ''}" onclick="logsPage=${i};loadLogs();">${i}</button>`;
+        }
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function viewLogDetail(requestId) {
+      try {
+        const log = await api.get('/admin/logs/' + requestId);
+        document.getElementById('log-detail-meta').innerHTML = `
+          <span>请求ID: <code style="color:var(--accent-light)">${log.request_id || '-'}</code></span>
+          <span>用户: <strong>${log.username || log.user_id}</strong></span>
+          <span>模型: <code>${log.model}</code></span>
+          <span>IP: ${log.ip || '-'}</span>
+          <span>输入: ${formatNum(log.prompt_tokens || 0)} tokens</span>
+          <span>输出: ${formatNum(log.completion_tokens || 0)} tokens</span>
+          <span>费用: ¥${parseFloat(log.total_cost || 0).toFixed(6)}</span>
+          <span>状态: ${log.status}</span>
+          <span>时间: ${log.created_at || '-'}</span>
+        `;
+
+        // 用户输入
+        document.getElementById('log-detail-user-prompt').textContent = log.user_prompt || '（无记录）';
+
+        // System prompt
+        const sysEl = document.getElementById('log-detail-system');
+        sysEl.textContent = log.system_prompt || '（无）';
+        sysEl.style.display = log.system_prompt ? 'block' : 'none';
+        sysEl.previousElementSibling.style.display = log.system_prompt ? 'block' : 'none';
+
+        // Messages
+        let msgsText = '（无记录）';
+        if (log.messages) {
+          try {
+            const msgs = JSON.parse(log.messages);
+            msgsText = msgs.map(m => {
+              const role = m.role.toUpperCase();
+              const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content, null, 2);
+              return `[${role}]\n${content}`;
+            }).join('\n\n---\n\n');
+          } catch(e) { msgsText = log.messages; }
+        }
+        document.getElementById('log-detail-messages').textContent = msgsText;
+        document.getElementById('log-detail-response').textContent = log.response_content || '（无记录）';
+
+        showModal('modal-log');
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
     init();
   </script>
 </body>
