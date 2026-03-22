@@ -543,9 +543,9 @@
           document.getElementById('dash-window-reset').textContent = `窗口将于 ${h}:${m} 重置`;
         }
 
-        // 请求次数进度
-        const wCalls = info.month_calls || 0;
-        const wCallLimit = info.monthly_call_limit;
+        // 请求次数进度（用今日调用上限 daily_limit，与"今日调用"一致）
+        const wCalls = info.today_calls || 0;
+        const wCallLimit = info.daily_limit;
         if (wCallLimit) {
           const reqPct = Math.min(Math.round(wCalls / wCallLimit * 100), 100);
           document.getElementById('dash-req-pct').textContent = reqPct;
