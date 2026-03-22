@@ -582,10 +582,33 @@
           const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
           document.getElementById('dash-week-period').textContent = `${fmt(ms)} - ${fmt(me)}`;
         }
-        // 每周用量目前无独立限制，显示"无限制"
-        document.getElementById('dash-week-pct').textContent = '0';
-        document.getElementById('dash-week-detail').textContent = '无限制';
-        document.getElementById('dash-week-bar').style.width = '0%';
+        // 每月用量（month_cost / monthly_quota），全部从数据读取
+        const mCost = info.month_cost || 0;
+        const mQuota = info.monthly_quota;
+        if (mQuota) {
+          const mPct = Math.min(Math.round(mCost / mQuota * 100), 100);
+          document.getElementById('dash-week-pct').textContent = mPct;
+          const mBar = document.getElementById('dash-week-bar');
+          mBar.style.width = Math.min(mPct, 100) + '%';
+          if (mPct >= 90) mBar.classList.add('dash-progress-bar-danger');
+          else if (mPct >= 70) mBar.classList.add('dash-progress-bar-warning');
+          document.getElementById('dash-week-detail').textContent = `$${mCost.toFixed(4)} / $${mQuota.toFixed(2)}`;
+        } else {
+          document.getElementById('dash-week-pct').textContent = '0';
+          document.getElementById('dash-week-detail').textContent = `$${mCost.toFixed(4)} / 无限制`;
+          document.getElementById('dash-week-bar').style.width = '0%';
+        }
+
+        // 速率限制提示
+        const rateEl = document.getElementById('dash-rate-limit');
+        if (rateEl) {
+          if (!info.package_type || info.package_type === 'free') {
+            rateEl.textContent = '速率: 10 次/分钟';
+          } else {
+            rateEl.textContent = '速率: 不限';
+            rateEl.style.color = 'var(--success)';
+          }
+        }
 
         // 加油包余额
         document.getElementById('dash-booster-balance').textContent = `$${(info.booster_balance || 0).toFixed(2)}`;
