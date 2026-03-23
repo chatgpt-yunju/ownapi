@@ -155,15 +155,18 @@ router.post('/chat/completions', async (req, res) => {
     return res.status(503).json({ error: { message: 'Model provider not configured', type: 'server_error' } });
   }
 
-  // 判断是否使用 Anthropic API 格式（CC Club）
-  const isAnthropicAPI = modelConfig.provider === 'ccclub' || baseUrl.includes('claude-code.club');
+  // 判断是否使用 Anthropic API 格式
+  // 只有 Claude 系列模型走 Anthropic Messages 格式，其余（Gemini/OpenAI 等）走 OpenAI 兼容格式
+  const isClaudeModel = model.includes('claude');
+  const isAnthropicAPI = isClaudeModel && (modelConfig.provider === 'ccclub' || modelConfig.provider === 'anthropic' || baseUrl.includes('claude-code.club') || baseUrl.includes('anthropic.com'));
 
   // 根据 API 类型确定 URL
   let upstreamUrl;
+  const cleanBaseUrl = baseUrl.replace(/\/v1\/messages\/?$/, '').replace(/\/+$/, '');
   if (isAnthropicAPI) {
-    upstreamUrl = baseUrl.includes('/messages') ? baseUrl : `${baseUrl}/v1/messages`;
+    upstreamUrl = `${cleanBaseUrl}/v1/messages`;
   } else {
-    upstreamUrl = baseUrl.includes('/chat/completions') ? baseUrl : `${baseUrl}/chat/completions`;
+    upstreamUrl = `${cleanBaseUrl}/v1/chat/completions`;
   }
 
   try {
@@ -399,8 +402,35 @@ router.post('/chat/completions', async (req, res) => {
           usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
         });
       } else {
-        // OpenAI 兼容格式
-        console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage));
+        // OpenAI 兼容格式（或 Gemini 原生格式）
+        console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage || data.usageMetadata));
+
+        // 检测是否为 Gemini 原生响应格式（candidates 结构）
+        if (data.candidates) {
+          // Gemini 原生格式转换
+          const candidate = data.candidates[0];
+          const geminiText = candidate?.content?.parts?.map(p => p.text || '').join('') || '';
+          const usage = data.usageMetadata || {};
+          promptTokens = usage.promptTokenCount || estimateTokens(messages);
+          completionTokens = usage.candidatesTokenCount || estimateTokens(geminiText);
+
+          const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+          const result = await deductBalance(req.apiUserId, cost, `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`, req.preReserved || 0);
+          if (!result.success) {
+            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId);
+            return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
+          }
+          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, geminiText);
+
+          const geminiFinish = candidate?.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
+          res.json({
+            id: requestId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model,
+            choices: [{ index: 0, message: { role: 'assistant', content: geminiText }, finish_reason: geminiFinish }],
+            usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
+          });
+        } else {
+        // 标准 OpenAI 兼容格式
         promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
         completionTokens = data.usage?.completion_tokens || estimateTokens(data.choices?.[0]?.message?.content || '');
         const effectivePrompt2 = calcEffectiveInputTokens(data.usage, false);
@@ -427,6 +457,7 @@ router.post('/chat/completions', async (req, res) => {
           choices: data.choices,
           usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
         });
+        }
       }
     }
   } catch (err) {
@@ -579,7 +610,8 @@ router.post('/messages', async (req, res) => {
   }
 
   const upstreamModel = modelConfig.upstream_model_id || model;
-  const isUpstreamAnthropic = modelConfig.provider === 'ccclub' || modelConfig.provider === 'anthropic' || baseUrl.includes('claude-code.club') || baseUrl.includes('anthropic.com');
+  const isClaudeModel2 = model.includes('claude');
+  const isUpstreamAnthropic = isClaudeModel2 && (modelConfig.provider === 'ccclub' || modelConfig.provider === 'anthropic' || baseUrl.includes('claude-code.club') || baseUrl.includes('anthropic.com'));
 
   try {
     if (isUpstreamAnthropic) {
@@ -696,7 +728,8 @@ router.post('/messages', async (req, res) => {
 
     } else {
       // ===== OpenAI 兼容上游：格式转换 =====
-      const upstreamUrl = baseUrl.includes('/chat/completions') ? baseUrl : `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+      const cleanBase2 = baseUrl.replace(/\/v1\/messages\/?$/, '').replace(/\/+$/, '');
+      const upstreamUrl = `${cleanBase2}/v1/chat/completions`;
 
       // 转换 Anthropic messages → OpenAI messages
       const openaiMessages = convertAnthropicToOpenAIMessages(system, messages);
