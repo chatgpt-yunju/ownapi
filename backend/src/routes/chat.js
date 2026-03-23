@@ -459,7 +459,7 @@ router.post('/chat/completions', async (req, res) => {
 // ==========================================
 router.post('/messages', async (req, res) => {
   const requestId = `msg_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
-  const { model, messages, system, max_tokens, stream = false, temperature, top_p, top_k, tools, tool_choice, stop_sequences } = req.body;
+  const { model, messages, system, max_tokens, stream = false, temperature, top_p, top_k, tools, tool_choice, stop_sequences, thinking, metadata, betas } = req.body;
 
   if (!model || !messages) {
     return res.status(400).json({ type: 'error', error: { type: 'invalid_request_error', message: 'model and messages are required' } });
@@ -593,6 +593,8 @@ router.post('/messages', async (req, res) => {
       if (tools) upstreamBody.tools = tools;
       if (tool_choice) upstreamBody.tool_choice = tool_choice;
       if (stop_sequences) upstreamBody.stop_sequences = stop_sequences;
+      if (thinking) upstreamBody.thinking = thinking;
+      if (metadata) upstreamBody.metadata = metadata;
       if (stream) upstreamBody.stream = true;
 
       const headers = {
@@ -600,6 +602,9 @@ router.post('/messages', async (req, res) => {
         'anthropic-version': req.headers['anthropic-version'] || '2023-06-01',
         'Content-Type': 'application/json'
       };
+      // 透传 anthropic-beta 头（扩展思考、文件API等功能依赖此头）
+      const betaHeader = req.headers['anthropic-beta'] || (betas ? (Array.isArray(betas) ? betas.join(',') : betas) : null);
+      if (betaHeader) headers['anthropic-beta'] = betaHeader;
 
       if (stream) {
         const upstreamRes = await axios.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 });
@@ -846,12 +851,12 @@ router.post('/messages', async (req, res) => {
           return res.status(402).json({ type: 'error', error: { type: 'billing_error', message: '额度已用尽' } });
         }
 
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
-        await saveRequestDetail(requestId, req.apiUserId, model, messages, system, choice?.message?.content || '');
-
         // 构建 Anthropic Messages API 响应
         const choice = data.choices?.[0];
         const content = [];
+
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId);
+        await saveRequestDetail(requestId, req.apiUserId, model, messages, system, choice?.message?.content || '');
 
         if (choice?.message?.content) {
           content.push({ type: 'text', text: choice.message.content });
