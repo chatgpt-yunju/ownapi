@@ -20,6 +20,10 @@ const PROVIDERS = {
   nvidia: {
     baseUrl: process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1',
     apiKey: process.env.NVIDIA_API_KEY || ''
+  },
+  google: {
+    baseUrl: process.env.GOOGLE_API_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta',
+    apiKey: process.env.GOOGLE_API_KEY || ''
   }
 };
 
