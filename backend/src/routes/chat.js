@@ -162,7 +162,7 @@ router.post('/chat/completions', async (req, res) => {
 
   // 根据 API 类型确定 URL
   let upstreamUrl;
-  const cleanBaseUrl = baseUrl.replace(/\/v1\/messages\/?$/, '').replace(/\/+$/, '');
+  const cleanBaseUrl = baseUrl.replace(/\/v1\/messages\/?$/, '').replace(/\/v1\/?$/, '').replace(/\/+$/, '');
   if (isAnthropicAPI) {
     upstreamUrl = `${cleanBaseUrl}/v1/messages`;
   } else {
@@ -728,7 +728,7 @@ router.post('/messages', async (req, res) => {
 
     } else {
       // ===== OpenAI 兼容上游：格式转换 =====
-      const cleanBase2 = baseUrl.replace(/\/v1\/messages\/?$/, '').replace(/\/+$/, '');
+      const cleanBase2 = baseUrl.replace(/\/v1\/messages\/?$/, '').replace(/\/v1\/?$/, '').replace(/\/+$/, '');
       const upstreamUrl = `${cleanBase2}/v1/chat/completions`;
 
       // 转换 Anthropic messages → OpenAI messages
