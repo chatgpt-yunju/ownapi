@@ -3,3 +3,8 @@ node_modules/
 dist/
 __pycache__/
 venv/
+output/
+uploads/
+logs/
+*.log
+*.sqlite
