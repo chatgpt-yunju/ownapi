@@ -32,6 +32,30 @@
     .copy-btn { background: var(--accent); color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
     .trust-section { display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap; padding: 2rem 0; border-top: 1px solid var(--border-color); margin-top: 3rem; }
     .trust-item { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
+
+    /* 价格对比 */
+    .compare-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    .compare-table th, .compare-table td { padding: 0.75rem 0.75rem; border-bottom: 1px solid var(--border-color); font-size: 0.88rem; }
+    .compare-table th { font-weight: 600; color: var(--text-muted); font-size: 0.8rem; text-align: center; }
+    .compare-table td { font-family: var(--font-mono); text-align: center; }
+    .compare-table td:first-child { text-align: left; font-family: var(--font-sans); }
+    .compare-table tr:hover { background: var(--bg-secondary); }
+    .price-official { color: var(--text-muted); text-decoration: line-through; font-size: 0.82rem; }
+    .price-ours { color: #10b981; font-weight: 600; }
+    .save-tag { display: inline-block; padding: 0.15rem 0.45rem; background: rgba(16,185,129,0.15); color: #10b981; border-radius: 3px; font-size: 0.72rem; font-weight: 600; font-family: var(--font-sans); }
+
+    /* 联系我们 */
+    .contact-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-top: 2rem; }
+    .contact-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.75rem 1.25rem; text-align: center; transition: border-color 0.2s, transform 0.2s; }
+    .contact-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .contact-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+    .contact-label { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.35rem; }
+    .contact-value { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; word-break: break-all; }
+    .contact-copy { margin-top: 0.5rem; font-size: 0.75rem; color: var(--accent); cursor: pointer; opacity: 0; transition: opacity 0.2s; }
+    .contact-card:hover .contact-copy { opacity: 1; }
+    @media (max-width: 768px) {
+      .contact-grid { grid-template-columns: repeat(2, 1fr); }
+    }
   </style>
 </head>
 <body>
@@ -48,6 +72,7 @@
       <a href="/" class="active">首页</a>
       <a href="/docs.html">文档</a>
       <a href="/console.html">控制台</a>
+      <a href="#contact">联系我们</a>
     </div>
     <div class="oc-nav-right">
       <a href="/console.html" class="btn-accent">立即接入</a>
@@ -192,56 +217,127 @@ with client.messages.stream(
     </div>
   </section>
 
-  <!-- 热门模型价格 -->
+  <!-- 热门模型价格对比 -->
   <section class="oc-container" style="padding-top:2rem;padding-bottom:4rem;">
-    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">热门模型定价</h2>
-    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">按实际用量计费，精确到 0.0001 美元</p>
+    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">模型价格对比</h2>
+    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">同等模型，官方同价或更低 — 对比一目了然</p>
 
-    <div class="oc-card" style="max-width:900px;margin:0 auto;overflow-x:auto;">
-      <table class="pricing-table">
+    <div class="oc-card" style="max-width:960px;margin:0 auto;overflow-x:auto;">
+      <table class="compare-table">
         <thead>
           <tr>
-            <th>模型</th>
-            <th>类型</th>
-            <th style="text-align:right;">输入 ($/1M)</th>
-            <th style="text-align:right;">输出 ($/1M)</th>
+            <th style="text-align:left;">模型</th>
+            <th>官方输入价</th>
+            <th>我们输入价</th>
+            <th>官方输出价</th>
+            <th>我们输出价</th>
+            <th>优惠</th>
           </tr>
         </thead>
-        <tbody id="pricing-tbody">
+        <tbody>
           <tr>
-            <td><strong>gpt-4o-mini</strong> <span class="model-tag">推荐</span></td>
-            <td>GPT</td>
-            <td style="text-align:right;">$0.15</td>
-            <td style="text-align:right;">$0.60</td>
+            <td><strong>GPT-4o</strong> <span class="model-tag">旗舰</span></td>
+            <td class="price-official">$2.50</td>
+            <td class="price-ours">$2.50</td>
+            <td class="price-official">$10.00</td>
+            <td class="price-ours">$10.00</td>
+            <td><span class="save-tag">同价</span></td>
           </tr>
           <tr>
-            <td><strong>claude-sonnet-4-6</strong> <span class="model-tag">热门</span></td>
-            <td>Claude</td>
-            <td style="text-align:right;">$3.00</td>
-            <td style="text-align:right;">$15.00</td>
+            <td><strong>GPT-4o-mini</strong> <span class="model-tag">推荐</span></td>
+            <td class="price-official">$0.15</td>
+            <td class="price-ours">$0.15</td>
+            <td class="price-official">$0.60</td>
+            <td class="price-ours">$0.60</td>
+            <td><span class="save-tag">同价</span></td>
           </tr>
           <tr>
-            <td><strong>deepseek-chat</strong> <span class="model-tag">性价比</span></td>
-            <td>DeepSeek</td>
-            <td style="text-align:right;">$0.14</td>
-            <td style="text-align:right;">$0.28</td>
+            <td><strong>Claude Sonnet 4.6</strong> <span class="model-tag">热门</span></td>
+            <td class="price-official">$3.00</td>
+            <td class="price-ours">$3.00</td>
+            <td class="price-official">$15.00</td>
+            <td class="price-ours">$15.00</td>
+            <td><span class="save-tag">同价</span></td>
           </tr>
           <tr>
-            <td><strong>meta/llama-3.1-8b-instruct</strong></td>
-            <td>Llama</td>
-            <td style="text-align:right;">$0.07</td>
-            <td style="text-align:right;">$0.07</td>
+            <td><strong>Claude Opus 4.6</strong></td>
+            <td class="price-official">$5.00</td>
+            <td class="price-ours">$5.00</td>
+            <td class="price-official">$25.00</td>
+            <td class="price-ours">$25.00</td>
+            <td><span class="save-tag">同价</span></td>
           </tr>
           <tr>
-            <td><strong>qwen/qwen2.5-7b-instruct</strong></td>
-            <td>Qwen</td>
-            <td style="text-align:right;">$0.07</td>
-            <td style="text-align:right;">$0.07</td>
+            <td><strong>DeepSeek V3.2</strong> <span class="model-tag">性价比</span></td>
+            <td class="price-official">$0.28</td>
+            <td class="price-ours">$0.10</td>
+            <td class="price-official">$0.42</td>
+            <td class="price-ours">$0.30</td>
+            <td><span class="save-tag">省 64%</span></td>
+          </tr>
+          <tr>
+            <td><strong>Gemini 2.5 Pro</strong></td>
+            <td class="price-official">$1.25</td>
+            <td class="price-ours">$1.25</td>
+            <td class="price-official">$5.00</td>
+            <td class="price-ours">$5.00</td>
+            <td><span class="save-tag">同价</span></td>
+          </tr>
+          <tr>
+            <td><strong>Gemini 2.5 Flash</strong></td>
+            <td class="price-official">$0.15</td>
+            <td class="price-ours">$0.019</td>
+            <td class="price-official">$0.60</td>
+            <td class="price-ours">$0.075</td>
+            <td><span class="save-tag">省 87%</span></td>
+          </tr>
+          <tr>
+            <td><strong>Llama 3.1 8B</strong></td>
+            <td style="color:var(--text-muted);font-size:0.82rem;">需自建</td>
+            <td class="price-ours">$0.07</td>
+            <td style="color:var(--text-muted);font-size:0.82rem;">需自建</td>
+            <td class="price-ours">$0.07</td>
+            <td><span class="save-tag">免部署</span></td>
           </tr>
         </tbody>
       </table>
       <div style="text-align:center;padding:1rem;border-top:1px solid var(--border-color);">
-        <a href="/docs.html#models" style="color:var(--accent);">查看全部 200+ 模型 →</a>
+        <span style="color:var(--text-muted);font-size:0.8rem;">价格单位：$/1M tokens &middot; 官方价格来源于各厂商官网 2026.03</span>
+        <br>
+        <a href="/docs.html#models" style="color:var(--accent);margin-top:0.5rem;display:inline-block;">查看全部 200+ 模型 →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 联系我们 -->
+  <section class="oc-container" id="contact" style="padding-top:4rem;padding-bottom:2rem;">
+    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">联系我们</h2>
+    <p style="text-align:center;color:var(--text-muted);margin-bottom:0.5rem;">技术支持 &middot; 商务合作 &middot; 问题反馈，随时欢迎联系</p>
+
+    <div class="contact-grid">
+      <div class="contact-card" onclick="copyContact('2042132648')">
+        <div class="contact-icon">&#x1f4ac;</div>
+        <div class="contact-label">QQ 客服</div>
+        <div class="contact-value">2042132648</div>
+        <div class="contact-copy">点击复制</div>
+      </div>
+      <div class="contact-card" onclick="copyContact('665889946')">
+        <div class="contact-icon">&#x1f465;</div>
+        <div class="contact-label">QQ 交流群</div>
+        <div class="contact-value">665889946</div>
+        <div class="contact-copy">点击复制</div>
+      </div>
+      <div class="contact-card" onclick="copyContact('19966519194')">
+        <div class="contact-icon">&#x1f4f1;</div>
+        <div class="contact-label">微信</div>
+        <div class="contact-value">19966519194</div>
+        <div class="contact-copy">点击复制</div>
+      </div>
+      <div class="contact-card" onclick="copyContact('cyjlnk@foxmail.com')">
+        <div class="contact-icon">&#x2709;&#xfe0f;</div>
+        <div class="contact-label">邮箱</div>
+        <div class="contact-value">cyjlnk@foxmail.com</div>
+        <div class="contact-copy">点击复制</div>
       </div>
     </div>
   </section>
@@ -272,12 +368,15 @@ with client.messages.stream(
   </div>
 
   <!-- Footer -->
-  <footer class="oc-footer">
-    <p>&copy; 2024-2026 OpenClaw AI &middot; Powered by <a href="https://yunjunet.cn" style="color:var(--accent);">yunjunet.cn</a></p>
-    <p style="margin-top:0.5rem;font-size:0.85rem;">
-      <a href="/docs.html" style="color:var(--text-muted);margin:0 0.5rem;">文档</a>
-      <a href="/console.html" style="color:var(--text-muted);margin:0 0.5rem;">控制台</a>
-    </p>
+  <footer class="oc-footer" style="padding:2rem 0;text-align:center;border-top:1px solid var(--border-color);">
+    <div style="display:flex;justify-content:center;gap:2rem;flex-wrap:wrap;margin-bottom:1rem;font-size:0.9rem;">
+      <a href="/" style="color:var(--text-secondary);">首页</a>
+      <a href="/docs.html" style="color:var(--text-secondary);">API 文档</a>
+      <a href="/console.html" style="color:var(--text-secondary);">控制台</a>
+      <a href="#contact" style="color:var(--text-secondary);">联系我们</a>
+    </div>
+    <p style="color:var(--text-muted);font-size:0.8rem;">&copy; 2024-2026 OpenClaw AI &middot; Powered by <a href="https://yunjunet.cn" style="color:var(--accent);">yunjunet.cn</a></p>
+    <p style="color:var(--text-muted);font-size:0.75rem;margin-top:0.35rem;">QQ 群: 665889946 &middot; 邮箱: cyjlnk@foxmail.com</p>
   </footer>
 
   <script>
@@ -291,6 +390,15 @@ with client.messages.stream(
       const code = document.querySelector(`#code-${type} pre`).textContent;
       navigator.clipboard.writeText(code);
       alert('已复制到剪贴板');
+    }
+    function copyContact(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        const toast = document.createElement('div');
+        toast.textContent = '已复制: ' + text;
+        toast.style.cssText = 'position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;padding:0.6rem 1.5rem;border-radius:8px;font-size:0.9rem;z-index:999;animation:fadeIn .3s;';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+      });
     }
   </script>
 </body>
