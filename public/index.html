@@ -91,12 +91,12 @@
     <!-- 双格式徽章 -->
     <div style="margin-bottom:2rem;">
       <div class="format-badge">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-        OpenAI 格式
-      </div>
-      <div class="format-badge">
         <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
         Anthropic 格式
+      </div>
+      <div class="format-badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        OpenAI 格式
       </div>
     </div>
 
@@ -128,12 +128,34 @@
     <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">无需修改代码，直接替换 base_url 即可切换</p>
 
     <div class="api-toggle">
-      <button class="active" onclick="showCode('openai')">OpenAI 格式</button>
-      <button onclick="showCode('anthropic')">Anthropic 格式</button>
+      <button class="active" onclick="showCode('anthropic')">Anthropic 格式</button>
+      <button onclick="showCode('openai')">OpenAI 格式</button>
     </div>
 
     <div class="oc-card" style="max-width:800px;margin:0 auto;">
-      <div class="code-block" id="code-openai">
+      <div class="code-block" id="code-anthropic">
+        <div class="code-header">
+          <span>Python - Anthropic SDK</span>
+          <button class="copy-btn" onclick="copyCode('anthropic')">复制代码</button>
+        </div>
+        <pre><code style="color:#e0e0e0;">import anthropic
+
+client = anthropic.Anthropic(
+    base_url="<span style="color:#a855f7;">https://api.yunjunet.cn/v1</span>",
+    api_key="<span style="color:#f59e0b;">sk-your-api-key</span>"
+)
+
+<span style="color:#6b7280;"># Messages API</span>
+with client.messages.stream(
+    model="<span style="color:#10b981;">claude-sonnet-4-6</span>",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "你好！"}]
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="", flush=True)</code></pre>
+      </div>
+
+      <div class="code-block" id="code-openai" style="display:none;">
         <div class="code-header">
           <span>Python - OpenAI SDK</span>
           <button class="copy-btn" onclick="copyCode('openai')">复制代码</button>
@@ -154,28 +176,6 @@ response = client.chat.completions.create(
 
 for chunk in response:
     print(chunk.choices[0].delta.content, end="")</code></pre>
-      </div>
-
-      <div class="code-block" id="code-anthropic" style="display:none;">
-        <div class="code-header">
-          <span>Python - Anthropic SDK</span>
-          <button class="copy-btn" onclick="copyCode('anthropic')">复制代码</button>
-        </div>
-        <pre><code style="color:#e0e0e0;">import anthropic
-
-client = anthropic.Anthropic(
-    base_url="<span style="color:#a855f7;">https://api.yunjunet.cn/v1</span>",
-    api_key="<span style="color:#f59e0b;">sk-your-api-key</span>"
-)
-
-<span style="color:#6b7280;"># Messages API</span>
-with client.messages.stream(
-    model="<span style="color:#10b981;">claude-sonnet-4-6</span>",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "你好！"}]
-) as stream:
-    for text in stream.text_stream:
-        print(text, end="", flush=True)</code></pre>
       </div>
     </div>
   </section>
