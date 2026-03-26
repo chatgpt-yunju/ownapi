@@ -48,10 +48,12 @@
       <div class="oc-sidebar-section" style="margin-top:1rem;">API 参考</div>
       <a href="#chat">Chat Completions</a>
       <a href="#messages">Messages API</a>
+      <a href="#gemini-api">Gemini API</a>
       <a href="#models">模型列表</a>
       <a href="#streaming">流式输出</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">集成指南</div>
       <a href="#claude-code">Claude Code CLI</a>
+      <a href="#gemini-cli">Gemini CLI</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">其他</div>
       <a href="#errors">错误码</a>
       <a href="#limits">限制说明</a>
@@ -61,7 +63,7 @@
     <main style="flex:1;min-width:0;">
       <div class="doc-section" id="intro">
         <h2>简介</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 同时兼容 <strong>OpenAI Chat Completions</strong> 和 <strong>Anthropic Messages</strong> 两种 API 格式，支持多种主流大语言模型。您可以使用 OpenAI SDK、Anthropic SDK、Claude Code CLI 或 HTTP 请求直接接入。</p>
+        <p style="color:var(--text-secondary);">OpenClaw API 同时兼容 <strong>OpenAI Chat Completions</strong>、<strong>Anthropic Messages</strong> 和 <strong>Gemini</strong> 三种 API 格式，支持多种主流大语言模型。您可以使用 OpenAI SDK、Anthropic SDK、Gemini CLI、Claude Code CLI 或 HTTP 请求直接接入。</p>
         <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;">
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
             <div style="font-size:0.8rem;color:var(--text-muted);">API 地址</div>
@@ -69,7 +71,7 @@
           </div>
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
             <div style="font-size:0.8rem;color:var(--text-muted);">兼容格式</div>
-            <div style="font-family:var(--font-mono);margin-top:0.25rem;">OpenAI + Anthropic</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">OpenAI + Anthropic + Gemini</div>
           </div>
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
             <div style="font-size:0.8rem;color:var(--text-muted);">响应格式</div>
@@ -80,13 +82,16 @@
 
       <div class="doc-section" id="auth">
         <h2>认证方式</h2>
-        <p style="color:var(--text-secondary);">在<a href="/console.html">控制台</a>创建 API Key 后，支持两种认证头格式（使用同一个 Key）：</p>
+        <p style="color:var(--text-secondary);">在<a href="/console.html">控制台</a>创建 API Key 后，支持三种认证头格式（使用同一个 Key）：</p>
         <div class="oc-code" style="margin-top:0.75rem;"><pre style="margin:0;"># OpenAI 格式（适用于 /v1/chat/completions）
 Authorization: Bearer sk-your-api-key
 
 # Anthropic 格式（适用于 /v1/messages）
-x-api-key: sk-your-api-key</pre></div>
-        <p style="color:var(--text-secondary);margin-top:0.75rem;font-size:0.85rem;">API Key 以 <code>sk-</code> 开头，创建后仅显示一次，请妥善保管。两种认证头均可用于任意端点。</p>
+x-api-key: sk-your-api-key
+
+# Gemini 格式（适用于 /v1beta/models/*）
+x-goog-api-key: sk-your-api-key</pre></div>
+        <p style="color:var(--text-secondary);margin-top:0.75rem;font-size:0.85rem;">API Key 以 <code>sk-</code> 开头，创建后仅显示一次，请妥善保管。三种认证头均可用于对应端点。</p>
       </div>
 
       <div class="doc-section" id="quickstart">
@@ -240,6 +245,111 @@ data: {"type":"message_stop"}</pre></div>
           <li>响应：OpenAI 格式 → Anthropic Messages 格式（含 SSE 事件流转换）</li>
           <li>对客户端完全透明，无需关心上游差异</li>
         </ul>
+      </div>
+
+      <div class="doc-section" id="gemini-api">
+        <h2>Gemini API（Google 兼容）</h2>
+        <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1beta/models/{model}:generateContent</span></p>
+        <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1beta/models/{model}:streamGenerateContent</span></p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">完全兼容 Google Gemini API 格式，支持 Gemini CLI 等原生客户端直接接入。所有平台模型均可通过此端点调用，平台自动完成 Gemini ↔ OpenAI/Anthropic 格式转换。</p>
+
+        <h3>请求参数</h3>
+        <table class="oc-table doc-param-table">
+          <thead><tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>contents</code></td><td>array</td><td>是</td><td>对话内容，每项含 role（user/model）和 parts</td></tr>
+            <tr><td><code>systemInstruction</code></td><td>object</td><td>否</td><td>系统提示词，含 parts 数组</td></tr>
+            <tr><td><code>generationConfig</code></td><td>object</td><td>否</td><td>生成配置：maxOutputTokens、temperature、topP</td></tr>
+          </tbody>
+        </table>
+
+        <h3>请求示例</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">curl https://api.yunjunet.cn/v1beta/models/claude-sonnet-4-6:generateContent \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: sk-your-api-key" \
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [{"text": "Hello!"}]}
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 1024,
+      "temperature": 0.7
+    }
+  }'</pre></div>
+
+        <h3>响应示例</h3>
+        <div class="oc-code"><pre style="margin:0;">{
+  "candidates": [{
+    "content": {
+      "parts": [{"text": "Hello! How can I help you today?"}],
+      "role": "model"
+    },
+    "finishReason": "STOP",
+    "index": 0
+  }],
+  "usageMetadata": {
+    "promptTokenCount": 10,
+    "candidatesTokenCount": 12,
+    "totalTokenCount": 22
+  },
+  "modelVersion": "claude-sonnet-4-6"
+}</pre></div>
+
+        <h3>流式请求</h3>
+        <p style="color:var(--text-secondary);">将端点改为 <code>:streamGenerateContent</code> 即可获得 SSE 流式响应：</p>
+        <div class="oc-code"><pre style="margin:0;">POST /v1beta/models/claude-sonnet-4-6:streamGenerateContent
+
+# 响应格式（每个 chunk 为独立 JSON）
+data: {"candidates":[{"content":{"parts":[{"text":"Hello"}],"role":"model"},"index":0}],"modelVersion":"claude-sonnet-4-6"}
+
+data: {"candidates":[{"content":{"parts":[{"text":"!"}],"role":"model"},"index":0}],"modelVersion":"claude-sonnet-4-6"}
+
+data: {"candidates":[{"content":{"parts":[{"text":""}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":12,"totalTokenCount":22}}</pre></div>
+
+        <h3>429 自动重试</h3>
+        <p style="color:var(--text-secondary);">遇到上游限流（429）时，平台自动切换到其他可用端点重试（最多 2 次），无需客户端处理。</p>
+      </div>
+
+      <div class="doc-section" id="gemini-cli">
+        <h2>Gemini CLI 接入</h2>
+        <p style="color:var(--text-secondary);">OpenClaw API 完全兼容 <a href="https://github.com/google-gemini/gemini-cli" style="color:var(--accent-light);">Gemini CLI</a>，您可以使用 OpenClaw 的 API Key 替代官方 Google API Key，接入平台上的所有模型。</p>
+
+        <h3>环境变量配置</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># 设置环境变量
+export GEMINI_API_KEY=sk-your-api-key
+export GEMINI_BASE_URL=https://api.yunjunet.cn/v1beta/
+
+# 启动 Gemini CLI
+gemini</pre></div>
+
+        <h3>写入 Shell 配置（永久生效）</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># Bash 用户
+echo 'export GEMINI_API_KEY=sk-your-api-key' >> ~/.bashrc
+echo 'export GEMINI_BASE_URL=https://api.yunjunet.cn/v1beta/' >> ~/.bashrc
+source ~/.bashrc
+
+# Zsh 用户
+echo 'export GEMINI_API_KEY=sk-your-api-key' >> ~/.zshrc
+echo 'export GEMINI_BASE_URL=https://api.yunjunet.cn/v1beta/' >> ~/.zshrc
+source ~/.zshrc</pre></div>
+
+        <h3>支持的模型</h3>
+        <p style="color:var(--text-secondary);">Gemini CLI 通过 <code>/v1beta/models/{model}:generateContent</code> 端点通信，平台上所有已启用的模型均可使用：</p>
+        <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
+          <li><strong>Anthropic 模型</strong>：claude-opus-4-6、claude-sonnet-4-6 等（自动 Gemini→Anthropic 格式转换）</li>
+          <li><strong>OpenAI 模型</strong>：gpt-4o、gpt-4o-mini 等（自动 Gemini→OpenAI 格式转换）</li>
+          <li><strong>其他模型</strong>：DeepSeek、NVIDIA NIM、Qwen 等全系列模型</li>
+        </ul>
+
+        <h3>重要说明</h3>
+        <div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.25);border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
+          <p style="color:var(--text-secondary);font-size:0.85rem;margin:0;">
+            <strong style="color:var(--warning);">&#9888; 注意：</strong><br>
+            &#8226; <strong>GEMINI_BASE_URL</strong> 必须以 <code>/</code> 结尾：<code>https://api.yunjunet.cn/v1beta/</code><br>
+            &#8226; <strong>认证方式</strong>：Gemini CLI 使用 <code>GEMINI_API_KEY</code> 环境变量，对应 <code>x-goog-api-key</code> 请求头<br>
+            &#8226; <strong>模型 ID</strong>：直接使用平台模型 ID（如 <code>claude-sonnet-4-6</code>），无需加 <code>models/</code> 前缀
+          </p>
+        </div>
       </div>
 
       <div class="doc-section" id="claude-code">

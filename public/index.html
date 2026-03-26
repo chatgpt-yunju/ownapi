@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenClaw API - 企业级大模型 API 中转平台</title>
-  <meta name="description" content="统一接入 GPT、Claude、DeepSeek、Qwen 等 200+ 模型，兼容 OpenAI 与 Anthropic API 格式，按量计费，毫秒级响应">
+  <meta name="description" content="统一接入 GPT、Claude、DeepSeek、Qwen 等 200+ 模型，兼容 OpenAI、Anthropic、Gemini 三种 API 格式，按量计费，毫秒级响应">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -86,9 +86,9 @@
       <span style="background:linear-gradient(135deg,#10b981,#059669);color:white;padding:0.35rem 1rem;border-radius:2rem;font-size:0.85rem;font-weight:500;">正式上线</span>
     </div>
     <h1 style="font-size:3rem;line-height:1.1;margin-bottom:1rem;">统一大模型 API 接口</h1>
-    <p style="font-size:1.15rem;max-width:640px;margin:0 auto 1.5rem;opacity:0.85;">一个 API Key，接入 GPT、Claude、DeepSeek、Qwen、Llama 等 200+ 模型。<br>双格式兼容，按量计费，毫秒响应。</p>
+    <p style="font-size:1.15rem;max-width:640px;margin:0 auto 1.5rem;opacity:0.85;">一个 API Key，接入 GPT、Claude、DeepSeek、Qwen、Llama 等 200+ 模型。<br>三格式兼容，按量计费，毫秒响应。</p>
 
-    <!-- 双格式徽章 -->
+    <!-- 三格式徽章 -->
     <div style="margin-bottom:2rem;">
       <div class="format-badge">
         <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
@@ -97,6 +97,10 @@
       <div class="format-badge">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
         OpenAI 格式
+      </div>
+      <div class="format-badge">
+        <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/></svg>
+        Gemini 格式
       </div>
     </div>
 
@@ -124,12 +128,13 @@
 
   <!-- 双格式支持 -->
   <section class="oc-container" style="padding-top:4rem;">
-    <h2 style="text-align:center;margin-bottom:1rem;font-size:1.75rem;">双 API 格式完美兼容</h2>
-    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">无需修改代码，直接替换 base_url 即可切换</p>
+    <h2 style="text-align:center;margin-bottom:1rem;font-size:1.75rem;">三种 API 格式完美兼容</h2>
+    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">无需修改代码，直接替换 base_url 即可切换 — 支持 Claude Code、Gemini CLI 等主流客户端</p>
 
     <div class="api-toggle">
       <button class="active" onclick="showCode('anthropic')">Anthropic 格式</button>
       <button onclick="showCode('openai')">OpenAI 格式</button>
+      <button onclick="showCode('gemini')">Gemini 格式</button>
     </div>
 
     <div class="oc-card" style="max-width:800px;margin:0 auto;">
@@ -177,6 +182,25 @@ response = client.chat.completions.create(
 for chunk in response:
     print(chunk.choices[0].delta.content, end="")</code></pre>
       </div>
+
+      <div class="code-block" id="code-gemini" style="display:none;">
+        <div class="code-header">
+          <span>Gemini CLI / cURL</span>
+          <button class="copy-btn" onclick="copyCode('gemini')">复制代码</button>
+        </div>
+        <pre><code style="color:#e0e0e0;"><span style="color:#6b7280;"># Gemini CLI 配置</span>
+export <span style="color:#a855f7;">GEMINI_API_KEY</span>=<span style="color:#f59e0b;">sk-your-api-key</span>
+export <span style="color:#a855f7;">GEMINI_BASE_URL</span>=https://api.yunjunet.cn/v1beta/
+gemini
+
+<span style="color:#6b7280;"># 或用 cURL 直接调用</span>
+curl https://api.yunjunet.cn/v1beta/models/<span style="color:#10b981;">claude-sonnet-4-6</span>:generateContent \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: <span style="color:#f59e0b;">sk-your-api-key</span>" \
+  -d '{
+    "contents": [{"role": "user", "parts": [{"text": "你好！"}]}]
+  }'</code></pre>
+      </div>
     </div>
   </section>
 
@@ -187,7 +211,7 @@ for chunk in response:
       <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
         <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f517;</div>
         <h3 style="margin-bottom:0.75rem;">无缝切换</h3>
-        <p style="color:var(--text-secondary);">修改一行代码即可接入，完全兼容 OpenAI / Anthropic SDK，零学习成本</p>
+        <p style="color:var(--text-secondary);">修改一行代码即可接入，完全兼容 OpenAI / Anthropic / Gemini SDK 及 CLI，零学习成本</p>
       </div>
       <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
         <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f4b0;</div>
@@ -202,7 +226,7 @@ for chunk in response:
       <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
         <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f916;</div>
         <h3 style="margin-bottom:0.75rem;">200+ 模型</h3>
-        <p style="color:var(--text-secondary);">GPT-4o、Claude 4.6、DeepSeek、Qwen、Llama 全系列，一站式接入</p>
+        <p style="color:var(--text-secondary);">GPT-4o、Claude 4.6、Gemini 2.5、DeepSeek、Qwen、Llama 全系列，一站式接入</p>
       </div>
       <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
         <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f512;</div>
@@ -333,10 +357,10 @@ for chunk in response:
         <div class="contact-value">19966519194</div>
         <div class="contact-copy">点击复制</div>
       </div>
-      <div class="contact-card" onclick="copyContact('cyjlnk@foxmail.com')">
+      <div class="contact-card" onclick="copyContact('2743319061@qq.com')">
         <div class="contact-icon">&#x2709;&#xfe0f;</div>
         <div class="contact-label">邮箱</div>
-        <div class="contact-value">cyjlnk@foxmail.com</div>
+        <div class="contact-value">2743319061@qq.com</div>
         <div class="contact-copy">点击复制</div>
       </div>
     </div>
@@ -376,15 +400,16 @@ for chunk in response:
       <a href="#contact" style="color:var(--text-secondary);">联系我们</a>
     </div>
     <p style="color:var(--text-muted);font-size:0.8rem;">&copy; 2024-2026 OpenClaw API &middot; Powered by <a href="https://yunjunet.cn" style="color:var(--accent);">yunjunet.cn</a></p>
-    <p style="color:var(--text-muted);font-size:0.75rem;margin-top:0.35rem;">QQ 群: 665889946 &middot; 邮箱: cyjlnk@foxmail.com</p>
+    <p style="color:var(--text-muted);font-size:0.75rem;margin-top:0.35rem;">QQ 群: 665889946 &middot; 邮箱: 2743319061@qq.com</p>
   </footer>
 
   <script>
     function showCode(type) {
       document.querySelectorAll('.api-toggle button').forEach(btn => btn.classList.remove('active'));
       document.querySelector(`.api-toggle button[onclick="showCode('${type}')"]`).classList.add('active');
-      document.getElementById('code-openai').style.display = type === 'openai' ? 'block' : 'none';
-      document.getElementById('code-anthropic').style.display = type === 'anthropic' ? 'block' : 'none';
+      ['anthropic', 'openai', 'gemini'].forEach(t => {
+        document.getElementById('code-' + t).style.display = t === type ? 'block' : 'none';
+      });
     }
     function copyCode(type) {
       const code = document.querySelector(`#code-${type} pre`).textContent;
