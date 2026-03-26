@@ -86,7 +86,7 @@
       <span style="background:linear-gradient(135deg,#10b981,#059669);color:white;padding:0.35rem 1rem;border-radius:2rem;font-size:0.85rem;font-weight:500;">正式上线</span>
     </div>
     <h1 style="font-size:3rem;line-height:1.1;margin-bottom:1rem;">统一大模型 API 接口</h1>
-    <p style="font-size:1.15rem;max-width:640px;margin:0 auto 1.5rem;opacity:0.85;">一个 API Key，接入 GPT、Claude、DeepSeek、Qwen、Llama 等 200+ 模型。<br>三格式兼容，按量计费，毫秒响应。</p>
+    <p style="font-size:1.15rem;max-width:640px;margin:0 auto 1.5rem;opacity:0.85;">一个 API Key，接入 GPT、Claude、DeepSeek、Qwen、Llama 等 200+ 模型。<br>三格式兼容，原生支持 Claude Code / Codex / Gemini CLI。</p>
 
     <!-- 三格式徽章 -->
     <div style="margin-bottom:2rem;">
@@ -126,15 +126,17 @@
     </div>
   </section>
 
-  <!-- 双格式支持 -->
+  <!-- 三格式支持 + CLI -->
   <section class="oc-container" style="padding-top:4rem;">
-    <h2 style="text-align:center;margin-bottom:1rem;font-size:1.75rem;">三种 API 格式完美兼容</h2>
-    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">无需修改代码，直接替换 base_url 即可切换 — 支持 Claude Code、Gemini CLI 等主流客户端</p>
+    <h2 style="text-align:center;margin-bottom:1rem;font-size:1.75rem;">三种 API 格式 + 三大 CLI 全兼容</h2>
+    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">SDK 替换 base_url 即可切换 — 原生支持 Claude Code、Codex、Gemini CLI</p>
 
     <div class="api-toggle">
-      <button class="active" onclick="showCode('anthropic')">Anthropic 格式</button>
-      <button onclick="showCode('openai')">OpenAI 格式</button>
-      <button onclick="showCode('gemini')">Gemini 格式</button>
+      <button class="active" onclick="showCode('anthropic')">Anthropic</button>
+      <button onclick="showCode('openai')">OpenAI</button>
+      <button onclick="showCode('gemini')">Gemini</button>
+      <button onclick="showCode('claudecode')">Claude Code</button>
+      <button onclick="showCode('codex')">Codex CLI</button>
     </div>
 
     <div class="oc-card" style="max-width:800px;margin:0 auto;">
@@ -200,6 +202,40 @@ curl https://api.yunjunet.cn/v1beta/models/<span style="color:#10b981;">claude-s
   -d '{
     "contents": [{"role": "user", "parts": [{"text": "你好！"}]}]
   }'</code></pre>
+      </div>
+
+      <div class="code-block" id="code-claudecode" style="display:none;">
+        <div class="code-header">
+          <span>Claude Code CLI</span>
+          <button class="copy-btn" onclick="copyCode('claudecode')">复制代码</button>
+        </div>
+        <pre><code style="color:#e0e0e0;"><span style="color:#6b7280;"># Claude Code CLI 配置（2行即可）</span>
+export <span style="color:#a855f7;">ANTHROPIC_BASE_URL</span>=https://api.yunjunet.cn
+export <span style="color:#a855f7;">ANTHROPIC_AUTH_TOKEN</span>=<span style="color:#f59e0b;">sk-your-api-key</span>
+
+<span style="color:#6b7280;"># 启动（支持平台上所有模型）</span>
+claude
+claude --model <span style="color:#10b981;">claude-sonnet-4-6</span>
+claude --model <span style="color:#10b981;">deepseek-chat</span></code></pre>
+      </div>
+
+      <div class="code-block" id="code-codex" style="display:none;">
+        <div class="code-header">
+          <span>Codex CLI（~/.codex/config.toml）</span>
+          <button class="copy-btn" onclick="copyCode('codex')">复制代码</button>
+        </div>
+        <pre><code style="color:#e0e0e0;"><span style="color:#6b7280;"># ~/.codex/config.toml</span>
+model = "<span style="color:#10b981;">claude-sonnet-4-6</span>"
+model_provider = "openclaw"
+
+[model_providers.openclaw]
+name = "OpenClaw API"
+base_url = "<span style="color:#a855f7;">https://api.yunjunet.cn/v1</span>"
+wire_api = "responses"
+env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
+
+<span style="color:#6b7280;"># 设置环境变量</span>
+<span style="color:#6b7280;"># export OPENCLAW_API_KEY=sk-your-api-key</span></code></pre>
       </div>
     </div>
   </section>
@@ -407,7 +443,7 @@ curl https://api.yunjunet.cn/v1beta/models/<span style="color:#10b981;">claude-s
     function showCode(type) {
       document.querySelectorAll('.api-toggle button').forEach(btn => btn.classList.remove('active'));
       document.querySelector(`.api-toggle button[onclick="showCode('${type}')"]`).classList.add('active');
-      ['anthropic', 'openai', 'gemini'].forEach(t => {
+      ['anthropic', 'openai', 'gemini', 'claudecode', 'codex'].forEach(t => {
         document.getElementById('code-' + t).style.display = t === type ? 'block' : 'none';
       });
     }

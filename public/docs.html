@@ -51,8 +51,10 @@
       <a href="#gemini-api">Gemini API</a>
       <a href="#models">模型列表</a>
       <a href="#streaming">流式输出</a>
+      <a href="#responses">Responses API</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">集成指南</div>
       <a href="#claude-code">Claude Code CLI</a>
+      <a href="#codex-cli">Codex CLI</a>
       <a href="#gemini-cli">Gemini CLI</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">其他</div>
       <a href="#errors">错误码</a>
@@ -63,7 +65,7 @@
     <main style="flex:1;min-width:0;">
       <div class="doc-section" id="intro">
         <h2>简介</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 同时兼容 <strong>OpenAI Chat Completions</strong>、<strong>Anthropic Messages</strong> 和 <strong>Gemini</strong> 三种 API 格式，支持多种主流大语言模型。您可以使用 OpenAI SDK、Anthropic SDK、Gemini CLI、Claude Code CLI 或 HTTP 请求直接接入。</p>
+        <p style="color:var(--text-secondary);">OpenClaw API 同时兼容 <strong>OpenAI Chat Completions / Responses</strong>、<strong>Anthropic Messages</strong> 和 <strong>Gemini</strong> 三种 API 格式，支持多种主流大语言模型。原生支持 <strong>Claude Code CLI</strong>、<strong>Codex CLI</strong>、<strong>Gemini CLI</strong> 以及 OpenAI / Anthropic SDK 直接接入。</p>
         <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;">
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
             <div style="font-size:0.8rem;color:var(--text-muted);">API 地址</div>
@@ -247,6 +249,84 @@ data: {"type":"message_stop"}</pre></div>
         </ul>
       </div>
 
+      <div class="doc-section" id="responses">
+        <h2>Responses API（OpenAI 兼容）</h2>
+        <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1/responses</span></p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">兼容 OpenAI Responses API 格式，支持 Codex CLI 直接接入。平台上所有模型均可通过此端点调用。</p>
+
+        <h3>请求参数</h3>
+        <table class="oc-table doc-param-table">
+          <thead><tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>model</code></td><td>string</td><td>是</td><td>模型 ID，如 claude-sonnet-4-6、gpt-4o</td></tr>
+            <tr><td><code>input</code></td><td>string|array</td><td>是</td><td>输入内容，字符串或结构化消息数组</td></tr>
+            <tr><td><code>instructions</code></td><td>string</td><td>否</td><td>系统提示词（等同于 developer 角色消息）</td></tr>
+            <tr><td><code>stream</code></td><td>boolean</td><td>否</td><td>是否流式输出，默认 false</td></tr>
+            <tr><td><code>max_output_tokens</code></td><td>integer</td><td>否</td><td>最大输出 token 数，默认 4096</td></tr>
+            <tr><td><code>temperature</code></td><td>number</td><td>否</td><td>温度参数</td></tr>
+            <tr><td><code>tools</code></td><td>array</td><td>否</td><td>工具定义（function calling）</td></tr>
+          </tbody>
+        </table>
+
+        <h3>请求示例</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">curl https://api.yunjunet.cn/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-your-api-key" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "input": "Hello!",
+    "max_output_tokens": 1024
+  }'</pre></div>
+
+        <h3>结构化输入（多轮对话）</h3>
+        <div class="oc-code"><pre style="margin:0;">{
+  "model": "claude-sonnet-4-6",
+  "instructions": "You are a helpful assistant",
+  "input": [
+    {"type": "message", "role": "user", "content": "What is 2+2?"},
+    {"type": "message", "role": "assistant", "content": [
+      {"type": "output_text", "text": "4"}
+    ]},
+    {"type": "message", "role": "user", "content": "And 3+3?"}
+  ]
+}</pre></div>
+
+        <h3>响应示例</h3>
+        <div class="oc-code"><pre style="margin:0;">{
+  "id": "resp_xxx",
+  "object": "response",
+  "created_at": 1234567890,
+  "status": "completed",
+  "model": "claude-sonnet-4-6",
+  "output": [{
+    "type": "message",
+    "id": "msg_xxx",
+    "role": "assistant",
+    "status": "completed",
+    "content": [{"type": "output_text", "text": "6"}]
+  }],
+  "usage": {
+    "input_tokens": 30,
+    "output_tokens": 5,
+    "total_tokens": 35
+  }
+}</pre></div>
+
+        <h3>流式响应</h3>
+        <p style="color:var(--text-secondary);">设置 <code>stream: true</code> 后，返回标准 SSE 事件流：</p>
+        <div class="oc-code"><pre style="margin:0;">event: response.created
+data: {"type":"response.created","response":{...}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"Hello"}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":" world!"}
+
+event: response.completed
+data: {"type":"response.completed","response":{...usage...}}</pre></div>
+      </div>
+
       <div class="doc-section" id="gemini-api">
         <h2>Gemini API（Google 兼容）</h2>
         <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1beta/models/{model}:generateContent</span></p>
@@ -308,6 +388,51 @@ data: {"candidates":[{"content":{"parts":[{"text":""}],"role":"model"},"finishRe
 
         <h3>429 自动重试</h3>
         <p style="color:var(--text-secondary);">遇到上游限流（429）时，平台自动切换到其他可用端点重试（最多 2 次），无需客户端处理。</p>
+      </div>
+
+      <div class="doc-section" id="codex-cli">
+        <h2>Codex CLI 接入（OpenAI）</h2>
+        <p style="color:var(--text-secondary);">OpenClaw API 完全兼容 <a href="https://github.com/openai/codex" style="color:var(--accent-light);">OpenAI Codex CLI</a>（OpenAI 官方编程助手），您可以使用 OpenClaw 的 API Key 接入平台上的所有模型。</p>
+
+        <h3>配置文件</h3>
+        <p style="color:var(--text-secondary);">编辑 <code>~/.codex/config.toml</code>：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># ~/.codex/config.toml
+model = "claude-sonnet-4-6"
+model_provider = "openclaw"
+
+[model_providers.openclaw]
+name = "OpenClaw API"
+base_url = "https://api.yunjunet.cn/v1"
+wire_api = "responses"
+env_key = "OPENCLAW_API_KEY"</pre></div>
+
+        <h3>设置环境变量</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># 设置 API Key
+export OPENCLAW_API_KEY=sk-your-api-key
+
+# 启动 Codex
+codex</pre></div>
+
+        <h3>写入 Shell 配置（永久生效）</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># Bash
+echo 'export OPENCLAW_API_KEY=sk-your-api-key' >> ~/.bashrc && source ~/.bashrc
+
+# Zsh
+echo 'export OPENCLAW_API_KEY=sk-your-api-key' >> ~/.zshrc && source ~/.zshrc</pre></div>
+
+        <h3>支持的模型</h3>
+        <p style="color:var(--text-secondary);">Codex CLI 通过 <code>/v1/responses</code> 端点通信，平台上所有已启用的模型均可使用。</p>
+
+        <h3>重要说明</h3>
+        <div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.25);border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
+          <p style="color:var(--text-secondary);font-size:0.85rem;margin:0;">
+            <strong style="color:var(--warning);">&#9888; 注意：</strong><br>
+            &#8226; <strong>wire_api</strong> 必须设为 <code>"responses"</code>（默认值，使用 Responses API）<br>
+            &#8226; <strong>base_url</strong> 为 <code>https://api.yunjunet.cn/v1</code>（含 /v1）<br>
+            &#8226; <strong>env_key</strong> 可自定义变量名，需在 Shell 中设置对应的环境变量<br>
+            &#8226; <strong>模型切换</strong>：修改 config.toml 中的 <code>model</code> 字段即可切换任意平台模型
+          </p>
+        </div>
       </div>
 
       <div class="doc-section" id="gemini-cli">
