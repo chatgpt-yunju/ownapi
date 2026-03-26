@@ -281,6 +281,17 @@
             <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">大容量补充，享受更多优惠</p>
             <button class="btn-accent" onclick="buyBooster(45)">立即购买</button>
           </div>
+          <div class="oc-card" style="text-align:center;padding:1.5rem;">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f4b0;</div>
+            <h3 style="margin-bottom:0.5rem;">自定义金额</h3>
+            <div style="margin:1rem 0;display:flex;align-items:center;justify-content:center;gap:4px;">
+              <span style="font-size:1.4rem;font-weight:700;color:var(--accent);">¥</span>
+              <input type="number" id="custom-amount" min="1" max="10000" step="1" placeholder="输入金额" style="width:100px;font-size:1.4rem;font-weight:700;text-align:center;border:2px solid var(--border-color);border-radius:8px;padding:6px;background:var(--bg-secondary);color:var(--text-primary);outline:none;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border-color)'" />
+            </div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">1:1 兑换 API 额度</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">¥1 ~ ¥10000，按需充值</p>
+            <button class="btn-accent" onclick="buyCustomBooster()">立即购买</button>
+          </div>
         </div>
       </div>
  <!-- Orders -->
@@ -1125,6 +1136,16 @@
       // 加油包页面已经是静态的，不需要加载数据
     }
 
+    function buyCustomBooster() {
+      const input = document.getElementById('custom-amount');
+      const amount = parseInt(input?.value);
+      if (!amount || amount < 1 || amount > 10000) {
+        showToast('请输入 1~10000 之间的整数金额', 'error');
+        return;
+      }
+      buyBooster(amount);
+    }
+
     async function buyBooster(amount) {
       if (!confirm(`确认购买 ¥${amount} 加油包？`)) return;
       try {
@@ -1213,8 +1234,8 @@
         const data = await api.getInviteInfo();
         document.getElementById('my-invite-code').textContent = data.invite_code || '暂无邀请码';
         document.getElementById('invite-count').textContent = data.invite_count || 0;
-        document.getElementById('invite-rewards').textContent = '¥' + (data.total_rewards || 0).toFixed(2);
-        document.getElementById('invite-pending').textContent = '¥' + (data.pending_rewards || 0).toFixed(2);
+        document.getElementById('invite-rewards').textContent = '¥' + Number(data.total_rewards || 0).toFixed(2);
+        document.getElementById('invite-pending').textContent = '¥' + Number(data.pending_rewards || 0).toFixed(2);
 
         const tbody = document.getElementById('invite-list-tbody');
         if (data.invites && data.invites.length > 0) {
@@ -1245,9 +1266,9 @@
     async function loadRewards() {
       try {
         const data = await api.getRewards();
-        document.getElementById('reward-total').textContent = '¥' + (data.total || 0).toFixed(2);
-        document.getElementById('reward-received').textContent = '¥' + (data.received || 0).toFixed(2);
-        document.getElementById('reward-pending').textContent = '¥' + (data.pending || 0).toFixed(2);
+        document.getElementById('reward-total').textContent = '¥' + Number(data.total || 0).toFixed(2);
+        document.getElementById('reward-received').textContent = '¥' + Number(data.received || 0).toFixed(2);
+        document.getElementById('reward-pending').textContent = '¥' + Number(data.pending || 0).toFixed(2);
 
         const tbody = document.getElementById('rewards-tbody');
         if (data.rewards && data.rewards.length > 0) {
