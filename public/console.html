@@ -286,10 +286,10 @@
             <h3 style="margin-bottom:0.5rem;">自定义金额</h3>
             <div style="margin:1rem 0;display:flex;align-items:center;justify-content:center;gap:4px;">
               <span style="font-size:1.4rem;font-weight:700;color:var(--accent);">¥</span>
-              <input type="number" id="custom-amount" min="1" max="10000" step="1" placeholder="输入金额" style="width:100px;font-size:1.4rem;font-weight:700;text-align:center;border:2px solid var(--border-color);border-radius:8px;padding:6px;background:var(--bg-secondary);color:var(--text-primary);outline:none;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border-color)'" />
+              <input type="number" id="custom-amount" min="1" max="10000" step="1" placeholder="输入金额" style="width:100px;font-size:1.4rem;font-weight:700;text-align:center;border:2px solid var(--border-color);border-radius:8px;padding:6px;background:var(--bg-secondary);color:var(--text-primary);outline:none;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border-color)'" oninput="updateDiscountHint(this.value)" />
             </div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">1:1 兑换 API 额度</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">¥1 ~ ¥10000，按需充值</p>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;" id="custom-discount-hint">按阶梯折扣兑换</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">¥50起享八五折，¥100起八折，¥1000起七折</p>
             <button class="btn-accent" onclick="buyCustomBooster()">立即购买</button>
           </div>
         </div>
@@ -424,6 +424,10 @@
       <div class="form-group">
         <label>名称</label>
         <input class="oc-input" id="new-key-name" placeholder="如：测试环境" maxlength="50">
+      </div>
+      <div class="form-group" style="margin-top:0.75rem;">
+        <label>登录密码 <span style="color:var(--danger);font-size:0.75rem;">（身份验证）</span></label>
+        <input class="oc-input" id="new-key-password" type="password" placeholder="请输入登录密码" autocomplete="current-password">
       </div>
       <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
         <button class="btn-outline" onclick="hideModal('modal-create-key')">取消</button>
@@ -734,10 +738,14 @@
 
     async function createKey() {
       const name = document.getElementById('new-key-name').value.trim();
+      const password = document.getElementById('new-key-password').value;
       if (!name) return showToast('请输入名称', 'error');
+      if (!password) return showToast('请输入登录密码', 'error');
       try {
-        const res = await api.createApiKey(name);
+        const res = await api.createApiKey(name, password);
         hideModal('modal-create-key');
+        document.getElementById('new-key-name').value = '';
+        document.getElementById('new-key-password').value = '';
         document.getElementById('new-key-value').textContent = res.key;
         showModal('modal-show-key');
         loadApiKeys();
@@ -1136,6 +1144,27 @@
       // 加油包页面已经是静态的，不需要加载数据
     }
 
+    function updateDiscountHint(val) {
+      const hint = document.getElementById('custom-discount-hint');
+      const amt = parseInt(val);
+      if (!amt || amt < 1) { hint.textContent = '按阶梯折扣兑换'; return; }
+      const credit = getDiscountCredit(amt);
+      if (credit > amt) {
+        const discount = amt >= 5001 ? '六折' : amt >= 1001 ? '七折' : amt >= 100 ? '八折' : '八五折';
+        hint.innerHTML = `<span style="color:var(--success);">支付 ¥${amt} → 获得 $${credit.toFixed(2)}（${discount}）</span>`;
+      } else {
+        hint.textContent = `支付 ¥${amt} → 获得 $${amt}`;
+      }
+    }
+
+    function getDiscountCredit(amount) {
+      if (amount >= 5001) return Math.round(amount / 0.60 * 100) / 100;
+      if (amount >= 1001) return Math.round(amount / 0.70 * 100) / 100;
+      if (amount >= 100) return Math.round(amount / 0.80 * 100) / 100;
+      if (amount >= 50) return Math.round(amount / 0.85 * 100) / 100;
+      return amount;
+    }
+
     function buyCustomBooster() {
       const input = document.getElementById('custom-amount');
       const amount = parseInt(input?.value);
@@ -1147,7 +1176,11 @@
     }
 
     async function buyBooster(amount) {
-      if (!confirm(`确认购买 ¥${amount} 加油包？`)) return;
+      const credit = getDiscountCredit(amount);
+      const msg = credit > amount
+        ? `确认支付 ¥${amount}？将获得 $${credit.toFixed(2)} API 额度（赠送 $${(credit - amount).toFixed(2)}）`
+        : `确认购买 ¥${amount} 加油包？`;
+      if (!confirm(msg)) return;
       try {
         const result = await api.post('/payment/create-recharge', { amount });
         if (result.pay_url || result.payUrl) {

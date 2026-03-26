@@ -41,7 +41,7 @@ const api = {
 
   // API Keys
   getApiKeys() { return this.get('/api-key/list'); },
-  createApiKey(name) { return this.post('/api-key/create', { name }); },
+  createApiKey(name, password) { return this.post('/api-key/create', { name, password }); },
   toggleApiKey(id) { return this.post('/api-key/toggle', { id }); },
   deleteApiKey(id) { return this.post('/api-key/delete', { id }); },
 
