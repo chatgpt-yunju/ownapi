@@ -28,7 +28,7 @@
       <div class="oc-sidebar-item active" data-page="overview" onclick="switchPage('overview')">&#x1f4ca; 总览</div>
       <div class="oc-sidebar-item" data-page="users" onclick="switchPage('users')">&#x1f465; 用户管理</div>
       <div class="oc-sidebar-item" data-page="models" onclick="switchPage('models')">&#x1f916; 模型管理</div>
-      <div class="oc-sidebar-item" data-page="providers" onclick="switchPage('providers')">&#x1f3e2; 供应商管理</div>
+      <div class="oc-sidebar-item" data-page="providers" onclick="switchPage('providers')" style="display:none">&#x1f3e2; 供应商管理</div>
       <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f4dd; 订单管理</div>
       <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f50d; 请求日志</div>
       <div class="oc-sidebar-section">快捷</div>
@@ -100,7 +100,7 @@
         </div>
         <div class="oc-card">
           <table class="oc-table">
-            <thead><tr><th>模型 ID</th><th>显示名称</th><th>绑定供应商</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>上游配置</th><th>操作</th></tr></thead>
+            <thead><tr><th>模型 ID</th><th>显示名称</th><th>Upstreams</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="models-tbody"></tbody>
           </table>
         </div>
@@ -279,7 +279,7 @@
 
   <!-- Edit Model Modal -->
   <div class="oc-modal-overlay" id="modal-model">
-    <div class="oc-modal" style="min-width:480px;">
+    <div class="oc-modal" style="min-width:600px;max-width:90vw;">
       <h3 id="model-modal-title">编辑模型</h3>
       <input type="hidden" id="model-edit-id">
       <div class="form-group">
@@ -289,11 +289,6 @@
       <div class="form-group">
         <label>显示名称</label>
         <input class="oc-input" id="model-name-input" placeholder="如 GPT-4o Mini">
-      </div>
-      <div class="form-group">
-        <label>绑定供应商 (可多选，轮询调用)</label>
-        <div id="model-providers-checkboxes" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
-        <input type="hidden" id="model-provider-input" value="">
       </div>
       <div class="form-group">
         <label>供应模型 (可选，实际请求上游的模型ID)</label>
@@ -315,7 +310,6 @@
           <option value="CNY">人民币 (CNY) - 国内模型</option>
           <option value="USD">美元 (USD) - 国外模型，自动转换 (汇率 7.2)</option>
         </select>
-        <small style="color:var(--text-muted);margin-top:0.25rem;display:block;">国内模型（DeepSeek, GLM, Qwen）选人民币，国外模型（Claude, GPT）选美元</small>
       </div>
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
@@ -330,13 +324,13 @@
           </select>
         </div>
       </div>
+      <!-- Upstreams 列表 -->
       <div class="form-group">
-        <label>上游地址 (可选，覆盖默认)</label>
-        <input class="oc-input" id="model-endpoint-input" placeholder="如 https://custom-api.com/v1">
-      </div>
-      <div class="form-group">
-        <label>上游 Key (可选，覆盖默认)</label>
-        <input class="oc-input" id="model-key-input" placeholder="留空使用默认配置">
+        <label style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Upstream 供应商 (支持多个，429自动轮询)</span>
+          <button class="btn-outline btn-sm" type="button" onclick="addUpstreamRow()">+ 添加</button>
+        </label>
+        <div id="model-upstreams-list" style="display:flex;flex-direction:column;gap:0.5rem;max-height:300px;overflow-y:auto;"></div>
       </div>
       <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
         <button class="btn-outline" onclick="hideModal('modal-model')">取消</button>
@@ -552,8 +546,8 @@
 
     async function loadModels() {
       try {
-        await loadProviderOptions();
         allModels = await api.adminGetModels();
+        loadProviderOptions();
         applyModelFilter();
       } catch(e) { showToast(e.message, 'error'); }
     }
@@ -570,9 +564,8 @@
       document.getElementById('model-sort-input').value = '0';
       document.getElementById('model-status-input').value = 'active';
       document.getElementById('model-upstream-model-input').value = '';
-      document.getElementById('model-endpoint-input').value = '';
-      document.getElementById('model-key-input').value = '';
-      setSelectedProviderIds([]);
+      document.getElementById('model-upstreams-list').innerHTML = '';
+      addUpstreamRow();
       showModal('modal-model');
     }
 
@@ -588,31 +581,60 @@
       document.getElementById('model-sort-input').value = m.sort_order;
       document.getElementById('model-status-input').value = m.status;
       document.getElementById('model-upstream-model-input').value = m.upstream_model_id || '';
-      document.getElementById('model-endpoint-input').value = m.upstream_endpoint || '';
-      document.getElementById('model-key-input').value = m.upstream_key || '';
-      setSelectedProviderIds(m.provider_ids || []);
+      // 填充 upstreams
+      const container = document.getElementById('model-upstreams-list');
+      container.innerHTML = '';
+      const ups = (m.upstreams || []).filter(u => u.status === 'active');
+      if (ups.length > 0) {
+        ups.forEach(u => addUpstreamRow(u));
+      } else {
+        addUpstreamRow();
+      }
       showModal('modal-model');
+    }
+
+    function addUpstreamRow(data) {
+      const container = document.getElementById('model-upstreams-list');
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:0.4rem;align-items:center;padding:0.4rem;background:var(--bg-secondary);border-radius:6px;';
+      row.innerHTML = `
+        <input type="hidden" class="us-id" value="${data?.id || ''}">
+        <input class="oc-input us-name" placeholder="名称" value="${data?.provider_name || ''}" style="width:80px;font-size:0.8rem;">
+        <input class="oc-input us-url" placeholder="Base URL" value="${data?.base_url || ''}" style="flex:2;font-size:0.8rem;">
+        <input class="oc-input us-key" placeholder="API Key" value="${data?.api_key || ''}" style="flex:1.5;font-size:0.8rem;" type="password">
+        <input class="oc-input us-model" placeholder="供应模型(可选)" value="${data?.upstream_model_id || ''}" style="width:120px;font-size:0.8rem;">
+        <input class="oc-input us-weight" placeholder="权重" value="${data?.weight || 1}" style="width:50px;font-size:0.8rem;" type="number" min="1">
+        <button class="btn-outline btn-sm" style="color:var(--danger);padding:0.2rem 0.4rem;" onclick="this.parentElement.remove()">x</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function getUpstreamsFromForm() {
+      return Array.from(document.querySelectorAll('#model-upstreams-list > div')).map(row => ({
+        id: row.querySelector('.us-id')?.value || null,
+        provider_name: row.querySelector('.us-name')?.value?.trim() || '',
+        base_url: row.querySelector('.us-url')?.value?.trim() || '',
+        api_key: row.querySelector('.us-key')?.value?.trim() || '',
+        upstream_model_id: row.querySelector('.us-model')?.value?.trim() || null,
+        weight: parseInt(row.querySelector('.us-weight')?.value) || 1,
+      })).filter(u => u.base_url && u.api_key);
     }
 
     async function saveModel() {
       const id = document.getElementById('model-edit-id').value;
-      const providerIds = getSelectedProviderIds();
-      const firstProviderName = providerIds.length > 0
-        ? (document.querySelector(`.model-provider-cb[value="${providerIds[0]}"]`)?.dataset?.name || '')
-        : '';
+      const upstreams = getUpstreamsFromForm();
+      const firstProviderName = upstreams.length > 0 ? upstreams[0].provider_name : '';
       const data = {
         model_id: document.getElementById('model-id-input').value.trim(),
         display_name: document.getElementById('model-name-input').value.trim(),
         provider: firstProviderName,
-        provider_ids: providerIds,
+        upstreams: upstreams,
         input_price_per_1k: parseFloat(document.getElementById('model-input-price').value) / 1000,
         output_price_per_1k: parseFloat(document.getElementById('model-output-price').value) / 1000,
         price_currency: document.getElementById('model-currency-input').value,
         sort_order: parseInt(document.getElementById('model-sort-input').value) || 0,
         status: document.getElementById('model-status-input').value,
         upstream_model_id: document.getElementById('model-upstream-model-input').value.trim() || null,
-        upstream_endpoint: document.getElementById('model-endpoint-input').value.trim() || null,
-        upstream_key: document.getElementById('model-key-input').value.trim() || null,
       };
       if (!data.model_id || !data.display_name) return showToast('请填写模型 ID 和名称', 'error');
       try {
@@ -644,8 +666,8 @@
       const search = document.getElementById('model-filter-search').value.trim().toLowerCase();
       const filtered = allModels.filter(m => {
         if (provider) {
-          const pObj = cachedProviders.find(p => p.name === provider);
-          if (!pObj || !(m.provider_ids || []).includes(pObj.id)) return false;
+          const ups = (m.upstreams || []).filter(u => u.status === 'active');
+          if (!ups.some(u => u.provider_name === provider)) return false;
         }
         if (status && m.status !== status) return false;
         if (search && !m.model_id.toLowerCase().includes(search) && !m.display_name.toLowerCase().includes(search)) return false;
@@ -662,21 +684,20 @@
             const badge = currency === 'USD'
               ? '<span class="badge-active" style="background:var(--accent-light);color:white;">USD</span>'
               : '<span class="badge-disabled">CNY</span>';
-            const pIds = m.provider_ids || [];
-            const providerTags = pIds.length > 0
-              ? pIds.map(id => `<span style="display:inline-block;padding:0.1rem 0.4rem;background:var(--bg-secondary);border-radius:4px;font-size:0.75rem;margin:1px;">${getProviderNameById(id)}</span>`).join('')
-              : `<span style="color:var(--text-muted);font-size:0.8rem;">${m.provider || '未绑定'}</span>`;
+            const ups = (m.upstreams || []).filter(u => u.status === 'active');
+            const upstreamTags = ups.length > 0
+              ? ups.map(u => `<span style="display:inline-block;padding:0.1rem 0.4rem;background:var(--bg-secondary);border-radius:4px;font-size:0.75rem;margin:1px;" title="${u.base_url}">${u.provider_name || new URL(u.base_url).hostname}</span>`).join('')
+              : '<span style="color:var(--text-muted);font-size:0.8rem;">未配置</span>';
             return `<tr>
               <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
               <td>${m.display_name}</td>
-              <td style="max-width:180px;">${providerTags}</td>
+              <td style="max-width:200px;">${upstreamTags}</td>
               <td><code style="font-size:0.8rem;color:var(--text-muted);">${m.upstream_model_id || m.model_id}</code></td>
               <td style="font-family:var(--font-mono);">${sym}${(m.input_price_per_1k * 1000).toFixed(2)}</td>
               <td style="font-family:var(--font-mono);">${sym}${(m.output_price_per_1k * 1000).toFixed(2)}</td>
               <td>${badge}</td>
               <td>${m.sort_order}</td>
               <td>${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
-              <td>${m.upstream_endpoint ? `<span style="font-size:0.75rem;color:var(--text-muted);">${m.upstream_key ? maskKey(m.upstream_key) : '默认Key'}</span>` : '<span style="color:var(--text-muted);">默认</span>'}</td>
               <td style="display:flex;gap:0.25rem;">
                 <button class="btn-outline btn-sm" onclick='editModel(allModels.find(x=>x.id===${m.id}))'>编辑</button>
                 ${m.status === 'active' ? `<button class="btn-outline btn-sm" style="color:var(--danger);" onclick="deleteModel(${m.id},'${m.model_id}')">禁用</button>` : ''}
@@ -807,29 +828,15 @@
 
     async function loadProviderOptions() {
       try {
-        if (!cachedProviders.length) cachedProviders = await api.adminGetProviders();
+        // 从所有模型的 upstreams 中收集唯一 provider 名称
+        const providerNames = new Set();
+        allModels.forEach(m => (m.upstreams || []).filter(u => u.status === 'active').forEach(u => {
+          if (u.provider_name) providerNames.add(u.provider_name);
+        }));
         const filterSel = document.getElementById('model-filter-provider');
         filterSel.innerHTML = '<option value="">全部供应商</option>' +
-          cachedProviders.filter(p => p.status === 'active').map(p => `<option value="${p.name}">${p.display_name}</option>`).join('');
-        const cbContainer = document.getElementById('model-providers-checkboxes');
-        cbContainer.innerHTML = cachedProviders.filter(p => p.status === 'active').map(p => {
-          const epCount = (p.endpoints || []).length;
-          return `<label style="display:flex;align-items:center;gap:0.3rem;padding:0.25rem 0.5rem;border-radius:4px;cursor:pointer;font-size:0.85rem;background:var(--bg-secondary);white-space:nowrap;">
-            <input type="checkbox" class="model-provider-cb" value="${p.id}" data-name="${p.name}">
-            ${p.display_name} <span style="color:var(--text-muted);font-size:0.75rem;">(${epCount}端点)</span>
-          </label>`;
-        }).join('');
-      } catch(e) { console.error('加载供应商列表失败', e); }
-    }
-
-    function getSelectedProviderIds() {
-      return Array.from(document.querySelectorAll('.model-provider-cb:checked')).map(cb => parseInt(cb.value));
-    }
-
-    function setSelectedProviderIds(ids) {
-      document.querySelectorAll('.model-provider-cb').forEach(cb => {
-        cb.checked = (ids || []).includes(parseInt(cb.value));
-      });
+          Array.from(providerNames).sort().map(n => `<option value="${n}">${n}</option>`).join('');
+      } catch(e) { console.error('加载供应商筛选失败', e); }
     }
 
     // === 订单管理 ===
