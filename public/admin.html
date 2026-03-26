@@ -100,7 +100,7 @@
         </div>
         <div class="oc-card">
           <table class="oc-table">
-            <thead><tr><th>模型 ID</th><th>显示名称</th><th>提供商</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>上游配置</th><th>操作</th></tr></thead>
+            <thead><tr><th>模型 ID</th><th>显示名称</th><th>绑定供应商</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>上游配置</th><th>操作</th></tr></thead>
             <tbody id="models-tbody"></tbody>
           </table>
         </div>
@@ -114,7 +114,7 @@
         </div>
         <div class="oc-card">
           <table class="oc-table">
-            <thead><tr><th>ID</th><th>标识</th><th>显示名称</th><th>API 地址</th><th>API Key</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID</th><th>标识</th><th>显示名称</th><th>端点数</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="providers-tbody"></tbody>
           </table>
         </div>
@@ -291,8 +291,9 @@
         <input class="oc-input" id="model-name-input" placeholder="如 GPT-4o Mini">
       </div>
       <div class="form-group">
-        <label>提供商</label>
-        <select class="oc-select" id="model-provider-input" style="width:100%;"></select>
+        <label>绑定供应商 (可多选，轮询调用)</label>
+        <div id="model-providers-checkboxes" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
+        <input type="hidden" id="model-provider-input" value="">
       </div>
       <div class="form-group">
         <label>供应模型 (可选，实际请求上游的模型ID)</label>
@@ -346,24 +347,18 @@
 
   <!-- Provider Modal -->
   <div class="oc-modal-overlay" id="modal-provider">
-    <div class="oc-modal" style="min-width:440px;">
+    <div class="oc-modal" style="min-width:600px;max-width:90vw;">
       <h3 id="provider-modal-title">编辑供应商</h3>
       <input type="hidden" id="provider-edit-id">
-      <div class="form-group">
-        <label>标识 (唯一英文名)</label>
-        <input class="oc-input" id="provider-name-input" placeholder="如 openai">
-      </div>
-      <div class="form-group">
-        <label>显示名称</label>
-        <input class="oc-input" id="provider-display-input" placeholder="如 OpenAI">
-      </div>
-      <div class="form-group">
-        <label>API 地址</label>
-        <input class="oc-input" id="provider-url-input" placeholder="如 https://api.openai.com/v1">
-      </div>
-      <div class="form-group">
-        <label>API Key</label>
-        <input class="oc-input" id="provider-key-input" placeholder="留空则使用环境变量">
+      <div style="display:flex;gap:0.75rem;">
+        <div class="form-group" style="flex:1;">
+          <label>标识 (唯一英文名)</label>
+          <input class="oc-input" id="provider-name-input" placeholder="如 openai">
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label>显示名称</label>
+          <input class="oc-input" id="provider-display-input" placeholder="如 OpenAI">
+        </div>
       </div>
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
@@ -377,6 +372,13 @@
             <option value="disabled">禁用</option>
           </select>
         </div>
+      </div>
+      <div class="form-group">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <label style="margin:0;">端点列表 (base_url + api_key)</label>
+          <button class="btn-outline btn-sm" onclick="addEndpointRow()">+ 添加端点</button>
+        </div>
+        <div id="provider-endpoints-list" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
       </div>
       <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
         <button class="btn-outline" onclick="hideModal('modal-provider')">取消</button>
@@ -570,6 +572,7 @@
       document.getElementById('model-upstream-model-input').value = '';
       document.getElementById('model-endpoint-input').value = '';
       document.getElementById('model-key-input').value = '';
+      setSelectedProviderIds([]);
       showModal('modal-model');
     }
 
@@ -579,7 +582,6 @@
       document.getElementById('model-id-input').value = m.model_id;
       document.getElementById('model-id-input').disabled = true;
       document.getElementById('model-name-input').value = m.display_name;
-      document.getElementById('model-provider-input').value = m.provider;
       document.getElementById('model-input-price').value = (m.input_price_per_1k * 1000);
       document.getElementById('model-output-price').value = (m.output_price_per_1k * 1000);
       document.getElementById('model-currency-input').value = m.price_currency || 'CNY';
@@ -588,15 +590,21 @@
       document.getElementById('model-upstream-model-input').value = m.upstream_model_id || '';
       document.getElementById('model-endpoint-input').value = m.upstream_endpoint || '';
       document.getElementById('model-key-input').value = m.upstream_key || '';
+      setSelectedProviderIds(m.provider_ids || []);
       showModal('modal-model');
     }
 
     async function saveModel() {
       const id = document.getElementById('model-edit-id').value;
+      const providerIds = getSelectedProviderIds();
+      const firstProviderName = providerIds.length > 0
+        ? (document.querySelector(`.model-provider-cb[value="${providerIds[0]}"]`)?.dataset?.name || '')
+        : '';
       const data = {
         model_id: document.getElementById('model-id-input').value.trim(),
         display_name: document.getElementById('model-name-input').value.trim(),
-        provider: document.getElementById('model-provider-input').value,
+        provider: firstProviderName,
+        provider_ids: providerIds,
         input_price_per_1k: parseFloat(document.getElementById('model-input-price').value) / 1000,
         output_price_per_1k: parseFloat(document.getElementById('model-output-price').value) / 1000,
         price_currency: document.getElementById('model-currency-input').value,
@@ -625,12 +633,20 @@
       } catch(e) { showToast(e.message, 'error'); }
     }
 
+    function getProviderNameById(id) {
+      const p = cachedProviders.find(p => p.id === id);
+      return p ? p.display_name : '?';
+    }
+
     function applyModelFilter() {
       const provider = document.getElementById('model-filter-provider').value;
       const status = document.getElementById('model-filter-status').value;
       const search = document.getElementById('model-filter-search').value.trim().toLowerCase();
       const filtered = allModels.filter(m => {
-        if (provider && m.provider !== provider) return false;
+        if (provider) {
+          const pObj = cachedProviders.find(p => p.name === provider);
+          if (!pObj || !(m.provider_ids || []).includes(pObj.id)) return false;
+        }
         if (status && m.status !== status) return false;
         if (search && !m.model_id.toLowerCase().includes(search) && !m.display_name.toLowerCase().includes(search)) return false;
         return true;
@@ -646,10 +662,14 @@
             const badge = currency === 'USD'
               ? '<span class="badge-active" style="background:var(--accent-light);color:white;">USD</span>'
               : '<span class="badge-disabled">CNY</span>';
+            const pIds = m.provider_ids || [];
+            const providerTags = pIds.length > 0
+              ? pIds.map(id => `<span style="display:inline-block;padding:0.1rem 0.4rem;background:var(--bg-secondary);border-radius:4px;font-size:0.75rem;margin:1px;">${getProviderNameById(id)}</span>`).join('')
+              : `<span style="color:var(--text-muted);font-size:0.8rem;">${m.provider || '未绑定'}</span>`;
             return `<tr>
               <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
               <td>${m.display_name}</td>
-              <td>${m.provider}</td>
+              <td style="max-width:180px;">${providerTags}</td>
               <td><code style="font-size:0.8rem;color:var(--text-muted);">${m.upstream_model_id || m.model_id}</code></td>
               <td style="font-family:var(--font-mono);">${sym}${(m.input_price_per_1k * 1000).toFixed(2)}</td>
               <td style="font-family:var(--font-mono);">${sym}${(m.output_price_per_1k * 1000).toFixed(2)}</td>
@@ -658,7 +678,7 @@
               <td>${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
               <td>${m.upstream_endpoint ? `<span style="font-size:0.75rem;color:var(--text-muted);">${m.upstream_key ? maskKey(m.upstream_key) : '默认Key'}</span>` : '<span style="color:var(--text-muted);">默认</span>'}</td>
               <td style="display:flex;gap:0.25rem;">
-                <button class="btn-outline btn-sm" onclick='editModel(${JSON.stringify(m)})'>编辑</button>
+                <button class="btn-outline btn-sm" onclick='editModel(allModels.find(x=>x.id===${m.id}))'>编辑</button>
                 ${m.status === 'active' ? `<button class="btn-outline btn-sm" style="color:var(--danger);" onclick="deleteModel(${m.id},'${m.model_id}')">禁用</button>` : ''}
               </td>
             </tr>`;
@@ -670,20 +690,54 @@
     async function loadProviders() {
       try {
         cachedProviders = await api.adminGetProviders();
-        document.getElementById('providers-tbody').innerHTML = cachedProviders.map(p => `<tr>
-          <td>${p.id}</td>
-          <td><code style="color:var(--accent-light)">${p.name}</code></td>
-          <td>${p.display_name}</td>
-          <td style="font-size:0.8rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${p.base_url || '-'}</td>
-          <td>${p.api_key ? maskKey(p.api_key) : '<span style="color:var(--text-muted);">环境变量</span>'}</td>
-          <td>${p.sort_order}</td>
-          <td>${p.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
-          <td style="display:flex;gap:0.25rem;">
-            <button class="btn-outline btn-sm" onclick='editProvider(${JSON.stringify(p)})'>编辑</button>
-            ${p.status === 'active' ? `<button class="btn-outline btn-sm" style="color:var(--danger);" onclick="disableProvider(${p.id})">禁用</button>` : ''}
-          </td>
-        </tr>`).join('');
+        document.getElementById('providers-tbody').innerHTML = cachedProviders.map(p => {
+          const epCount = (p.endpoints || []).length;
+          const epSummary = epCount > 0
+            ? `<span class="badge-active">${epCount} 个端点</span>`
+            : '<span class="badge-disabled">无端点</span>';
+          return `<tr>
+            <td>${p.id}</td>
+            <td><code style="color:var(--accent-light)">${p.name}</code></td>
+            <td>${p.display_name}</td>
+            <td>${epSummary}</td>
+            <td>${p.sort_order}</td>
+            <td>${p.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</td>
+            <td style="display:flex;gap:0.25rem;">
+              <button class="btn-outline btn-sm" onclick='editProvider(cachedProviders.find(x=>x.id===${p.id}))'>编辑</button>
+              ${p.status === 'active' ? `<button class="btn-outline btn-sm" style="color:var(--danger);" onclick="disableProvider(${p.id})">禁用</button>` : ''}
+            </td>
+          </tr>`;
+        }).join('');
       } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function addEndpointRow(ep) {
+      const container = document.getElementById('provider-endpoints-list');
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;padding:0.5rem;background:var(--bg-secondary);border-radius:6px;';
+      row.innerHTML = `
+        <input type="hidden" class="ep-id" value="${ep?.id || ''}">
+        <input class="oc-input ep-url" placeholder="Base URL" value="${ep?.base_url || ''}" style="flex:2;font-size:0.8rem;">
+        <input class="oc-input ep-key" placeholder="API Key" value="${ep?.api_key || ''}" style="flex:2;font-size:0.8rem;">
+        <input class="oc-input ep-weight" type="number" min="1" value="${ep?.weight || 1}" style="width:60px;font-size:0.8rem;" title="权重">
+        <button class="btn-outline btn-sm" style="color:var(--danger);padding:0.2rem 0.5rem;" onclick="this.parentElement.remove()">✕</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function getEndpointsFromForm() {
+      const rows = document.querySelectorAll('#provider-endpoints-list > div');
+      const endpoints = [];
+      rows.forEach(row => {
+        const base_url = row.querySelector('.ep-url').value.trim();
+        const api_key = row.querySelector('.ep-key').value.trim();
+        const weight = parseInt(row.querySelector('.ep-weight').value) || 1;
+        const id = row.querySelector('.ep-id').value || null;
+        if (base_url && api_key) {
+          endpoints.push({ id: id ? parseInt(id) : undefined, base_url, api_key, weight });
+        }
+      });
+      return endpoints;
     }
 
     function showAddProviderModal() {
@@ -692,10 +746,10 @@
       document.getElementById('provider-name-input').value = '';
       document.getElementById('provider-name-input').disabled = false;
       document.getElementById('provider-display-input').value = '';
-      document.getElementById('provider-url-input').value = '';
-      document.getElementById('provider-key-input').value = '';
       document.getElementById('provider-sort-input').value = '0';
       document.getElementById('provider-status-input').value = 'active';
+      document.getElementById('provider-endpoints-list').innerHTML = '';
+      addEndpointRow();
       showModal('modal-provider');
     }
 
@@ -705,24 +759,34 @@
       document.getElementById('provider-name-input').value = p.name;
       document.getElementById('provider-name-input').disabled = true;
       document.getElementById('provider-display-input').value = p.display_name;
-      document.getElementById('provider-url-input').value = p.base_url || '';
-      document.getElementById('provider-key-input').value = p.api_key || '';
       document.getElementById('provider-sort-input').value = p.sort_order;
       document.getElementById('provider-status-input').value = p.status;
+      document.getElementById('provider-endpoints-list').innerHTML = '';
+      const eps = p.endpoints || [];
+      if (eps.length === 0) {
+        if (p.base_url && p.api_key) {
+          addEndpointRow({ base_url: p.base_url, api_key: p.api_key, weight: p.weight || 1 });
+        } else {
+          addEndpointRow();
+        }
+      } else {
+        eps.forEach(ep => addEndpointRow(ep));
+      }
       showModal('modal-provider');
     }
 
     async function saveProvider() {
       const id = document.getElementById('provider-edit-id').value;
+      const endpoints = getEndpointsFromForm();
       const data = {
         name: document.getElementById('provider-name-input').value.trim(),
         display_name: document.getElementById('provider-display-input').value.trim(),
-        base_url: document.getElementById('provider-url-input').value.trim() || null,
-        api_key: document.getElementById('provider-key-input').value.trim() || null,
         sort_order: parseInt(document.getElementById('provider-sort-input').value) || 0,
         status: document.getElementById('provider-status-input').value,
+        endpoints,
       };
       if (!data.name || !data.display_name) return showToast('请填写标识和名称', 'error');
+      if (endpoints.length === 0) return showToast('至少添加一个端点', 'error');
       try {
         if (id) await api.adminUpdateProvider(id, data);
         else await api.adminCreateProvider(data);
@@ -746,10 +810,26 @@
         if (!cachedProviders.length) cachedProviders = await api.adminGetProviders();
         const filterSel = document.getElementById('model-filter-provider');
         filterSel.innerHTML = '<option value="">全部供应商</option>' +
-          cachedProviders.map(p => `<option value="${p.name}">${p.display_name}</option>`).join('');
-        const formSel = document.getElementById('model-provider-input');
-        formSel.innerHTML = cachedProviders.map(p => `<option value="${p.name}">${p.display_name} (${p.name})</option>`).join('');
+          cachedProviders.filter(p => p.status === 'active').map(p => `<option value="${p.name}">${p.display_name}</option>`).join('');
+        const cbContainer = document.getElementById('model-providers-checkboxes');
+        cbContainer.innerHTML = cachedProviders.filter(p => p.status === 'active').map(p => {
+          const epCount = (p.endpoints || []).length;
+          return `<label style="display:flex;align-items:center;gap:0.3rem;padding:0.25rem 0.5rem;border-radius:4px;cursor:pointer;font-size:0.85rem;background:var(--bg-secondary);white-space:nowrap;">
+            <input type="checkbox" class="model-provider-cb" value="${p.id}" data-name="${p.name}">
+            ${p.display_name} <span style="color:var(--text-muted);font-size:0.75rem;">(${epCount}端点)</span>
+          </label>`;
+        }).join('');
       } catch(e) { console.error('加载供应商列表失败', e); }
+    }
+
+    function getSelectedProviderIds() {
+      return Array.from(document.querySelectorAll('.model-provider-cb:checked')).map(cb => parseInt(cb.value));
+    }
+
+    function setSelectedProviderIds(ids) {
+      document.querySelectorAll('.model-provider-cb').forEach(cb => {
+        cb.checked = (ids || []).includes(parseInt(cb.value));
+      });
     }
 
     // === 订单管理 ===
