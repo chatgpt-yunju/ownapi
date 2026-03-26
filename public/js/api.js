@@ -1,4 +1,4 @@
-/* OpenClaw AI - API Client */
+/* OpenClaw API - API Client */
 const API_BASE = '/api';
 const SSO_LOGIN_URL = 'https://yunjunet.cn/login?return_url=' + encodeURIComponent(window.location.origin + '/console.html');
 
