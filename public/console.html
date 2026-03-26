@@ -449,7 +449,26 @@
     </div>
   </div>
 
-  <script src="/js/api.js?v=20260319"></script>
+  <div class="oc-modal-overlay" id="modal-set-password">
+    <div class="oc-modal" style="min-width:420px;">
+      <h3>首次设置密码</h3>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.75rem;">您的账号通过 SSO 登录，尚未设置密码。创建 API Key 需要密码验证，请先设置密码。</p>
+      <div class="form-group">
+        <label>新密码 <span style="color:var(--text-muted);font-size:0.75rem;">（至少8位，包含字母和数字）</span></label>
+        <input class="oc-input" id="init-password" type="password" placeholder="请输入密码" autocomplete="new-password">
+      </div>
+      <div class="form-group" style="margin-top:0.75rem;">
+        <label>确认密码</label>
+        <input class="oc-input" id="init-password-confirm" type="password" placeholder="再次输入密码" autocomplete="new-password">
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-set-password')">取消</button>
+        <button class="btn-accent" onclick="setInitialPassword()">设置密码</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js?v=20260326"></script>
   <script>
     try {
       if (typeof requireAuth !== 'function') throw new Error('api.js not loaded');
@@ -749,6 +768,34 @@
         document.getElementById('new-key-value').textContent = res.key;
         showModal('modal-show-key');
         loadApiKeys();
+      } catch(e) {
+        if (e.needSetPassword) {
+          hideModal('modal-create-key');
+          showModal('modal-set-password');
+        } else {
+          showToast(e.message, 'error');
+        }
+      }
+    }
+
+    async function setInitialPassword() {
+      const pwd = document.getElementById('init-password').value;
+      const pwd2 = document.getElementById('init-password-confirm').value;
+      if (!pwd) return showToast('请输入密码', 'error');
+      if (pwd !== pwd2) return showToast('两次密码不一致', 'error');
+      if (pwd.length < 8 || !/[a-zA-Z]/.test(pwd) || !/[0-9]/.test(pwd)) {
+        return showToast('密码至少8位且包含字母和数字', 'error');
+      }
+      try {
+        const resp = await fetch('/api/auth/set-initial-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('token') },
+          body: JSON.stringify({ new_password: pwd })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.message || '设置失败');
+        hideModal('modal-set-password');
+        showToast('密码设置成功，请重新创建 API Key', 'success');
       } catch(e) { showToast(e.message, 'error'); }
     }
 

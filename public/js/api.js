@@ -26,7 +26,11 @@ const api = {
       throw new Error('未登录');
     }
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || '请求失败');
+    if (!res.ok) {
+      const err = new Error(data.error || data.message || '请求失败');
+      if (data.needSetPassword) err.needSetPassword = true;
+      throw err;
+    }
     return data;
   },
 
