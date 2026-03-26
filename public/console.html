@@ -426,8 +426,12 @@
         <input class="oc-input" id="new-key-name" placeholder="如：测试环境" maxlength="50">
       </div>
       <div class="form-group" style="margin-top:0.75rem;">
-        <label>登录密码 <span style="color:var(--danger);font-size:0.75rem;">（身份验证）</span></label>
-        <input class="oc-input" id="new-key-password" type="password" placeholder="请输入登录密码" autocomplete="current-password">
+        <label>邮箱验证码 <span style="color:var(--text-muted);font-size:0.75rem;">（身份验证）</span></label>
+        <p id="create-key-email-hint" style="color:var(--text-muted);font-size:0.8rem;margin:0 0 0.5rem 0;"></p>
+        <div style="display:flex;gap:0.5rem;">
+          <input class="oc-input" id="new-key-email-code" placeholder="6位验证码" maxlength="6" style="flex:1;">
+          <button class="btn-outline" id="btn-send-apikey-code" onclick="sendApiKeyCode()" style="white-space:nowrap;">发送验证码</button>
+        </div>
       </div>
       <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
         <button class="btn-outline" onclick="hideModal('modal-create-key')">取消</button>
@@ -509,7 +513,25 @@
 
     function showModal(id) { document.getElementById(id).classList.add('show'); }
     function hideModal(id) { document.getElementById(id).classList.remove('show'); }
-    function showCreateKeyModal() { document.getElementById('new-key-name').value = ''; showModal('modal-create-key'); }
+    let _userEmail = null;
+    async function showCreateKeyModal() {
+      document.getElementById('new-key-name').value = '';
+      document.getElementById('new-key-email-code').value = '';
+      const hint = document.getElementById('create-key-email-hint');
+      try {
+        const data = await api.get('/api-key/email-status');
+        if (!data.hasEmail) {
+          hint.textContent = '您尚未绑定邮箱，请先在个人设置中绑定邮箱。';
+          hint.style.color = 'var(--danger)';
+          _userEmail = null;
+        } else {
+          hint.textContent = '验证码将发送至 ' + data.maskedEmail;
+          hint.style.color = 'var(--text-muted)';
+          _userEmail = data.maskedEmail;
+        }
+      } catch(e) { hint.textContent = ''; }
+      showModal('modal-create-key');
+    }
 
     function logout() { api.clearToken(); window.location.href = '/'; }
 
@@ -755,48 +777,41 @@
       } catch(e) { showToast(e.message, 'error'); }
     }
 
+    async function sendApiKeyCode() {
+      if (!_userEmail) return showToast('请先绑定邮箱', 'error');
+      const btn = document.getElementById('btn-send-apikey-code');
+      btn.disabled = true;
+      try {
+        await api.post('/api-key/send-code', {});
+        showToast('验证码已发送', 'success');
+        let sec = 60;
+        btn.textContent = sec + 's';
+        const timer = setInterval(() => {
+          sec--;
+          btn.textContent = sec + 's';
+          if (sec <= 0) { clearInterval(timer); btn.textContent = '发送验证码'; btn.disabled = false; }
+        }, 1000);
+      } catch(e) { showToast(e.message, 'error'); btn.disabled = false; }
+    }
+
     async function createKey() {
       const name = document.getElementById('new-key-name').value.trim();
-      const password = document.getElementById('new-key-password').value;
+      const code = document.getElementById('new-key-email-code').value.trim();
       if (!name) return showToast('请输入名称', 'error');
-      if (!password) return showToast('请输入登录密码', 'error');
+      if (!code) return showToast('请输入验证码', 'error');
       try {
-        const res = await api.createApiKey(name, password);
+        const res = await api.createApiKey(name, code);
         hideModal('modal-create-key');
-        document.getElementById('new-key-name').value = '';
-        document.getElementById('new-key-password').value = '';
         document.getElementById('new-key-value').textContent = res.key;
         showModal('modal-show-key');
         loadApiKeys();
       } catch(e) {
-        if (e.needSetPassword) {
-          hideModal('modal-create-key');
-          showModal('modal-set-password');
+        if (e.needBindEmail) {
+          showToast('请先在个人设置中绑定邮箱', 'error');
         } else {
           showToast(e.message, 'error');
         }
       }
-    }
-
-    async function setInitialPassword() {
-      const pwd = document.getElementById('init-password').value;
-      const pwd2 = document.getElementById('init-password-confirm').value;
-      if (!pwd) return showToast('请输入密码', 'error');
-      if (pwd !== pwd2) return showToast('两次密码不一致', 'error');
-      if (pwd.length < 8 || !/[a-zA-Z]/.test(pwd) || !/[0-9]/.test(pwd)) {
-        return showToast('密码至少8位且包含字母和数字', 'error');
-      }
-      try {
-        const resp = await fetch('/api/auth/set-initial-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('token') },
-          body: JSON.stringify({ new_password: pwd })
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.message || '设置失败');
-        hideModal('modal-set-password');
-        showToast('密码设置成功，请重新创建 API Key', 'success');
-      } catch(e) { showToast(e.message, 'error'); }
     }
 
     async function toggleKey(id) {

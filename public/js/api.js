@@ -29,6 +29,8 @@ const api = {
     if (!res.ok) {
       const err = new Error(data.error || data.message || '请求失败');
       if (data.needSetPassword) err.needSetPassword = true;
+      if (data.needBindEmail) err.needBindEmail = true;
+      if (data.needEmailCode) err.needEmailCode = true;
       throw err;
     }
     return data;
@@ -45,7 +47,7 @@ const api = {
 
   // API Keys
   getApiKeys() { return this.get('/api-key/list'); },
-  createApiKey(name, password) { return this.post('/api-key/create', { name, password }); },
+  createApiKey(name, emailCode) { return this.post('/api-key/create', { name, email_code: emailCode }); },
   toggleApiKey(id) { return this.post('/api-key/toggle', { id }); },
   deleteApiKey(id) { return this.post('/api-key/delete', { id }); },
 
