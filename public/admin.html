@@ -31,6 +31,8 @@
       <div class="oc-sidebar-item" data-page="providers" onclick="switchPage('providers')" style="display:none">&#x1f3e2; 供应商管理</div>
       <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f4dd; 订单管理</div>
       <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f50d; 请求日志</div>
+      <div class="oc-sidebar-item" data-page="ccclub" onclick="switchPage('ccclub')">&#x1f4e8; CC Club 消息</div>
+      <div class="oc-sidebar-item" data-page="site-settings" onclick="switchPage('site-settings')">&#x2699;&#xfe0f; 站点设置</div>
       <div class="oc-sidebar-section">快捷</div>
       <div class="oc-sidebar-item" onclick="location.href='/console.html'">&#x2190; 返回控制台</div>
     </aside>
@@ -251,6 +253,85 @@
         </div>
       </div>
 
+      <!-- CC Club Messages -->
+      <div id="page-ccclub" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">CC Club 请求消息</h2>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">CC Club 直连 vs 中转测速</div>
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <select class="oc-select" id="ccclub-test-model" style="width:260px;">
+              <option value="">请选择模型ID</option>
+            </select>
+            <input class="oc-input" id="ccclub-test-prompt" placeholder="测试消息（默认：请回复pong）" style="width:320px;">
+            <select class="oc-select" id="ccclub-test-relay-key" style="width:320px;">
+              <option value="">请选择中转测试 API Key</option>
+            </select>
+            <button class="btn-outline btn-sm" onclick="addCcclubRelayKey()">添加Key</button>
+            <button class="btn-outline btn-sm" onclick="removeCcclubRelayKey()">删除当前Key</button>
+            <button class="btn-accent btn-sm" onclick="runCcclubLatencyTest()">开始测试</button>
+          </div>
+          <div id="ccclub-test-result" style="margin-top:0.8rem;color:var(--text-secondary);font-size:0.82rem;">未开始测试</div>
+        </div>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <input class="oc-input" id="ccclub-filter-user" placeholder="用户ID..." style="width:100px;" type="number">
+            <input class="oc-input" id="ccclub-filter-model" placeholder="模型名..." style="width:160px;">
+            <select class="oc-select" id="ccclub-filter-status" style="width:140px;">
+              <option value="">全部状态</option>
+              <option value="success">成功</option>
+              <option value="error">错误</option>
+              <option value="rate_limit_error">限流</option>
+            </select>
+            <input class="oc-input" id="ccclub-filter-date" type="date" style="width:150px;">
+            <input class="oc-input" id="ccclub-filter-keyword" placeholder="关键词（prompt/messages）..." style="width:220px;">
+            <button class="btn-accent btn-sm" onclick="ccClubPage=1;loadCcclubMessages()">查询</button>
+            <button class="btn-outline btn-sm" onclick="clearCcclubFilters()">重置</button>
+            <button class="btn-outline btn-sm" onclick="sendSelectedCcclubMessagesToEmail()">发送选中到邮箱</button>
+          </div>
+        </div>
+        <div class="oc-card">
+          <table class="oc-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="ccclub-select-all" onclick="toggleSelectAllCcclub(this.checked)"></th>
+                <th>时间</th><th>用户</th><th>模型</th><th>状态</th><th>Prompt 预览</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="ccclub-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+          </table>
+          <div class="oc-pagination" id="ccclub-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Site Settings -->
+      <div id="page-site-settings" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">站点设置</h2>
+        <div class="oc-card" style="max-width:600px;padding:1.5rem;">
+          <h3 style="margin-bottom:1rem;font-size:1rem;">QQ 授权登录</h3>
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="ss-qq-enabled" style="width:16px;height:16px;">
+              启用 QQ 登录
+            </label>
+          </div>
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary);">App ID</label>
+            <input class="oc-input" id="ss-qq-app-id" placeholder="QQ互联 App ID">
+          </div>
+          <div class="form-group" style="margin-bottom:1rem;">
+            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary);">App Key（留空保留原值）</label>
+            <input class="oc-input" id="ss-qq-app-key" type="password" placeholder="留空不修改">
+          </div>
+          <div class="form-group" style="margin-bottom:1.5rem;">
+            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary);">回调中转域名</label>
+            <input class="oc-input" id="ss-qq-relay" placeholder="https://login.opensora2.cn">
+            <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">QQ 回调地址填：{中转域名}/return.php，需在 QQ 互联配置</div>
+          </div>
+          <button class="btn-accent" onclick="saveSiteSettings()">保存设置</button>
+          <div id="ss-msg" style="margin-top:10px;font-size:0.85rem;min-height:1.2em;"></div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -423,6 +504,8 @@
       else if (page === 'providers') loadProviders();
       else if (page === 'orders') { ordersPage = 1; loadAllOrders(); }
       else if (page === 'logs') { logsPage = 1; loadLogs(); }
+      else if (page === 'ccclub') { ccClubPage = 1; loadCcclubModelOptions(); loadCcclubMessages(); }
+      else if (page === 'site-settings') loadSiteSettings();
       // 关闭移动端侧边栏
       document.getElementById('sidebar').classList.remove('show');
     }
@@ -1090,6 +1173,220 @@
 
         showModal('modal-log');
       } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // === CC Club 请求消息 ===
+    let ccClubPage = 1;
+    let ccClubSelectedRequestIds = new Set();
+    let ccClubModelsLoaded = false;
+
+    async function loadCcclubModelOptions() {
+      try {
+        const select = document.getElementById('ccclub-test-model');
+        const prev = select.value;
+        const models = await api.adminGetModels();
+        const ccclubModels = (models || []).filter(m => {
+          const ups = (m.upstreams || []).filter(u => u.status === 'active');
+          return ups.some(u => String(u.base_url || '').includes('claude-code.club'));
+        });
+        select.innerHTML = '<option value="">请选择模型ID</option>' +
+          ccclubModels.map(m => `<option value="${m.model_id}">${m.model_id}</option>`).join('');
+        if (prev && ccclubModels.some(m => m.model_id === prev)) {
+          select.value = prev;
+        } else if (ccclubModels.length > 0) {
+          select.value = ccclubModels[0].model_id;
+        }
+        ccClubModelsLoaded = true;
+      } catch (e) {
+        ccClubModelsLoaded = false;
+        console.error('加载 CC Club 模型下拉失败:', e);
+      }
+    }
+
+    function clearCcclubFilters() {
+      document.getElementById('ccclub-filter-user').value = '';
+      document.getElementById('ccclub-filter-model').value = '';
+      document.getElementById('ccclub-filter-status').value = '';
+      document.getElementById('ccclub-filter-date').value = '';
+      document.getElementById('ccclub-filter-keyword').value = '';
+      ccClubPage = 1;
+      loadCcclubMessages();
+    }
+
+    function toggleSelectAllCcclub(checked) {
+      const boxes = document.querySelectorAll('.ccclub-row-check');
+      boxes.forEach(box => {
+        box.checked = checked;
+        const rid = box.dataset.requestId;
+        if (!rid) return;
+        if (checked) ccClubSelectedRequestIds.add(rid);
+        else ccClubSelectedRequestIds.delete(rid);
+      });
+    }
+
+    function toggleCcclubRow(requestId, checked) {
+      if (!requestId) return;
+      if (checked) ccClubSelectedRequestIds.add(requestId);
+      else ccClubSelectedRequestIds.delete(requestId);
+      const all = document.querySelectorAll('.ccclub-row-check');
+      const allChecked = all.length > 0 && Array.from(all).every(el => el.checked);
+      document.getElementById('ccclub-select-all').checked = allChecked;
+    }
+
+    async function loadCcclubMessages() {
+      const params = { page: ccClubPage, limit: 10 };
+      const userId = document.getElementById('ccclub-filter-user').value.trim();
+      const model = document.getElementById('ccclub-filter-model').value.trim();
+      const status = document.getElementById('ccclub-filter-status').value;
+      const date = document.getElementById('ccclub-filter-date').value;
+      const keyword = document.getElementById('ccclub-filter-keyword').value.trim();
+      if (userId) params.user_id = userId;
+      if (model) params.model = model;
+      if (status) params.status = status;
+      if (date) params.date = date;
+      if (keyword) params.keyword = keyword;
+
+      try {
+        const data = await api.adminCcclubMessages(params);
+        const logs = data.logs || [];
+        document.getElementById('ccclub-tbody').innerHTML = logs.length
+          ? logs.map(l => {
+              const promptPreview = (l.user_prompt_preview || '').replace(/\n/g, '↵').slice(0, 120);
+              const checked = ccClubSelectedRequestIds.has(l.request_id) ? 'checked' : '';
+              return `<tr>
+                <td><input class="ccclub-row-check" type="checkbox" data-request-id="${l.request_id}" ${checked}
+                      onchange="toggleCcclubRow('${l.request_id}', this.checked)"></td>
+                <td style="font-size:0.75rem;white-space:nowrap;">${l.created_at || '-'}</td>
+                <td><a href="javascript:void(0)" onclick="viewUserDetail(${l.user_id})" style="color:var(--accent-light);">${l.username || l.user_id}</a></td>
+                <td><code style="font-size:0.75rem;">${l.model || '-'}</code></td>
+                <td>${l.status === 'success' ? '<span class="badge-active">成功</span>' : `<span class="badge-disabled">${l.status || '-'}</span>`}</td>
+                <td style="font-size:0.75rem;color:var(--text-muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${promptPreview}">${promptPreview || '—'}</td>
+                <td>
+                  <button class="btn-outline btn-sm" onclick="viewLogDetail('${l.request_id}')">详情</button>
+                  <button class="btn-outline btn-sm" onclick="sendSingleCcclubMessageToEmail('${l.request_id}')" style="margin-left:4px;">发邮箱</button>
+                </td>
+              </tr>`;
+            }).join('')
+          : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">暂无 CC Club 请求消息</td></tr>';
+
+        const total = data.total || 0;
+        const totalPages = Math.ceil(total / 10);
+        const pagDiv = document.getElementById('ccclub-pagination');
+        pagDiv.innerHTML = `<span style="font-size:0.8rem;color:var(--text-muted);margin-right:0.5rem;">共 ${total} 条</span>`;
+        const start = Math.max(1, ccClubPage - 4);
+        const end = Math.min(totalPages, start + 9);
+        for (let i = start; i <= end; i++) {
+          pagDiv.innerHTML += `<button class="${i === ccClubPage ? 'active' : ''}" onclick="ccClubPage=${i};loadCcclubMessages();">${i}</button>`;
+        }
+
+        const all = document.querySelectorAll('.ccclub-row-check');
+        const allChecked = all.length > 0 && Array.from(all).every(el => el.checked);
+        document.getElementById('ccclub-select-all').checked = allChecked;
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function sendSingleCcclubMessageToEmail(requestId) {
+      if (!requestId) return;
+      try {
+        const ret = await api.adminSendCcclubMessagesEmail({ request_id: requestId });
+        showToast(ret.message || '发送成功', 'success');
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function sendSelectedCcclubMessagesToEmail() {
+      const request_ids = Array.from(ccClubSelectedRequestIds);
+      if (!request_ids.length) return showToast('请先勾选请求消息', 'error');
+      if (!confirm(`确认将 ${request_ids.length} 条 CC Club 请求消息发送到管理员邮箱？`)) return;
+      try {
+        const ret = await api.adminSendCcclubMessagesEmail({ request_ids });
+        showToast(ret.message || '发送成功', 'success');
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    function fmtCcclubTestBlock(title, item) {
+      const okLabel = item?.ok ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">失败</span>';
+      const status = item?.status ?? '-';
+      const cost = item?.duration_ms ?? '-';
+      const detail = (item?.error || item?.response_preview || '-');
+      return `
+        <div style="margin:0.45rem 0;padding:0.55rem;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);">
+          <div><b>${title}</b> ${okLabel}</div>
+          <div>状态码: <code>${status}</code>，耗时: <code>${cost} ms</code></div>
+          <div style="margin-top:0.3rem;white-space:pre-wrap;word-break:break-all;color:${item?.ok ? 'var(--text-muted)' : 'var(--danger)'};">${detail}</div>
+        </div>
+      `;
+    }
+
+    async function runCcclubLatencyTest() {
+      if (!ccClubModelsLoaded) await loadCcclubModelOptions();
+      const model_id = document.getElementById('ccclub-test-model').value.trim();
+      const prompt = document.getElementById('ccclub-test-prompt').value.trim() || '请回复：pong';
+      const relay_api_key = document.getElementById('ccclub-test-relay-key').value.trim();
+      if (!model_id) return showToast('请先填写模型ID', 'error');
+      if (!relay_api_key) return showToast('请先填写中转测试 API Key', 'error');
+
+      const resultEl = document.getElementById('ccclub-test-result');
+      resultEl.innerHTML = '测试中...';
+      try {
+        const ret = await api.adminCcclubLatencyTest({ model_id, prompt, relay_api_key, timeout_ms: 45000 });
+        const diffLabel = (ret.diff_ms === null || ret.diff_ms === undefined)
+          ? '未知'
+          : `${ret.diff_ms} ms（${ret.diff_ms > 0 ? '中转更慢' : '中转更快/持平'}）`;
+        resultEl.innerHTML = `
+          <div style="margin-bottom:0.4rem;">
+            模型: <code>${ret.model_id}</code> → 上游: <code>${ret.upstream_model_id || '-'}</code>
+          </div>
+          <div style="margin-bottom:0.4rem;">
+            直连地址: <code>${ret.upstream_base_url || '-'}</code><br>
+            中转地址: <code>${ret.relay_url || '-'}</code><br>
+            耗时差值(中转-直连): <b>${diffLabel}</b>
+          </div>
+          ${fmtCcclubTestBlock('直连', ret.direct)}
+          ${fmtCcclubTestBlock('中转', ret.relay)}
+        `;
+      } catch (e) {
+        resultEl.innerHTML = `<span style="color:var(--danger);">测试失败：${e.message}</span>`;
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function loadSiteSettings() {
+      try {
+        const data = await api.request('/settings', { method: 'GET' });
+        document.getElementById('ss-qq-enabled').checked = data.qq_login_enabled === 'true';
+        document.getElementById('ss-qq-app-id').value = data.qq_app_id || '';
+        document.getElementById('ss-qq-relay').value = data.login_relay_domain || '';
+        document.getElementById('ss-qq-app-key').value = '';
+      } catch (e) {
+        document.getElementById('ss-msg').textContent = '加载失败：' + e.message;
+      }
+    }
+
+    async function saveSiteSettings() {
+      const msgEl = document.getElementById('ss-msg');
+      msgEl.textContent = '保存中...';
+      msgEl.style.color = 'var(--text-secondary)';
+      try {
+        const body = {
+          qq_login_enabled: document.getElementById('ss-qq-enabled').checked ? 'true' : 'false',
+          qq_app_id: document.getElementById('ss-qq-app-id').value.trim(),
+          login_relay_domain: document.getElementById('ss-qq-relay').value.trim(),
+        };
+        const key = document.getElementById('ss-qq-app-key').value.trim();
+        if (key) body.qq_app_key = key;
+        await api.request('/settings', { method: 'PUT', body: JSON.stringify(body) });
+        msgEl.textContent = '保存成功';
+        msgEl.style.color = 'var(--success)';
+      } catch (e) {
+        msgEl.textContent = '保存失败：' + e.message;
+        msgEl.style.color = 'var(--danger)';
+      }
     }
 
     init();
