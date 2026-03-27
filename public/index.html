@@ -277,94 +277,34 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
     </div>
   </section>
 
-  <!-- 热门模型价格对比 -->
+  <!-- 可用模型列表（动态加载） -->
   <section class="oc-container" style="padding-top:2rem;padding-bottom:4rem;">
-    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">模型价格对比</h2>
-    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">同等模型，官方同价或更低 — 对比一目了然</p>
-
+    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">可用模型 & 价格</h2>
+    <p style="text-align:center;color:var(--text-muted);margin-bottom:1rem;">实时从 API 加载，显示当前全部可用模型 — 价格单位 $/1M tokens</p>
+    <div style="text-align:center;margin-bottom:1rem;">
+      <input id="model-search" class="oc-input" placeholder="搜索模型..." oninput="filterModels()" style="width:280px;display:inline-block;">
+      <select id="model-provider-filter" onchange="filterModels()" style="padding:0.5rem;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);margin-left:0.5rem;">
+        <option value="">全部供应商</option>
+      </select>
+      <span id="model-count" style="margin-left:1rem;color:var(--text-muted);font-size:0.85rem;"></span>
+    </div>
     <div class="oc-card" style="max-width:960px;margin:0 auto;overflow-x:auto;">
-      <table class="compare-table">
+      <table class="pricing-table" id="models-pricing-table">
         <thead>
           <tr>
-            <th style="text-align:left;">模型</th>
-            <th>官方输入价</th>
-            <th>我们输入价</th>
-            <th>官方输出价</th>
-            <th>我们输出价</th>
-            <th>优惠</th>
+            <th style="text-align:left;">模型 ID</th>
+            <th>显示名称</th>
+            <th>供应商</th>
+            <th style="text-align:right;">输入 /M</th>
+            <th style="text-align:right;">输出 /M</th>
           </tr>
         </thead>
-        <tbody>
-          <tr>
-            <td><strong>GPT-4o</strong> <span class="model-tag">旗舰</span></td>
-            <td class="price-official">$2.50</td>
-            <td class="price-ours">$2.50</td>
-            <td class="price-official">$10.00</td>
-            <td class="price-ours">$10.00</td>
-            <td><span class="save-tag">同价</span></td>
-          </tr>
-          <tr>
-            <td><strong>GPT-4o-mini</strong> <span class="model-tag">推荐</span></td>
-            <td class="price-official">$0.15</td>
-            <td class="price-ours">$0.15</td>
-            <td class="price-official">$0.60</td>
-            <td class="price-ours">$0.60</td>
-            <td><span class="save-tag">同价</span></td>
-          </tr>
-          <tr>
-            <td><strong>Claude Sonnet 4.6</strong> <span class="model-tag">热门</span></td>
-            <td class="price-official">$3.00</td>
-            <td class="price-ours">$3.00</td>
-            <td class="price-official">$15.00</td>
-            <td class="price-ours">$15.00</td>
-            <td><span class="save-tag">同价</span></td>
-          </tr>
-          <tr>
-            <td><strong>Claude Opus 4.6</strong></td>
-            <td class="price-official">$5.00</td>
-            <td class="price-ours">$5.00</td>
-            <td class="price-official">$25.00</td>
-            <td class="price-ours">$25.00</td>
-            <td><span class="save-tag">同价</span></td>
-          </tr>
-          <tr>
-            <td><strong>DeepSeek V3.2</strong> <span class="model-tag">性价比</span></td>
-            <td class="price-official">$0.28</td>
-            <td class="price-ours">$0.10</td>
-            <td class="price-official">$0.42</td>
-            <td class="price-ours">$0.30</td>
-            <td><span class="save-tag">省 64%</span></td>
-          </tr>
-          <tr>
-            <td><strong>Gemini 2.5 Pro</strong></td>
-            <td class="price-official">$1.25</td>
-            <td class="price-ours">$1.25</td>
-            <td class="price-official">$5.00</td>
-            <td class="price-ours">$5.00</td>
-            <td><span class="save-tag">同价</span></td>
-          </tr>
-          <tr>
-            <td><strong>Gemini 2.5 Flash</strong></td>
-            <td class="price-official">$0.15</td>
-            <td class="price-ours">$0.019</td>
-            <td class="price-official">$0.60</td>
-            <td class="price-ours">$0.075</td>
-            <td><span class="save-tag">省 87%</span></td>
-          </tr>
-          <tr>
-            <td><strong>Llama 3.1 8B</strong></td>
-            <td style="color:var(--text-muted);font-size:0.82rem;">需自建</td>
-            <td class="price-ours">$0.07</td>
-            <td style="color:var(--text-muted);font-size:0.82rem;">需自建</td>
-            <td class="price-ours">$0.07</td>
-            <td><span class="save-tag">免部署</span></td>
-          </tr>
+        <tbody id="models-pricing-tbody">
+          <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">加载中...</td></tr>
         </tbody>
       </table>
       <div style="text-align:center;padding:1rem;border-top:1px solid var(--border-color);">
-        <span style="color:var(--text-muted);font-size:0.8rem;">价格单位：$/1M tokens &middot; 官方价格来源于各厂商官网 2026.03</span>
-        <br>
-        <a href="/docs.html#models" style="color:var(--accent);margin-top:0.5rem;display:inline-block;">查看全部 200+ 模型 →</a>
+        <a href="/docs.html#models" style="color:var(--accent);">查看 API 文档 →</a>
       </div>
     </div>
   </section>
@@ -460,6 +400,66 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 2000);
       });
+    }
+
+    // 动态加载模型列表
+    let allModelsList = [];
+    const RATE = 7.2;
+    (async function loadModels() {
+      try {
+        const res = await fetch('/api/models');
+        allModelsList = await res.json();
+        // 填充供应商筛选
+        const providers = [...new Set(allModelsList.map(m => m.provider).filter(Boolean))].sort();
+        const sel = document.getElementById('model-provider-filter');
+        providers.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o); });
+        // 更新统计
+        document.querySelector('.hero-stat-value')?.textContent && updateModelCount();
+        filterModels();
+      } catch(e) { console.error('加载模型失败', e); }
+    })();
+
+    function toUsdPerM(pricePerK, currency) {
+      const p = parseFloat(pricePerK) * 1000;
+      return currency === 'CNY' ? p / RATE : p;
+    }
+
+    function fmtPrice(val) {
+      if (val >= 1) return '$' + val.toFixed(2);
+      if (val >= 0.01) return '$' + val.toFixed(3);
+      return '$' + val.toFixed(4);
+    }
+
+    function updateModelCount() {
+      const el = document.getElementById('model-count');
+      if (el) el.textContent = '';
+    }
+
+    function filterModels() {
+      const search = (document.getElementById('model-search')?.value || '').toLowerCase();
+      const provider = document.getElementById('model-provider-filter')?.value || '';
+      const filtered = allModelsList.filter(m => {
+        if (provider && m.provider !== provider) return false;
+        if (search && !m.model_id.toLowerCase().includes(search) && !m.display_name.toLowerCase().includes(search)) return false;
+        return true;
+      });
+      const tbody = document.getElementById('models-pricing-tbody');
+      document.getElementById('model-count').textContent = `${filtered.length} / ${allModelsList.length} 个模型`;
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">无匹配模型</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.map(m => {
+        const inP = toUsdPerM(m.input_price_per_1k, m.price_currency);
+        const outP = toUsdPerM(m.output_price_per_1k, m.price_currency);
+        return `<tr>
+          <td><code style="color:var(--accent-light);font-size:0.85rem;">${m.model_id}</code></td>
+          <td style="font-size:0.85rem;">${m.display_name}</td>
+          <td><span class="model-tag">${m.provider || '-'}</span></td>
+          <td style="text-align:right;font-family:var(--font-mono);font-size:0.85rem;">${fmtPrice(inP)}</td>
+          <td style="text-align:right;font-family:var(--font-mono);font-size:0.85rem;">${fmtPrice(outP)}</td>
+        </tr>`;
+      }).join('');
     }
   </script>
 </body>
