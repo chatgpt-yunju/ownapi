@@ -282,10 +282,7 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
     <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">可用模型 & 价格</h2>
     <p style="text-align:center;color:var(--text-muted);margin-bottom:1rem;">实时从 API 加载，显示当前全部可用模型 — 价格单位 $/1M tokens</p>
     <div style="text-align:center;margin-bottom:1rem;">
-      <input id="model-search" class="oc-input" placeholder="搜索模型..." oninput="filterModels()" style="width:280px;display:inline-block;">
-      <select id="model-provider-filter" onchange="filterModels()" style="padding:0.5rem;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-primary);color:var(--text-primary);margin-left:0.5rem;">
-        <option value="">全部供应商</option>
-      </select>
+      <input id="model-search" class="oc-input" placeholder="搜索模型..." oninput="filterModels()" style="width:300px;display:inline-block;">
       <span id="model-count" style="margin-left:1rem;color:var(--text-muted);font-size:0.85rem;"></span>
     </div>
     <div class="oc-card" style="max-width:960px;margin:0 auto;overflow-x:auto;">
@@ -293,14 +290,12 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
         <thead>
           <tr>
             <th style="text-align:left;">模型 ID</th>
-            <th>显示名称</th>
-            <th>供应商</th>
             <th style="text-align:right;">输入 /M</th>
             <th style="text-align:right;">输出 /M</th>
           </tr>
         </thead>
         <tbody id="models-pricing-tbody">
-          <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">加载中...</td></tr>
+          <tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:2rem;">加载中...</td></tr>
         </tbody>
       </table>
       <div style="text-align:center;padding:1rem;border-top:1px solid var(--border-color);">
@@ -446,7 +441,7 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
       const tbody = document.getElementById('models-pricing-tbody');
       document.getElementById('model-count').textContent = `${filtered.length} / ${allModelsList.length} 个模型`;
       if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">无匹配模型</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:2rem;">无匹配模型</td></tr>';
         return;
       }
       tbody.innerHTML = filtered.map(m => {
@@ -454,8 +449,6 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
         const outP = toUsdPerM(m.output_price_per_1k, m.price_currency);
         return `<tr>
           <td><code style="color:var(--accent-light);font-size:0.85rem;">${m.model_id}</code></td>
-          <td style="font-size:0.85rem;">${m.display_name}</td>
-          <td><span class="model-tag">${m.provider || '-'}</span></td>
           <td style="text-align:right;font-family:var(--font-mono);font-size:0.85rem;">${fmtPrice(inP)}</td>
           <td style="text-align:right;font-family:var(--font-mono);font-size:0.85rem;">${fmtPrice(outP)}</td>
         </tr>`;

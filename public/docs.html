@@ -614,11 +614,12 @@ for chunk in stream:
         const models = await api.getModels();
         const container = document.getElementById('models-table');
         const EXCHANGE_RATE = 7.2;
-        let html = '<table class="oc-table"><thead><tr><th>模型 ID</th><th>输入价格</th><th>输出价格</th></tr></thead><tbody>';
+        let html = '<table class="oc-table"><thead><tr><th>模型 ID</th><th style="text-align:right;">输入 $/M</th><th style="text-align:right;">输出 $/M</th></tr></thead><tbody>';
         models.forEach(m => {
-          const inputPrice = m.price_currency === 'CNY' ? parseFloat((m.input_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.input_price_per_1k;
-          const outputPrice = m.price_currency === 'CNY' ? parseFloat((m.output_price_per_1k / EXCHANGE_RATE).toFixed(6)) : m.output_price_per_1k;
-          html += `<tr><td><code style="color:var(--accent-light)">${m.model_id}</code></td><td>$${inputPrice}/1K</td><td>$${outputPrice}/1K</td></tr>`;
+          const inP = m.price_currency === 'CNY' ? (m.input_price_per_1k * 1000 / EXCHANGE_RATE) : (m.input_price_per_1k * 1000);
+          const outP = m.price_currency === 'CNY' ? (m.output_price_per_1k * 1000 / EXCHANGE_RATE) : (m.output_price_per_1k * 1000);
+          const fmt = v => v >= 1 ? '$'+v.toFixed(2) : v >= 0.01 ? '$'+v.toFixed(3) : '$'+v.toFixed(4);
+          html += `<tr><td><code style="color:var(--accent-light)">${m.model_id}</code></td><td style="text-align:right;font-family:var(--font-mono)">${fmt(inP)}</td><td style="text-align:right;font-family:var(--font-mono)">${fmt(outP)}</td></tr>`;
         });
         html += '</tbody></table>';
         container.innerHTML = html;
