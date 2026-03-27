@@ -70,6 +70,7 @@
     </div>
     <div class="oc-nav-links">
       <a href="/" class="active">首页</a>
+      <a href="#models">模型列表</a>
       <a href="/docs.html">文档</a>
       <a href="/console.html">控制台</a>
       <a href="#contact">联系我们</a>
@@ -278,8 +279,8 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
   </section>
 
   <!-- 可用模型列表（动态加载） -->
-  <section class="oc-container" style="padding-top:2rem;padding-bottom:4rem;">
-    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">可用模型 & 价格</h2>
+  <section class="oc-container" id="models" style="padding-top:2rem;padding-bottom:4rem;">
+    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">模型列表</h2>
     <p style="text-align:center;color:var(--text-muted);margin-bottom:1rem;">实时从 API 加载，显示当前全部可用模型 — 价格单位 $/1M tokens</p>
     <div style="text-align:center;margin-bottom:1rem;">
       <input id="model-search" class="oc-input" placeholder="搜索模型..." oninput="filterModels()" style="width:300px;display:inline-block;">
