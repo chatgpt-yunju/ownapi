@@ -6,6 +6,32 @@
   <title>管理后台 - OpenClaw API</title>
   <link rel="stylesheet" href="/css/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    .admin-head { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+    .admin-title { font-family: var(--font-display); font-size: 2rem; letter-spacing: 0.03em; }
+    .admin-subtitle { color: var(--text-muted); margin-top: 0.35rem; }
+    .admin-chip { display:inline-flex; align-items:center; gap:0.5rem; padding:0.5rem 0.85rem; border-radius:999px; border:1px solid rgba(255,95,207,0.18); background:rgba(20,10,28,0.42); color:var(--text-secondary); font-size:0.8rem; }
+    .admin-chip::before { content:''; width:8px; height:8px; border-radius:50%; background:linear-gradient(135deg,#ff5fcf,#74f5ff); box-shadow:0 0 10px rgba(255,95,207,0.52); }
+    .admin-table-card { overflow:hidden; }
+    .admin-table-card .oc-table { min-width: 760px; }
+    .admin-filter-bar { display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; }
+    @media (max-width: 768px) {
+      .admin-title { font-size: 1.5rem; }
+      .admin-filter-bar > * { width: 100% !important; }
+      .admin-filter-bar button { justify-content: center; }
+    }
+    @media (max-width: 560px) {
+      .admin-title { font-size: 1.3rem; }
+      .admin-chip { width: 100%; justify-content: center; }
+    }
+    .ss-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .ss-panel { animation: fadeIn 0.15s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .health-ok { color: #4ade80; font-weight: 600; }
+    .health-err { color: #f87171; font-weight: 600; }
+    .health-pending { color: var(--text-muted); }
+    .ss-module-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
+  </style>
 </head>
 <body>
   <nav class="oc-navbar">
@@ -31,6 +57,7 @@
       <div class="oc-sidebar-item" data-page="providers" onclick="switchPage('providers')" style="display:none">&#x1f3e2; 供应商管理</div>
       <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f4dd; 订单管理</div>
       <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f50d; 请求日志</div>
+      <div class="oc-sidebar-item" data-page="debug-center" onclick="switchPage('debug-center')">&#x1f9ea; 调试中心</div>
       <div class="oc-sidebar-item" data-page="ccclub" onclick="switchPage('ccclub')">&#x1f4e8; CC Club 消息</div>
       <div class="oc-sidebar-item" data-page="site-settings" onclick="switchPage('site-settings')">&#x2699;&#xfe0f; 站点设置</div>
       <div class="oc-sidebar-section">快捷</div>
@@ -41,7 +68,13 @@
 
       <!-- Overview -->
       <div id="page-overview" class="page-content">
-        <h2 style="margin-bottom:1.5rem;">系统总览</h2>
+        <div class="admin-head">
+          <div>
+            <div class="admin-title">系统总览</div>
+            <div class="admin-subtitle">监控用户规模、调用量、费用和关键运营指标。</div>
+          </div>
+          <div class="admin-chip">Admin Control</div>
+        </div>
         <div class="oc-grid oc-grid-4" style="margin-bottom:1rem;">
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-users">-</div><div class="oc-stat-label">总用户数</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-calls">-</div><div class="oc-stat-label">总调用次数</div></div>
@@ -54,7 +87,7 @@
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-cost">-</div><div class="oc-stat-label">今日费用 (元)</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-active-keys">-</div><div class="oc-stat-label">活跃 API Keys</div></div>
         </div>
-        <div class="oc-card">
+        <div class="oc-card admin-table-card">
           <h4 style="margin-bottom:1rem;color:var(--text-primary);">最近调用记录</h4>
           <table class="oc-table">
             <thead><tr><th>时间</th><th>用户</th><th>模型</th><th>输入</th><th>输出</th><th>费用</th><th>状态</th></tr></thead>
@@ -65,16 +98,21 @@
 
       <!-- Users -->
       <div id="page-users" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">用户管理</h2>
+        <div class="admin-head">
+          <div>
+            <div class="admin-title" style="font-size:1.55rem;">用户管理</div>
+            <div class="admin-subtitle">搜索、审查与维护用户账户状态。</div>
+          </div>
+        </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
-          <div style="display:flex;gap:0.75rem;align-items:center;">
+          <div class="admin-filter-bar">
             <input class="oc-input" id="user-search" placeholder="搜索用户名..." style="width:250px;" onkeydown="if(event.key==='Enter')loadUsers()">
             <button class="btn-accent btn-sm" onclick="usersPage=1;loadUsers()">搜索</button>
           </div>
         </div>
-        <div class="oc-card">
+        <div class="oc-card admin-table-card">
           <table class="oc-table">
-            <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>余额</th><th>活跃 Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>配额余额</th><th>钱包余额</th><th>活跃 Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
             <tbody id="users-tbody"></tbody>
           </table>
           <div class="oc-pagination" id="users-pagination"></div>
@@ -84,11 +122,14 @@
       <!-- Models -->
       <div id="page-models" class="page-content" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-          <h2>模型管理</h2>
+          <div>
+            <div class="admin-title" style="font-size:1.55rem;">模型管理</div>
+            <div class="admin-subtitle">统一维护模型路由、定价、排序与启用状态。</div>
+          </div>
           <button class="btn-accent" onclick="showAddModelModal()">+ 添加模型</button>
         </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
-          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+          <div class="admin-filter-bar">
             <select class="oc-select" id="model-filter-provider" onchange="applyModelFilter()" style="width:160px;">
               <option value="">全部供应商</option>
             </select>
@@ -100,9 +141,9 @@
             <input class="oc-input" id="model-filter-search" placeholder="搜索模型ID或名称..." oninput="applyModelFilter()" style="width:220px;">
           </div>
         </div>
-        <div class="oc-card">
+        <div class="oc-card admin-table-card">
           <table class="oc-table">
-            <thead><tr><th>模型 ID</th><th>显示名称</th><th>Upstreams</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>模型 ID</th><th>显示名称</th><th>分类</th><th>计费</th><th>按次价格</th><th>Upstreams</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="models-tbody"></tbody>
           </table>
         </div>
@@ -111,10 +152,13 @@
       <!-- Providers -->
       <div id="page-providers" class="page-content" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-          <h2>供应商管理</h2>
+          <div>
+            <div class="admin-title" style="font-size:1.55rem;">供应商管理</div>
+            <div class="admin-subtitle">配置上游供应商与端点结构。</div>
+          </div>
           <button class="btn-accent" onclick="showAddProviderModal()">+ 添加供应商</button>
         </div>
-        <div class="oc-card">
+        <div class="oc-card admin-table-card">
           <table class="oc-table">
             <thead><tr><th>ID</th><th>标识</th><th>显示名称</th><th>端点数</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="providers-tbody"></tbody>
@@ -124,10 +168,15 @@
 
       <!-- Orders -->
       <div id="page-orders" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">订单管理</h2>
+        <div class="admin-head">
+          <div>
+            <div class="admin-title" style="font-size:1.55rem;">订单管理</div>
+            <div class="admin-subtitle">查看交易状态、套餐购买与用户明细。</div>
+          </div>
+        </div>
         <!-- 全部订单 -->
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
-          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+          <div class="admin-filter-bar">
             <input class="oc-input" id="order-filter-user" placeholder="用户ID..." style="width:100px;" type="number">
             <select class="oc-select" id="order-filter-type" style="width:130px;">
               <option value="">全部类型</option>
@@ -144,7 +193,7 @@
             <button class="btn-outline btn-sm" onclick="document.getElementById('order-filter-user').value='';document.getElementById('order-filter-type').value='';document.getElementById('order-filter-status').value='';ordersPage=1;loadAllOrders()">重置</button>
           </div>
         </div>
-        <div class="oc-card" style="margin-bottom:1.5rem;">
+        <div class="oc-card admin-table-card" style="margin-bottom:1.5rem;">
           <table class="oc-table">
             <thead><tr><th>时间</th><th>用户</th><th>类型</th><th>套餐/备注</th><th>金额</th><th>余额抵扣</th><th>实付</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="orders-all-tbody"><tr><td colspan="9" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
@@ -163,7 +212,8 @@
             </div>
           </div>
           <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
-            <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-balance">-</div><div class="oc-stat-label">账户余额</div></div>
+            <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-quota-balance">-</div><div class="oc-stat-label">配额余额</div></div>
+            <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-wallet-balance">-</div><div class="oc-stat-label">钱包余额</div></div>
             <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-total-calls">-</div><div class="oc-stat-label">总调用次数</div></div>
             <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-total-tokens">-</div><div class="oc-stat-label">总 Tokens</div></div>
             <div class="oc-card oc-stat"><div class="oc-stat-value" id="user-total-cost">-</div><div class="oc-stat-label">总费用</div></div>
@@ -204,7 +254,7 @@
           <div class="oc-card" style="margin-bottom:1rem;">
             <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">余额变动记录</h4>
             <table class="oc-table">
-              <thead><tr><th>时间</th><th>类型</th><th>变动</th><th>变动前</th><th>变动后</th><th>备注</th></tr></thead>
+              <thead><tr><th>时间</th><th>余额类型</th><th>类型</th><th>变动</th><th>变动前</th><th>变动后</th><th>备注</th></tr></thead>
               <tbody id="user-balance-logs-tbody"></tbody>
             </table>
           </div>
@@ -250,6 +300,82 @@
             <tbody id="logs-tbody"><tr><td colspan="9" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
           </table>
           <div class="oc-pagination" id="logs-pagination"></div>
+        </div>
+      </div>
+
+      <!-- Debug Center -->
+      <div id="page-debug-center" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">模型调试中心</h2>
+
+        <!-- 模型健康检查 -->
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem 1.25rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+            <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;">模型健康检查</div>
+            <button class="btn-accent btn-sm" id="health-check-btn" onclick="runHealthCheck()">一键诊断所有模型</button>
+          </div>
+          <div id="health-check-summary" style="margin-bottom:0.5rem;font-size:0.82rem;color:var(--text-secondary);">点击"一键诊断"测试所有已启用模型的连通性和响应速度。</div>
+          <div id="health-check-results" style="display:none;">
+            <table class="oc-table" style="font-size:0.82rem;">
+              <thead><tr><th>模型</th><th>供应商</th><th>状态</th><th>延迟</th><th>回复/错误</th></tr></thead>
+              <tbody id="health-check-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem 1.25rem;">
+          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">手动触发 8 步调试</div>
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;">
+            <input class="oc-input" id="debug-run-model" placeholder="模型 ID，如 claude-sonnet-4-6" style="width:260px;">
+            <select class="oc-select" id="debug-run-route" style="width:150px;">
+              <option value="chat">Chat Completions</option>
+              <option value="messages">Anthropic Messages</option>
+              <option value="responses">OpenAI Responses</option>
+              <option value="gemini">Gemini</option>
+            </select>
+            <input class="oc-input" id="debug-run-relay-key" placeholder="中转 API Key" style="width:320px;">
+            <input class="oc-input" id="debug-run-timeout" type="number" value="45000" style="width:120px;" placeholder="超时ms">
+            <button class="btn-accent btn-sm" onclick="runRequestDebug()">开始调试</button>
+          </div>
+          <div style="display:flex;gap:0.75rem;align-items:flex-start;flex-wrap:wrap;">
+            <textarea class="oc-input" id="debug-run-system" placeholder="System Prompt（可选）" style="flex:1;min-width:280px;min-height:88px;"></textarea>
+            <textarea class="oc-input" id="debug-run-prompt" placeholder="用户输入 / Prompt" style="flex:2;min-width:340px;min-height:88px;">请回复：pong</textarea>
+          </div>
+          <div id="debug-run-result" style="margin-top:0.9rem;font-size:0.82rem;color:var(--text-secondary);">尚未执行调试</div>
+        </div>
+
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+            <input class="oc-input" id="debug-filter-request-id" placeholder="Request ID..." style="width:200px;">
+            <input class="oc-input" id="debug-filter-model" placeholder="模型名..." style="width:180px;">
+            <select class="oc-select" id="debug-filter-route" style="width:160px;">
+              <option value="">全部路由</option>
+              <option value="chat.completions">chat.completions</option>
+              <option value="messages">messages</option>
+              <option value="responses">responses</option>
+              <option value="gemini.generateContent">gemini.generateContent</option>
+            </select>
+            <select class="oc-select" id="debug-filter-status" style="width:120px;">
+              <option value="">全部状态</option>
+              <option value="error">失败</option>
+              <option value="success">成功</option>
+              <option value="pending">处理中</option>
+            </select>
+            <select class="oc-select" id="debug-filter-trace-type" style="width:120px;">
+              <option value="live">线上请求</option>
+              <option value="manual">手动调试</option>
+            </select>
+            <input class="oc-input" id="debug-filter-date" type="date" style="width:150px;">
+            <button class="btn-accent btn-sm" onclick="debugPage=1;loadDebugTraces()">查询</button>
+            <button class="btn-outline btn-sm" onclick="clearDebugFilters()">重置</button>
+          </div>
+        </div>
+
+        <div class="oc-card">
+          <table class="oc-table">
+            <thead><tr><th>时间</th><th>Request ID</th><th>来源</th><th>路由</th><th>模型</th><th>用户</th><th>状态</th><th>失败步骤</th><th>操作</th></tr></thead>
+            <tbody id="debug-traces-tbody"><tr><td colspan="9" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+          </table>
+          <div class="oc-pagination" id="debug-traces-pagination"></div>
         </div>
       </div>
 
@@ -305,31 +431,511 @@
 
       <!-- Site Settings -->
       <div id="page-site-settings" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">站点设置</h2>
-        <div class="oc-card" style="max-width:600px;padding:1.5rem;">
-          <h3 style="margin-bottom:1rem;font-size:1rem;">QQ 授权登录</h3>
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-              <input type="checkbox" id="ss-qq-enabled" style="width:16px;height:16px;">
-              启用 QQ 登录
-            </label>
+        <div class="admin-head">
+          <div>
+            <div class="admin-title">站点设置</div>
+            <div class="admin-subtitle">管理所有站点配置，包括品牌、费用、VIP、AI模型、安全等。</div>
           </div>
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary);">App ID</label>
-            <input class="oc-input" id="ss-qq-app-id" placeholder="QQ互联 App ID">
+          <div style="display:flex;gap:0.5rem;">
+            <button class="btn-accent" onclick="saveSiteSettings()">保存所有设置</button>
           </div>
-          <div class="form-group" style="margin-bottom:1rem;">
-            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary);">App Key（留空保留原值）</label>
-            <input class="oc-input" id="ss-qq-app-key" type="password" placeholder="留空不修改">
-          </div>
-          <div class="form-group" style="margin-bottom:1.5rem;">
-            <label style="display:block;margin-bottom:4px;font-size:0.85rem;color:var(--text-secondary);">回调中转域名</label>
-            <input class="oc-input" id="ss-qq-relay" placeholder="https://login.opensora2.cn">
-            <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">QQ 回调地址填：{中转域名}/return.php，需在 QQ 互联配置</div>
-          </div>
-          <button class="btn-accent" onclick="saveSiteSettings()">保存设置</button>
-          <div id="ss-msg" style="margin-top:10px;font-size:0.85rem;min-height:1.2em;"></div>
         </div>
+        <div id="ss-msg" style="margin-bottom:0.75rem;font-size:0.85rem;min-height:1.2em;"></div>
+
+        <!-- Settings Tabs -->
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+          <button class="btn-outline btn-sm ss-tab active" data-tab="brand" onclick="switchSettingsTab('brand')">品牌/SEO</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="quota" onclick="switchSettingsTab('quota')">积分/费用</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="vip" onclick="switchSettingsTab('vip')">VIP套餐</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="ai" onclick="switchSettingsTab('ai')">AI模型</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="apikeys" onclick="switchSettingsTab('apikeys')">API密钥</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="security" onclick="switchSettingsTab('security')">安全</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="search" onclick="switchSettingsTab('search')">搜索</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="login" onclick="switchSettingsTab('login')">登录/QQ</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="modules" onclick="switchSettingsTab('modules')">模块显示</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="popup" onclick="switchSettingsTab('popup')">弹窗公告</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="sso" onclick="switchSettingsTab('sso')">SSO</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="smtp" onclick="switchSettingsTab('smtp')">邮件SMTP</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="queue" onclick="switchSettingsTab('queue')">请求队列</button>
+        </div>
+
+        <!-- 品牌/SEO -->
+        <div class="ss-panel" id="ss-panel-brand">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">品牌设置</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">站点品牌名</label>
+              <input class="oc-input" id="ss-site-brand" placeholder="All In AI">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">联系微信</label>
+              <input class="oc-input" id="ss-contact-wechat" placeholder="19966519194">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">联系邮箱</label>
+              <input class="oc-input" id="ss-contact-email" placeholder="xxx@qq.com">
+            </div>
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">反馈邮箱</label>
+              <input class="oc-input" id="ss-feedback-email" placeholder="xxx@qq.com">
+            </div>
+            <h3 style="margin-bottom:1rem;font-size:1rem;">SEO 设置</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">站点名称</label>
+              <input class="oc-input" id="ss-seo-site-name" placeholder="All In AI">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">首页标题</label>
+              <input class="oc-input" id="ss-seo-home-title" placeholder="All In AI - 优质短视频素材">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">登录页标题</label>
+              <input class="oc-input" id="ss-seo-login-title" placeholder="登录 - All In AI">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">注册页标题</label>
+              <input class="oc-input" id="ss-seo-register-title" placeholder="注册 - All In AI">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">SEO 描述</label>
+              <textarea class="oc-input" id="ss-seo-description" rows="2" placeholder="站点描述"></textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">SEO 关键词</label>
+              <input class="oc-input" id="ss-seo-keywords" placeholder="AI短视频,素材,...">
+            </div>
+          </div>
+        </div>
+
+        <!-- 积分/费用 -->
+        <div class="ss-panel" id="ss-panel-quota" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">积分费用</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">余额兑换比例（1元=?积分）</label>
+                <input class="oc-input" id="ss-balance-conversion-rate" type="number" placeholder="10">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">图片生成费用（积分）</label>
+                <input class="oc-input" id="ss-cost-image-generate" type="number" placeholder="1">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">视频生成费用（积分）</label>
+                <input class="oc-input" id="ss-cost-video-generate" type="number" placeholder="5">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">3D生成费用（积分）</label>
+                <input class="oc-input" id="ss-cost-3d-generate" type="number" placeholder="25">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">发布需求费用</label>
+                <input class="oc-input" id="ss-cost-requirement-post" type="number" placeholder="1">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">解锁需求费用</label>
+                <input class="oc-input" id="ss-cost-requirement-unlock" type="number" placeholder="2">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">锁定素材费用</label>
+                <input class="oc-input" id="ss-cost-feed-lock" type="number" placeholder="10">
+              </div>
+            </div>
+            <h3 style="margin:1.25rem 0 1rem;font-size:1rem;">每日限额</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日竞标限额</label>
+                <input class="oc-input" id="ss-daily-bid-limit" type="number" placeholder="10">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日锁定限额</label>
+                <input class="oc-input" id="ss-daily-lock-limit" type="number" placeholder="3">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日预览限额</label>
+                <input class="oc-input" id="ss-daily-preview-limit" type="number" placeholder="10">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日领取限额</label>
+                <input class="oc-input" id="ss-daily-claim-limit" type="number" placeholder="3">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP每日预览限额</label>
+                <input class="oc-input" id="ss-vip-preview-daily-limit" type="number" placeholder="30">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP每日领取限额</label>
+                <input class="oc-input" id="ss-vip-claim-daily-limit" type="number" placeholder="10">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">会议限制（注册用户）</label>
+                <input class="oc-input" id="ss-meeting-limit-registered" type="number" placeholder="5">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">会议限制（游客）</label>
+                <input class="oc-input" id="ss-meeting-limit-guest" type="number" placeholder="3">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">邀请新用户奖励（积分）</label>
+                <input class="oc-input" id="ss-invite-new-user-reward" type="number" placeholder="3">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIP套餐 -->
+        <div class="ss-panel" id="ss-panel-vip" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">VIP 套餐设置</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP时长选项（JSON数组，天数）</label>
+              <input class="oc-input" id="ss-vip-duration-options" placeholder='[7,30,90,180,365]'>
+              <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">格式：[7,30,90,180,365]</div>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP每天费用（积分）</label>
+              <input class="oc-input" id="ss-vip-cost-per-day" type="number" placeholder="1">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP充值选项（JSON）</label>
+              <textarea class="oc-input" id="ss-vip-recharge-options" rows="4" placeholder='[{"days":30,"price":29.9,"label":"月卡"}]'></textarea>
+              <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">格式：[{"days":30,"price":29.9,"label":"月卡"},...]</div>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">积分充值选项（JSON）</label>
+              <textarea class="oc-input" id="ss-recharge-options" rows="4" placeholder='[{"amount":1,"quota":5}]'></textarea>
+              <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">格式：[{"amount":1,"quota":5},{"amount":5,"quota":30}]</div>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP权益展示（JSON）</label>
+              <textarea class="oc-input" id="ss-vip-benefits" rows="3" placeholder='[{"label":"每日搜索","weekly":"10","yearly":"100"}]'></textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">永久会员特权描述</label>
+              <textarea class="oc-input" id="ss-permanent-vip-benefits" rows="3" placeholder="永久会员专属特权..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI模型 -->
+        <div class="ss-panel" id="ss-panel-ai" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">AI模型配置</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">文本模型 ID</label>
+              <input class="oc-input" id="ss-doubao-text-model" placeholder="glm-4-7-251222">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">图片模型 ID</label>
+              <input class="oc-input" id="ss-doubao-image-model" placeholder="doubao-seedream-5-0-260128">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">视频模型 ID</label>
+              <input class="oc-input" id="ss-doubao-video-model" placeholder="doubao-seedance-1-0-lite-t2v-250428">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Ark Base URL</label>
+              <input class="oc-input" id="ss-ark-base-url" placeholder="https://ark.cn-beijing.volces.com/api/v3">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Ark API 速率限制（次/分钟）</label>
+              <input class="oc-input" id="ss-ark-api-rate-limit" type="number" placeholder="60">
+            </div>
+            <h3 style="margin:1.25rem 0 1rem;font-size:1rem;">Ark 端点映射（留空保留原值）</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Ark Kimi 端点</label>
+                <input class="oc-input" id="ss-ark-kimi-endpoint" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Ark DeepSeek 端点</label>
+                <input class="oc-input" id="ss-ark-deepseek-endpoint" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Ark GLM 端点</label>
+                <input class="oc-input" id="ss-ark-glm-endpoint" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Ark Qwen 端点</label>
+                <input class="oc-input" id="ss-ark-qwen-endpoint" type="password" placeholder="留空不修改">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- API密钥 -->
+        <div class="ss-panel" id="ss-panel-apikeys" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">API 密钥管理（留空保留原值）</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">豆包视频 API Key</label>
+                <input class="oc-input" id="ss-doubao-video-api-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">智谱 API Key</label>
+                <input class="oc-input" id="ss-zhipu-api-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Kling Access Key</label>
+                <input class="oc-input" id="ss-kling-access-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Kling Secret Key</label>
+                <input class="oc-input" id="ss-kling-secret-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">DashScope API Key</label>
+                <input class="oc-input" id="ss-dashscope-api-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">腾讯 Secret ID</label>
+                <input class="oc-input" id="ss-tencent-secret-id" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">腾讯 Secret Key</label>
+                <input class="oc-input" id="ss-tencent-secret-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">SORA2 API Key</label>
+                <input class="oc-input" id="ss-sora2-api-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VEO3 API Key</label>
+                <input class="oc-input" id="ss-veo3-api-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">水印 API Key</label>
+                <input class="oc-input" id="ss-watermark-api-key" type="password" placeholder="留空不修改">
+              </div>
+            </div>
+            <h3 style="margin:1.25rem 0 1rem;font-size:1rem;">支付宝配置</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">App ID</label>
+                <input class="oc-input" id="ss-alipay-app-id" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Private Key</label>
+                <input class="oc-input" id="ss-alipay-private-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Public Key</label>
+                <input class="oc-input" id="ss-alipay-public-key" type="password" placeholder="留空不修改">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Notify URL</label>
+                <input class="oc-input" id="ss-alipay-notify-url" placeholder="https://...">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">Return URL</label>
+                <input class="oc-input" id="ss-alipay-return-url" placeholder="https://...">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 安全 -->
+        <div class="ss-panel" id="ss-panel-security" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">安全设置</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">登录最大失败次数</label>
+                <input class="oc-input" id="ss-login-max-failures" type="number" placeholder="5">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">登录锁定时间（分钟）</label>
+                <input class="oc-input" id="ss-login-lock-minutes" type="number" placeholder="15">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">JWT 过期时间</label>
+                <input class="oc-input" id="ss-jwt-expiry" placeholder="7d">
+                <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">如：7d=7天, 24h=24小时</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 搜索 -->
+        <div class="ss-panel" id="ss-panel-search" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">搜索设置</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">搜索模式（JSON数组）</label>
+              <input class="oc-input" id="ss-search-modes" placeholder='["ai","material","planet"]'>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">默认搜索模式</label>
+              <input class="oc-input" id="ss-search-default-mode" placeholder="ai">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">搜索栏占位文本</label>
+              <input class="oc-input" id="ss-search-placeholder" placeholder="搜索openclaw...">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">搜索提示词（JSON数组）</label>
+              <input class="oc-input" id="ss-search-tips" placeholder='["AI短视频素材","AI变现技巧"]'>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">AI搜索配额提示</label>
+              <input class="oc-input" id="ss-ai-search-quota-message" placeholder="今日免费体验次数已用完...">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">AI搜索System Prompt</label>
+              <textarea class="oc-input" id="ss-search-ai-prompt" rows="4" placeholder="你是一位AI推荐官..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- 登录/QQ -->
+        <div class="ss-panel" id="ss-panel-login" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">登录页品牌</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">登录页标题</label>
+                <input class="oc-input" id="ss-login-heading" placeholder="All In AI">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">登录页副标题</label>
+                <input class="oc-input" id="ss-login-subtitle" placeholder="登录后开启AI变现之旅">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">注册页标题</label>
+                <input class="oc-input" id="ss-register-heading" placeholder="All In AI">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">注册页副标题</label>
+                <input class="oc-input" id="ss-register-subtitle" placeholder="注册后开启AI变现之旅">
+              </div>
+            </div>
+            <h3 style="margin-bottom:1rem;font-size:1rem;">QQ 授权登录</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="ss-qq-enabled" style="width:16px;height:16px;">
+                启用 QQ 登录
+              </label>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">App ID</label>
+              <input class="oc-input" id="ss-qq-app-id" placeholder="QQ互联 App ID">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">App Key（留空保留原值）</label>
+              <input class="oc-input" id="ss-qq-app-key" type="password" placeholder="留空不修改">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">回调中转域名</label>
+              <input class="oc-input" id="ss-qq-relay" placeholder="https://login.opensora2.cn">
+              <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">QQ 回调地址填：{中转域名}/return.php</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 模块显示 -->
+        <div class="ss-panel" id="ss-panel-modules" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">站点模块显示</h3>
+            <div id="ss-modules-list" style="font-size:0.85rem;color:var(--text-secondary);">加载中...</div>
+            <h3 style="margin:1.25rem 0 1rem;font-size:1rem;">后台导航菜单</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">导航菜单配置（JSON）</label>
+              <textarea class="oc-input" id="ss-admin-nav-items" rows="5" placeholder='[{"key":"planet","name":"星球管理","visible":true}]'></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- 弹窗公告 -->
+        <div class="ss-panel" id="ss-panel-popup" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">弹窗公告设置</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" id="ss-popup-enabled" style="width:16px;height:16px;">
+                启用弹窗公告
+              </label>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">公告文本</label>
+              <textarea class="oc-input" id="ss-popup-text" rows="2" placeholder="公告内容"></textarea>
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">公告图片URL</label>
+              <input class="oc-input" id="ss-popup-image-url" placeholder="https://...">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">弹出频率</label>
+              <select class="oc-select" id="ss-popup-frequency" style="width:200px;">
+                <option value="once_per_day">每天一次</option>
+                <option value="once_per_session">每次会话一次</option>
+                <option value="always">每次都弹</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- SSO -->
+        <div class="ss-panel" id="ss-panel-sso" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">SSO 单点登录</h3>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">主站域名</label>
+              <input class="oc-input" id="ss-sso-main-domain" placeholder="https://opensora2.cn">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">子站列表（JSON数组）</label>
+              <textarea class="oc-input" id="ss-sso-sub-sites" rows="3" placeholder='[{"url":"https://planet.yunjunet.cn","name":"AI星球"}]'></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- 邮件SMTP -->
+        <div class="ss-panel" id="ss-panel-smtp" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">SMTP 邮件配置（留空保留原值）</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">SMTP Host</label>
+                <input class="oc-input" id="ss-smtp-host" placeholder="smtp.qq.com">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">SMTP Port</label>
+                <input class="oc-input" id="ss-smtp-port" type="number" placeholder="465">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">SMTP User</label>
+                <input class="oc-input" id="ss-smtp-user" placeholder="xxx@qq.com">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">SMTP Password</label>
+                <input class="oc-input" id="ss-smtp-pass" type="password" placeholder="留空不修改">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 请求队列 -->
+        <div class="ss-panel" id="ss-panel-queue" style="display:none;">
+          <div class="oc-card" style="padding:1.25rem;max-width:700px;">
+            <h3 style="margin-bottom:1rem;font-size:1rem;">请求队列配置</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;">
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">最大并发数</label>
+                <input class="oc-input" id="ss-queue-max-concurrent" type="number" placeholder="10">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">最大队列大小</label>
+                <input class="oc-input" id="ss-queue-max-size" type="number" placeholder="100">
+              </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">等待超时（ms）</label>
+                <input class="oc-input" id="ss-queue-wait-timeout-ms" type="number" placeholder="30000">
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
     </main>
@@ -346,6 +952,13 @@
       <div class="form-group">
         <label>金额 (正数充值，负数扣费)</label>
         <input class="oc-input" id="charge-amount" type="number" step="0.01" placeholder="如：10.00 或 -5.00">
+      </div>
+      <div class="form-group">
+        <label>余额类型</label>
+        <select class="oc-select" id="charge-balance-type" style="width:100%;">
+          <option value="wallet">钱包余额</option>
+          <option value="quota">配额余额</option>
+        </select>
       </div>
       <div class="form-group">
         <label>备注</label>
@@ -391,6 +1004,29 @@
           <option value="CNY">人民币 (CNY) - 国内模型</option>
           <option value="USD">美元 (USD) - 国外模型，自动转换 (汇率 7.2)</option>
         </select>
+      </div>
+      <div style="display:flex;gap:0.75rem;">
+        <div class="form-group" style="flex:1;">
+          <label>模型分类</label>
+          <select class="oc-select" id="model-category-input" style="width:100%;">
+            <option value="language">语言</option>
+            <option value="coding">编程</option>
+            <option value="vision">视觉</option>
+            <option value="image">图片</option>
+            <option value="audio">语音</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label>计费模式</label>
+          <select class="oc-select" id="model-billing-mode-input" style="width:100%;">
+            <option value="token">按 Token</option>
+            <option value="per_call">按次</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>按次价格</label>
+        <input class="oc-input" id="model-per-call-price-input" type="number" step="0.000001" placeholder="仅按次模型生效，如 0.500000">
       </div>
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
@@ -478,6 +1114,8 @@
       <pre id="log-detail-messages" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;font-size:0.75rem;color:var(--text-secondary);overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;margin-bottom:1rem;"></pre>
       <div style="margin-bottom:0.5rem;font-size:0.8rem;color:var(--text-muted);font-weight:600;">RESPONSE (回复)</div>
       <pre id="log-detail-response" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;font-size:0.75rem;color:var(--success);overflow:auto;max-height:300px;white-space:pre-wrap;word-break:break-all;"></pre>
+      <div style="margin:1rem 0 0.5rem;font-size:0.8rem;color:var(--text-muted);font-weight:600;">8 STEP TRACE</div>
+      <div id="log-detail-trace" style="display:flex;flex-direction:column;gap:0.5rem;"></div>
     </div>
   </div>
 
@@ -504,6 +1142,7 @@
       else if (page === 'providers') loadProviders();
       else if (page === 'orders') { ordersPage = 1; loadAllOrders(); }
       else if (page === 'logs') { logsPage = 1; loadLogs(); }
+      else if (page === 'debug-center') { debugPage = 1; loadDebugTraces(); }
       else if (page === 'ccclub') { ccClubPage = 1; loadCcclubModelOptions(); loadCcclubMessages(); }
       else if (page === 'site-settings') loadSiteSettings();
       // 关闭移动端侧边栏
@@ -567,7 +1206,8 @@
               <td>${u.user_id}</td>
               <td style="color:var(--text-primary)">${u.username || '-'}</td>
               <td><span class="badge-${u.role === 'admin' ? 'active' : 'disabled'}">${u.role || 'user'}</span></td>
-              <td style="font-family:var(--font-mono);">¥${parseFloat(u.balance || 0).toFixed(2)}</td>
+              <td style="font-family:var(--font-mono);">$${parseFloat(u.quota_balance || 0).toFixed(4)}</td>
+              <td style="font-family:var(--font-mono);">$${parseFloat(u.wallet_balance || 0).toFixed(4)}</td>
               <td>${u.key_count || 0}</td>
               <td>${formatNum(u.total_calls || 0)}</td>
               <td style="font-family:var(--font-mono);">¥${parseFloat(u.total_cost || 0).toFixed(4)}</td>
@@ -576,7 +1216,7 @@
                 <button class="btn-outline btn-sm" onclick="viewUserDetail(${u.user_id})" style="margin-left:4px;">详情</button>
               </td>
             </tr>`).join('')
-          : '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
+          : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
 
         const total = data.total || 0;
         const totalPages = Math.ceil(total / 20);
@@ -600,6 +1240,7 @@
       document.getElementById('charge-user-id').value = userId;
       document.getElementById('charge-username').textContent = username;
       document.getElementById('charge-amount').value = '';
+      document.getElementById('charge-balance-type').value = 'wallet';
       document.getElementById('charge-remark').value = '';
       showModal('modal-charge');
     }
@@ -612,10 +1253,11 @@
     async function doCharge() {
       const user_id = parseInt(document.getElementById('charge-user-id').value);
       const amount = parseFloat(document.getElementById('charge-amount').value);
+      const balance_type = document.getElementById('charge-balance-type').value;
       const description = document.getElementById('charge-remark').value.trim() || '管理员操作';
       if (isNaN(amount) || amount === 0) return showToast('请输入有效金额', 'error');
       try {
-        await api.adminCharge(user_id, amount, description);
+        await api.adminCharge(user_id, amount, description, balance_type);
         hideModal('modal-charge');
         showToast('操作成功', 'success');
         if (currentPage === 'users') loadUsers();
@@ -644,6 +1286,9 @@
       document.getElementById('model-input-price').value = '10';
       document.getElementById('model-output-price').value = '30';
       document.getElementById('model-currency-input').value = 'CNY';
+      document.getElementById('model-category-input').value = 'language';
+      document.getElementById('model-billing-mode-input').value = 'token';
+      document.getElementById('model-per-call-price-input').value = '';
       document.getElementById('model-sort-input').value = '0';
       document.getElementById('model-status-input').value = 'active';
       document.getElementById('model-upstream-model-input').value = '';
@@ -661,6 +1306,9 @@
       document.getElementById('model-input-price').value = (m.input_price_per_1k * 1000);
       document.getElementById('model-output-price').value = (m.output_price_per_1k * 1000);
       document.getElementById('model-currency-input').value = m.price_currency || 'CNY';
+      document.getElementById('model-category-input').value = m.model_category || 'language';
+      document.getElementById('model-billing-mode-input').value = m.billing_mode || 'token';
+      document.getElementById('model-per-call-price-input').value = m.per_call_price || '';
       document.getElementById('model-sort-input').value = m.sort_order;
       document.getElementById('model-status-input').value = m.status;
       document.getElementById('model-upstream-model-input').value = m.upstream_model_id || '';
@@ -715,6 +1363,9 @@
         input_price_per_1k: parseFloat(document.getElementById('model-input-price').value) / 1000,
         output_price_per_1k: parseFloat(document.getElementById('model-output-price').value) / 1000,
         price_currency: document.getElementById('model-currency-input').value,
+        model_category: document.getElementById('model-category-input').value,
+        billing_mode: document.getElementById('model-billing-mode-input').value,
+        per_call_price: document.getElementById('model-per-call-price-input').value.trim() || null,
         sort_order: parseInt(document.getElementById('model-sort-input').value) || 0,
         status: document.getElementById('model-status-input').value,
         upstream_model_id: document.getElementById('model-upstream-model-input').value.trim() || null,
@@ -760,6 +1411,13 @@
     }
 
     function renderModelsTable(models) {
+      const categoryLabel = {
+        language: '语言',
+        coding: '编程',
+        vision: '视觉',
+        image: '图片',
+        audio: '语音',
+      };
       document.getElementById('models-tbody').innerHTML = models.length
         ? models.map(m => {
             const currency = m.price_currency || 'CNY';
@@ -767,6 +1425,9 @@
             const badge = currency === 'USD'
               ? '<span class="badge-active" style="background:var(--accent-light);color:white;">USD</span>'
               : '<span class="badge-disabled">CNY</span>';
+            const billingBadge = m.billing_mode === 'per_call'
+              ? '<span class="badge-active">按次</span>'
+              : '<span class="badge-disabled">Token</span>';
             const ups = (m.upstreams || []).filter(u => u.status === 'active');
             const upstreamTags = ups.length > 0
               ? ups.map(u => `<span style="display:inline-block;padding:0.1rem 0.4rem;background:var(--bg-secondary);border-radius:4px;font-size:0.75rem;margin:1px;" title="${u.base_url}">${u.provider_name || new URL(u.base_url).hostname}</span>`).join('')
@@ -774,6 +1435,9 @@
             return `<tr>
               <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
               <td>${m.display_name}</td>
+              <td>${categoryLabel[m.model_category] || '语言'}</td>
+              <td>${billingBadge}</td>
+              <td style="font-family:var(--font-mono);">${m.billing_mode === 'per_call' ? `$${parseFloat(m.per_call_price || 0).toFixed(6)}` : '-'}</td>
               <td style="max-width:200px;">${upstreamTags}</td>
               <td><code style="font-size:0.8rem;color:var(--text-muted);">${m.upstream_model_id || m.model_id}</code></td>
               <td style="font-family:var(--font-mono);">${sym}${(m.input_price_per_1k * 1000).toFixed(2)}</td>
@@ -787,7 +1451,7 @@
               </td>
             </tr>`;
           }).join('')
-        : '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">暂无模型</td></tr>';
+        : '<tr><td colspan="13" style="text-align:center;color:var(--text-muted);">暂无模型</td></tr>';
     }
 
     // === 供应商管理 ===
@@ -974,7 +1638,8 @@
         document.getElementById('user-detail-title').textContent = `用户: ${data.user.username} (ID: ${data.user.id})`;
         document.getElementById('btn-charge-from-detail').onclick = () =>
           showChargeModal(data.user.id, data.user.username);
-        document.getElementById('user-balance').textContent = `¥${parseFloat(data.user.balance || 0).toFixed(2)}`;
+        document.getElementById('user-quota-balance').textContent = `$${parseFloat(data.user.quota_balance || 0).toFixed(4)}`;
+        document.getElementById('user-wallet-balance').textContent = `$${parseFloat(data.user.wallet_balance || 0).toFixed(4)}`;
         document.getElementById('user-total-calls').textContent = formatNum(data.stats.total_calls || 0);
         document.getElementById('user-total-tokens').textContent = formatNum(data.stats.total_tokens || 0);
         document.getElementById('user-total-cost').textContent = `¥${parseFloat(data.stats.total_cost || 0).toFixed(4)}`;
@@ -1029,6 +1694,7 @@
         document.getElementById('user-balance-logs-tbody').innerHTML = (data.balanceLogs || []).length
           ? data.balanceLogs.map(l => `<tr>
               <td style="font-size:0.75rem;">${l.created_at}</td>
+              <td>${l.balance_type === 'wallet' ? '钱包' : '配额'}</td>
               <td>${l.type}</td>
               <td style="color:${parseFloat(l.amount) >= 0 ? 'var(--success)' : 'var(--danger)'};">
                 ${parseFloat(l.amount) >= 0 ? '+' : ''}${parseFloat(l.amount).toFixed(4)}
@@ -1037,7 +1703,7 @@
               <td>${parseFloat(l.balance_after).toFixed(4)}</td>
               <td style="font-size:0.75rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${l.description || '-'}</td>
             </tr>`).join('')
-          : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">无余额记录</td></tr>';
+          : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无余额记录</td></tr>';
 
         // 调用日志（分页加载）
         userCallsPage = 1;
@@ -1078,6 +1744,88 @@
 
     // === 请求日志 ===
     let logsPage = 1;
+    let debugPage = 1;
+
+    function getTraceStatusBadge(status) {
+      if (status === 'success') return '<span class="badge-active">成功</span>';
+      if (status === 'pending') return '<span class="badge-disabled">处理中</span>';
+      if (status === 'skipped') return '<span class="badge-disabled">跳过</span>';
+      return `<span class="badge-disabled">${status || 'error'}</span>`;
+    }
+
+    function escapeHtmlText(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function renderDebugSteps(steps) {
+      const container = document.getElementById('log-detail-trace');
+      if (!steps || !steps.length) {
+        container.innerHTML = '<div style="color:var(--text-muted);font-size:0.8rem;">暂无 8 步追踪数据</div>';
+        return;
+      }
+      container.innerHTML = steps.map(step => {
+        const detail = step.detail ? escapeHtmlText(JSON.stringify(step.detail, null, 2)) : '';
+        const color = step.status === 'success' ? 'var(--success)' : (step.status === 'error' ? 'var(--danger)' : 'var(--text-secondary)');
+        return `
+          <div style="border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;background:var(--bg-secondary);">
+            <div style="display:flex;justify-content:space-between;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+              <div>
+                <span style="color:var(--accent-light);font-weight:700;">Step ${step.step_no}</span>
+                <span style="margin-left:0.4rem;color:var(--text-primary);font-weight:600;">${step.step_name}</span>
+                <span style="margin-left:0.5rem;color:${color};font-size:0.78rem;">${step.status}</span>
+              </div>
+              <div style="font-size:0.75rem;color:var(--text-muted);">
+                attempt=${step.attempt_no || 1}
+                ${step.duration_ms !== null && step.duration_ms !== undefined ? ` | ${step.duration_ms}ms` : ''}
+                ${step.created_at ? ` | ${step.created_at}` : ''}
+              </div>
+            </div>
+            ${step.error_message ? `<div style="margin-top:0.45rem;color:var(--danger);font-size:0.78rem;white-space:pre-wrap;word-break:break-all;">${escapeHtmlText(step.error_message)}</div>` : ''}
+            ${detail ? `<pre style="margin-top:0.5rem;background:rgba(255,255,255,0.03);border:1px solid var(--border-color);border-radius:6px;padding:0.6rem;font-size:0.72rem;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-all;">${detail}</pre>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function fillTraceModal(trace) {
+      const summary = trace.summary || {};
+      document.getElementById('log-detail-meta').innerHTML = `
+        <span>请求ID: <code style="color:var(--accent-light)">${trace.request_id || summary.request_id || '-'}</code></span>
+        <span>用户: <strong>${summary.username || summary.user_id || '-'}</strong></span>
+        <span>模型: <code>${summary.model || '-'}</code></span>
+        <span>路由: ${summary.route_name || trace.steps?.[0]?.route_name || '-'}</span>
+        <span>IP: ${summary.ip || '-'}</span>
+        <span>输入: ${formatNum(summary.prompt_tokens || 0)} tokens</span>
+        <span>输出: ${formatNum(summary.completion_tokens || 0)} tokens</span>
+        <span>费用: ¥${parseFloat(summary.total_cost || 0).toFixed(6)}</span>
+        <span>状态: ${summary.status || '-'}</span>
+        <span>时间: ${summary.created_at || '-'}</span>
+      `;
+      document.getElementById('log-detail-user-prompt').textContent = summary.user_prompt || '（无记录）';
+
+      const sysEl = document.getElementById('log-detail-system');
+      sysEl.textContent = summary.system_prompt || '（无）';
+      sysEl.style.display = summary.system_prompt ? 'block' : 'none';
+      sysEl.previousElementSibling.style.display = summary.system_prompt ? 'block' : 'none';
+
+      let messagesText = '（无记录）';
+      if (summary.messages) {
+        try {
+          messagesText = JSON.stringify(JSON.parse(summary.messages), null, 2);
+        } catch {
+          messagesText = summary.messages;
+        }
+      }
+      document.getElementById('log-detail-messages').textContent = messagesText;
+      document.getElementById('log-detail-response').textContent = summary.response_content || '（无记录）';
+      renderDebugSteps(trace.steps || summary.debug_steps || []);
+      showModal('modal-log');
+    }
 
     function clearLogFilters() {
       document.getElementById('log-filter-user').value = '';
@@ -1135,44 +1883,135 @@
     async function viewLogDetail(requestId) {
       try {
         const log = await api.get('/admin/logs/' + requestId);
-        document.getElementById('log-detail-meta').innerHTML = `
-          <span>请求ID: <code style="color:var(--accent-light)">${log.request_id || '-'}</code></span>
-          <span>用户: <strong>${log.username || log.user_id}</strong></span>
-          <span>模型: <code>${log.model}</code></span>
-          <span>IP: ${log.ip || '-'}</span>
-          <span>输入: ${formatNum(log.prompt_tokens || 0)} tokens</span>
-          <span>输出: ${formatNum(log.completion_tokens || 0)} tokens</span>
-          <span>费用: ¥${parseFloat(log.total_cost || 0).toFixed(6)}</span>
-          <span>状态: ${log.status}</span>
-          <span>时间: ${log.created_at || '-'}</span>
-        `;
-
-        // 用户输入
-        document.getElementById('log-detail-user-prompt').textContent = log.user_prompt || '（无记录）';
-
-        // System prompt
-        const sysEl = document.getElementById('log-detail-system');
-        sysEl.textContent = log.system_prompt || '（无）';
-        sysEl.style.display = log.system_prompt ? 'block' : 'none';
-        sysEl.previousElementSibling.style.display = log.system_prompt ? 'block' : 'none';
-
-        // Messages
-        let msgsText = '（无记录）';
-        if (log.messages) {
-          try {
-            const msgs = JSON.parse(log.messages);
-            msgsText = msgs.map(m => {
-              const role = m.role.toUpperCase();
-              const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content, null, 2);
-              return `[${role}]\n${content}`;
-            }).join('\n\n---\n\n');
-          } catch(e) { msgsText = log.messages; }
-        }
-        document.getElementById('log-detail-messages').textContent = msgsText;
-        document.getElementById('log-detail-response').textContent = log.response_content || '（无记录）';
-
-        showModal('modal-log');
+        fillTraceModal({
+          request_id: log.request_id,
+          summary: log,
+          steps: log.debug_steps || [],
+        });
       } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function clearDebugFilters() {
+      document.getElementById('debug-filter-request-id').value = '';
+      document.getElementById('debug-filter-model').value = '';
+      document.getElementById('debug-filter-route').value = '';
+      document.getElementById('debug-filter-status').value = '';
+      document.getElementById('debug-filter-trace-type').value = 'live';
+      document.getElementById('debug-filter-date').value = '';
+      debugPage = 1;
+      loadDebugTraces();
+    }
+
+    async function loadDebugTraces() {
+      const params = { page: debugPage, limit: 10 };
+      const requestId = document.getElementById('debug-filter-request-id').value.trim();
+      const model = document.getElementById('debug-filter-model').value.trim();
+      const routeName = document.getElementById('debug-filter-route').value;
+      const status = document.getElementById('debug-filter-status').value;
+      const traceType = document.getElementById('debug-filter-trace-type').value;
+      const date = document.getElementById('debug-filter-date').value;
+      if (requestId) params.request_id = requestId;
+      if (model) params.model = model;
+      if (routeName) params.route_name = routeName;
+      if (status) params.status = status;
+      if (traceType) params.trace_type = traceType;
+      if (date) params.date = date;
+
+      try {
+        const data = await api.adminGetRequestDebugTraces(params);
+        const traces = data.traces || [];
+        document.getElementById('debug-traces-tbody').innerHTML = traces.length
+          ? traces.map(t => `
+              <tr>
+                <td style="font-size:0.75rem;white-space:nowrap;">${t.created_at || '-'}</td>
+                <td><code style="font-size:0.75rem;color:var(--accent-light);">${t.request_id}</code></td>
+                <td>${t.trace_type === 'manual' ? '<span class="badge-disabled">手动</span>' : '<span class="badge-active">线上</span>'}</td>
+                <td><code style="font-size:0.75rem;">${t.route_name || '-'}</code></td>
+                <td><code style="font-size:0.75rem;">${t.model || '-'}</code></td>
+                <td>${t.username || t.user_id || '-'}</td>
+                <td>${getTraceStatusBadge(t.final_status || t.call_status)}</td>
+                <td style="font-size:0.75rem;color:${t.failed_step_no ? 'var(--danger)' : 'var(--text-muted)'};">
+                  ${t.failed_step_no ? `Step ${t.failed_step_no} ${t.failed_step_name || ''}` : '—'}
+                </td>
+                <td><button class="btn-outline btn-sm" onclick="viewDebugTrace('${t.request_id}')">链路</button></td>
+              </tr>
+            `).join('')
+          : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">暂无调试追踪</td></tr>';
+
+        const total = data.total || 0;
+        const totalPages = Math.ceil(total / 10);
+        const pag = document.getElementById('debug-traces-pagination');
+        pag.innerHTML = `<span style="font-size:0.8rem;color:var(--text-muted);margin-right:0.5rem;">共 ${total} 条</span>`;
+        const start = Math.max(1, debugPage - 4);
+        const end = Math.min(totalPages, start + 9);
+        for (let i = start; i <= end; i++) {
+          pag.innerHTML += `<button class="${i === debugPage ? 'active' : ''}" onclick="debugPage=${i};loadDebugTraces();">${i}</button>`;
+        }
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function viewDebugTrace(requestId) {
+      try {
+        const trace = await api.adminGetRequestDebugTrace(requestId);
+        fillTraceModal(trace);
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    function renderDebugStepsInline(steps) {
+      return steps.map(step => `
+        <div style="border:1px solid var(--border-color);border-radius:8px;padding:0.65rem;background:var(--bg-secondary);margin-bottom:0.5rem;">
+          <div style="display:flex;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+            <div><b>Step ${step.step_no}</b> ${step.step_name} <span style="color:${step.status === 'success' ? 'var(--success)' : (step.status === 'error' ? 'var(--danger)' : 'var(--text-secondary)')};">${step.status}</span></div>
+            <div style="font-size:0.75rem;color:var(--text-muted);">${step.created_at || '-'}</div>
+          </div>
+          ${step.error_message ? `<div style="margin-top:0.35rem;color:var(--danger);font-size:0.78rem;">${escapeHtmlText(step.error_message)}</div>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function renderDebugRunResult(result) {
+      const target = document.getElementById('debug-run-result');
+      target.innerHTML = `
+        <div style="margin-bottom:0.45rem;">
+          Request ID: <code>${result.request_id || '-'}</code>
+          | 路由: <code>${result.route_type}</code>
+          | 状态码: <code>${result.status}</code>
+          | 耗时: <code>${result.duration_ms} ms</code>
+        </div>
+        <div style="margin-bottom:0.45rem;">
+          ${result.ok ? '<span class="badge-active">调试请求成功</span>' : '<span class="badge-disabled">调试请求失败</span>'}
+          ${result.error ? `<span style="margin-left:0.5rem;color:var(--danger);">${escapeHtmlText(result.error)}</span>` : ''}
+        </div>
+        <pre style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;font-size:0.74rem;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-all;">${escapeHtmlText(result.response_preview || '（无返回内容）')}</pre>
+        ${result.trace?.steps?.length ? `<div style="margin-top:0.8rem;">${renderDebugStepsInline(result.trace.steps)}</div>` : '<div style="margin-top:0.8rem;color:var(--text-muted);">未找到对应的 8 步追踪数据</div>'}
+      `;
+    }
+
+    async function runRequestDebug() {
+      const model = document.getElementById('debug-run-model').value.trim();
+      const route_type = document.getElementById('debug-run-route').value;
+      const relay_api_key = document.getElementById('debug-run-relay-key').value.trim();
+      const timeout_ms = parseInt(document.getElementById('debug-run-timeout').value, 10) || 45000;
+      const prompt = document.getElementById('debug-run-prompt').value.trim();
+      const system = document.getElementById('debug-run-system').value.trim();
+      if (!model) return showToast('请填写模型 ID', 'error');
+      if (!relay_api_key) return showToast('请填写中转 API Key', 'error');
+
+      const target = document.getElementById('debug-run-result');
+      target.innerHTML = '调试中...';
+      try {
+        const result = await api.adminRunRequestDebug({ model, route_type, relay_api_key, prompt, system, timeout_ms });
+        renderDebugRunResult(result);
+        debugPage = 1;
+        loadDebugTraces();
+      } catch (e) {
+        target.innerHTML = `<span style="color:var(--danger);">调试失败：${e.message}</span>`;
+        showToast(e.message, 'error');
+      }
     }
 
     // === CC Club 请求消息 ===
@@ -1356,16 +2195,182 @@
       }
     }
 
+    // === Settings Tab Switching ===
+    function switchSettingsTab(tab) {
+      document.querySelectorAll('.ss-tab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+      document.querySelectorAll('.ss-panel').forEach(el => el.style.display = 'none');
+      const panel = document.getElementById('ss-panel-' + tab);
+      if (panel) panel.style.display = 'block';
+    }
+
+    // Settings field mapping: id -> settings key
+    const ssFieldMap = {
+      // Brand/SEO
+      'ss-site-brand': 'site_brand',
+      'ss-contact-wechat': 'contact_wechat',
+      'ss-contact-email': 'contact_email',
+      'ss-feedback-email': 'feedback_email',
+      'ss-seo-site-name': 'seo_site_name',
+      'ss-seo-home-title': 'seo_home_title',
+      'ss-seo-login-title': 'seo_login_title',
+      'ss-seo-register-title': 'seo_register_title',
+      'ss-seo-description': 'seo_description',
+      'ss-seo-keywords': 'seo_keywords',
+      // Quota/Cost
+      'ss-balance-conversion-rate': 'balance_conversion_rate',
+      'ss-cost-image-generate': 'cost_image_generate',
+      'ss-cost-video-generate': 'cost_video_generate',
+      'ss-cost-3d-generate': 'cost_3d_generate',
+      'ss-cost-requirement-post': 'cost_requirement_post',
+      'ss-cost-requirement-unlock': 'cost_requirement_unlock',
+      'ss-cost-feed-lock': 'cost_feed_lock',
+      'ss-daily-bid-limit': 'daily_bid_limit',
+      'ss-daily-lock-limit': 'daily_lock_limit',
+      'ss-daily-preview-limit': 'daily_preview_limit',
+      'ss-daily-claim-limit': 'daily_claim_limit',
+      'ss-vip-preview-daily-limit': 'vip_preview_daily_limit',
+      'ss-vip-claim-daily-limit': 'vip_claim_daily_limit',
+      'ss-meeting-limit-registered': 'meeting_limit_registered',
+      'ss-meeting-limit-guest': 'meeting_limit_guest',
+      'ss-invite-new-user-reward': 'invite_new_user_reward',
+      // VIP
+      'ss-vip-duration-options': 'vip_duration_options',
+      'ss-vip-cost-per-day': 'vip_cost_per_day',
+      'ss-vip-recharge-options': 'vip_recharge_options',
+      'ss-recharge-options': 'recharge_options',
+      'ss-vip-benefits': 'vip_benefits',
+      'ss-permanent-vip-benefits': 'permanent_vip_benefits',
+      // AI Model
+      'ss-doubao-text-model': 'doubao_text_model',
+      'ss-doubao-image-model': 'doubao_image_model',
+      'ss-doubao-video-model': 'doubao_video_model',
+      'ss-ark-base-url': 'ark_base_url',
+      'ss-ark-api-rate-limit': 'ark_api_rate_limit',
+      'ss-ark-kimi-endpoint': 'ark_kimi_endpoint',
+      'ss-ark-deepseek-endpoint': 'ark_deepseek_endpoint',
+      'ss-ark-glm-endpoint': 'ark_glm_endpoint',
+      'ss-ark-qwen-endpoint': 'ark_qwen_endpoint',
+      // API Keys
+      'ss-doubao-video-api-key': 'doubao_video_api_key',
+      'ss-zhipu-api-key': 'zhipu_api_key',
+      'ss-kling-access-key': 'kling_access_key',
+      'ss-kling-secret-key': 'kling_secret_key',
+      'ss-dashscope-api-key': 'dashscope_api_key',
+      'ss-tencent-secret-id': 'tencent_secret_id',
+      'ss-tencent-secret-key': 'tencent_secret_key',
+      'ss-sora2-api-key': 'sora2_api_key',
+      'ss-veo3-api-key': 'veo3_api_key',
+      'ss-watermark-api-key': 'watermark_api_key',
+      'ss-alipay-app-id': 'alipay_app_id',
+      'ss-alipay-private-key': 'alipay_private_key',
+      'ss-alipay-public-key': 'alipay_public_key',
+      'ss-alipay-notify-url': 'alipay_notify_url',
+      'ss-alipay-return-url': 'alipay_return_url',
+      // Security
+      'ss-login-max-failures': 'login_max_failures',
+      'ss-login-lock-minutes': 'login_lock_minutes',
+      'ss-jwt-expiry': 'jwt_expiry',
+      // Search
+      'ss-search-modes': 'search_modes',
+      'ss-search-default-mode': 'search_default_mode',
+      'ss-search-placeholder': 'search_placeholder',
+      'ss-search-tips': 'search_tips',
+      'ss-ai-search-quota-message': 'ai_search_quota_message',
+      'ss-search-ai-prompt': 'search_ai_prompt',
+      // Login/QQ
+      'ss-login-heading': 'login_heading',
+      'ss-login-subtitle': 'login_subtitle',
+      'ss-register-heading': 'register_heading',
+      'ss-register-subtitle': 'register_subtitle',
+      'ss-qq-app-id': 'qq_app_id',
+      'ss-qq-app-key': 'qq_app_key',
+      'ss-qq-relay': 'login_relay_domain',
+      // Modules
+      'ss-admin-nav-items': 'admin_nav_items',
+      // SSO
+      'ss-sso-main-domain': 'sso_main_domain',
+      'ss-sso-sub-sites': 'sso_sub_sites',
+      // SMTP
+      'ss-smtp-host': 'smtp_host',
+      'ss-smtp-port': 'smtp_port',
+      'ss-smtp-user': 'smtp_user',
+      'ss-smtp-pass': 'smtp_pass',
+      // Queue
+      'ss-queue-max-concurrent': 'queue_max_concurrent',
+      'ss-queue-max-size': 'queue_max_size',
+      'ss-queue-wait-timeout-ms': 'queue_wait_timeout_ms',
+    };
+
+    // Password fields that should not be pre-filled (leave empty = keep original)
+    const ssPasswordFields = new Set([
+      'ss-qq-app-key', 'ss-ark-kimi-endpoint', 'ss-ark-deepseek-endpoint',
+      'ss-ark-glm-endpoint', 'ss-ark-qwen-endpoint', 'ss-doubao-video-api-key',
+      'ss-zhipu-api-key', 'ss-kling-access-key', 'ss-kling-secret-key',
+      'ss-dashscope-api-key', 'ss-tencent-secret-id', 'ss-tencent-secret-key',
+      'ss-sora2-api-key', 'ss-veo3-api-key', 'ss-watermark-api-key',
+      'ss-alipay-app-id', 'ss-alipay-private-key', 'ss-alipay-public-key',
+      'ss-smtp-pass',
+    ]);
+
     async function loadSiteSettings() {
       try {
         const data = await api.request('/settings', { method: 'GET' });
+        // Fill all mapped fields
+        for (const [elId, key] of Object.entries(ssFieldMap)) {
+          const el = document.getElementById(elId);
+          if (!el) continue;
+          if (ssPasswordFields.has(elId)) { el.value = ''; continue; }
+          el.value = data[key] || '';
+        }
+        // Checkbox: QQ login
         document.getElementById('ss-qq-enabled').checked = data.qq_login_enabled === 'true';
-        document.getElementById('ss-qq-app-id').value = data.qq_app_id || '';
-        document.getElementById('ss-qq-relay').value = data.login_relay_domain || '';
-        document.getElementById('ss-qq-app-key').value = '';
+        // Popup config
+        try {
+          const popup = JSON.parse(data.popup_config || '{}');
+          document.getElementById('ss-popup-enabled').checked = !!popup.enabled;
+          document.getElementById('ss-popup-text').value = popup.text || '';
+          document.getElementById('ss-popup-image-url').value = popup.image_url || '';
+          document.getElementById('ss-popup-frequency').value = popup.frequency || 'once_per_day';
+        } catch {}
+        // Site modules
+        renderModulesList(data.site_modules);
       } catch (e) {
         document.getElementById('ss-msg').textContent = '加载失败：' + e.message;
       }
+    }
+
+    function renderModulesList(jsonStr) {
+      const container = document.getElementById('ss-modules-list');
+      try {
+        const modules = JSON.parse(jsonStr || '[]');
+        container.innerHTML = modules.map((m, i) => `
+          <div class="ss-module-row">
+            <input type="checkbox" data-module-idx="${i}" ${m.visible ? 'checked' : ''} style="width:16px;height:16px;">
+            <span style="min-width:60px;font-weight:500;">${m.name}</span>
+            <code style="font-size:0.75rem;color:var(--text-muted);">${m.route}</code>
+            <label style="margin-left:auto;font-size:0.75rem;display:flex;align-items:center;gap:4px;">
+              <input type="checkbox" data-module-nav-idx="${i}" ${m.showInNav ? 'checked' : ''} style="width:14px;height:14px;">
+              显示在导航
+            </label>
+          </div>
+        `).join('');
+        container._modules = modules;
+      } catch {
+        container.innerHTML = '<span style="color:var(--danger);">解析模块配置失败</span>';
+      }
+    }
+
+    function collectModulesJson() {
+      const container = document.getElementById('ss-modules-list');
+      const modules = container._modules;
+      if (!modules) return null;
+      container.querySelectorAll('[data-module-idx]').forEach(cb => {
+        modules[parseInt(cb.dataset.moduleIdx)].visible = cb.checked;
+      });
+      container.querySelectorAll('[data-module-nav-idx]').forEach(cb => {
+        modules[parseInt(cb.dataset.moduleNavIdx)].showInNav = cb.checked;
+      });
+      return JSON.stringify(modules);
     }
 
     async function saveSiteSettings() {
@@ -1373,20 +2378,73 @@
       msgEl.textContent = '保存中...';
       msgEl.style.color = 'var(--text-secondary)';
       try {
-        const body = {
-          qq_login_enabled: document.getElementById('ss-qq-enabled').checked ? 'true' : 'false',
-          qq_app_id: document.getElementById('ss-qq-app-id').value.trim(),
-          login_relay_domain: document.getElementById('ss-qq-relay').value.trim(),
-        };
-        const key = document.getElementById('ss-qq-app-key').value.trim();
-        if (key) body.qq_app_key = key;
+        const body = {};
+        for (const [elId, key] of Object.entries(ssFieldMap)) {
+          const el = document.getElementById(elId);
+          if (!el) continue;
+          const val = el.value.trim();
+          // Skip empty password fields to keep original value
+          if (ssPasswordFields.has(elId) && !val) continue;
+          body[key] = val;
+        }
+        // Checkbox fields
+        body.qq_login_enabled = document.getElementById('ss-qq-enabled').checked ? 'true' : 'false';
+        // Popup config as JSON
+        body.popup_config = JSON.stringify({
+          enabled: document.getElementById('ss-popup-enabled').checked,
+          text: document.getElementById('ss-popup-text').value,
+          image_url: document.getElementById('ss-popup-image-url').value,
+          frequency: document.getElementById('ss-popup-frequency').value,
+        });
+        // Site modules
+        const modulesJson = collectModulesJson();
+        if (modulesJson) body.site_modules = modulesJson;
+
         await api.request('/settings', { method: 'PUT', body: JSON.stringify(body) });
         msgEl.textContent = '保存成功';
         msgEl.style.color = 'var(--success)';
+        showToast('设置已保存', 'success');
       } catch (e) {
         msgEl.textContent = '保存失败：' + e.message;
         msgEl.style.color = 'var(--danger)';
       }
+    }
+
+    // === 模型健康检查 ===
+    async function runHealthCheck() {
+      const btn = document.getElementById('health-check-btn');
+      const summary = document.getElementById('health-check-summary');
+      const resultsDiv = document.getElementById('health-check-results');
+      const tbody = document.getElementById('health-check-tbody');
+
+      btn.disabled = true;
+      btn.textContent = '诊断中...';
+      summary.textContent = '正在测试所有已启用模型，可能需要30-60秒...';
+      resultsDiv.style.display = 'block';
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">诊断进行中...</td></tr>';
+
+      try {
+        const data = await api.request('/admin/models/health-check', {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+        summary.innerHTML = `共 <strong>${data.total}</strong> 个模型 | <span class="health-ok">${data.ok} 正常</span> | <span class="health-err">${data.fail} 异常</span>`;
+        tbody.innerHTML = data.models.map(m => `
+          <tr>
+            <td><code style="font-size:0.8rem;">${m.model_id || '-'}</code><br><span style="font-size:0.72rem;color:var(--text-muted);">${m.display_name || ''}</span></td>
+            <td style="font-size:0.8rem;">${m.provider || '-'}</td>
+            <td><span class="${m.status === 'ok' ? 'health-ok' : 'health-err'}">${m.status === 'ok' ? 'OK' : 'FAIL'}</span></td>
+            <td style="font-size:0.82rem;">${m.latency ? m.latency + 'ms' : '-'}</td>
+            <td style="font-size:0.78rem;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.status === 'ok' ? (m.reply || '-') : '<span style="color:var(--danger);">' + (m.error || '未知错误') + '</span>'}</td>
+          </tr>
+        `).join('');
+      } catch (e) {
+        summary.textContent = '诊断失败：' + e.message;
+        tbody.innerHTML = '';
+        resultsDiv.style.display = 'none';
+      }
+      btn.disabled = false;
+      btn.textContent = '一键诊断所有模型';
     }
 
     init();
