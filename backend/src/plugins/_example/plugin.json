@@ -1,0 +1,10 @@
+{
+  "name": "_example",
+  "displayName": "示例插件",
+  "description": "插件开发模板 — 验证插件系统可正常工作",
+  "version": "1.0.0",
+  "author": "yunjunet",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/_example"
+}

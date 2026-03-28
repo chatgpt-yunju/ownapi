@@ -1,0 +1,9 @@
+{
+  "name": "ai-video",
+  "displayName": "AI视频生成",
+  "description": "支持多个AI视频模型（豆包/可灵/智谱/通义/混元/Sora2/Veo3）",
+  "version": "1.0.0",
+  "quotaCost": 5,
+  "requireAuth": true,
+  "routePrefix": "/api/plugins/ai-video"
+}

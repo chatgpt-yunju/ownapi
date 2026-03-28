@@ -6,7 +6,28 @@
   <title>控制台 - OpenClaw API</title>
   <link rel="stylesheet" href="/css/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  <style>body { visibility: hidden; }</style>
+  <style>
+    body { visibility: hidden; }
+    .console-head { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+    .console-title { font-family: var(--font-display); font-size: 2rem; letter-spacing: 0.03em; }
+    .console-subtitle { color: var(--text-muted); margin-top: 0.35rem; }
+    .console-chip { display:inline-flex; align-items:center; gap:0.5rem; padding:0.5rem 0.85rem; border-radius:999px; border:1px solid rgba(116,245,255,0.18); background:rgba(8,24,41,0.7); color:var(--text-secondary); font-size:0.8rem; }
+    .console-chip::before { content:''; width:8px; height:8px; border-radius:50%; background:linear-gradient(135deg,#29d6b0,#74f5ff); box-shadow:0 0 10px rgba(116,245,255,0.6); }
+    .table-card { overflow:hidden; }
+    .table-card .oc-table { min-width: 720px; }
+    .surface-note { font-size:0.72rem; color:var(--text-muted); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); line-height:1.5; }
+    .filter-bar { display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; }
+    .console-head + .oc-card { box-shadow: 0 18px 40px rgba(2,12,24,0.32); }
+    @media (max-width: 768px) {
+      .console-title { font-size: 1.5rem; }
+      .filter-bar > * { width: 100% !important; }
+      .filter-bar button { justify-content: center; }
+    }
+    @media (max-width: 560px) {
+      .console-title { font-size: 1.3rem; }
+      .console-chip { width: 100%; justify-content: center; }
+    }
+  </style>
   <script>setTimeout(function(){document.body.style.visibility='visible';},8000);</script>
 </head>
 <body>
@@ -43,11 +64,12 @@
 
       <div class="oc-sidebar-section">邀请奖励</div>
       <div class="oc-sidebar-item" data-page="invite" onclick="switchPage('invite')">&#x1f381; 邀请码</div>
-      <div class="oc-sidebar-item" data-page="rewards" onclick="switchPage('rewards')">&#x1f4b0; 我的奖励</div>
+      <div class="oc-sidebar-item" data-page="rewards" onclick="switchPage('rewards')">&#x1f4b0; 财富中心</div>
 
       <div class="oc-sidebar-section">其他</div>
       <div class="oc-sidebar-item" data-page="notifications" onclick="switchPage('notifications')">&#x1f514; 消息通知</div>
       <div class="oc-sidebar-item" data-page="playground" onclick="switchPage('playground')">&#x1f9ea; API 调试</div>
+      <div class="oc-sidebar-item" data-page="account" onclick="switchPage('account')">&#x2699;&#xfe0f; 账户设置</div>
 
       <div id="admin-nav" style="display:none;">
         <div class="oc-sidebar-section">管理后台</div>
@@ -59,9 +81,15 @@
     <main class="oc-main">
       <!-- Dashboard -->
       <div id="page-dashboard" class="page-content">
-        <h2 style="margin-bottom:1.5rem;">仪表盘</h2>
+        <div class="console-head">
+          <div>
+            <div class="console-title">仪表盘</div>
+            <div class="console-subtitle">实时查看额度、调用量、费用与最近请求状态。</div>
+          </div>
+          <div class="console-chip">Live Telemetry</div>
+        </div>
         <div class="oc-grid oc-grid-4" id="stats-grid">
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-balance">-</div><div class="oc-stat-label">剩余额度</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-balance">-</div><div class="oc-stat-label">套餐余额</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-calls">-</div><div class="oc-stat-label">今日调用</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-tokens">-</div><div class="oc-stat-label">今日 Tokens</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-cost">-</div><div class="oc-stat-label">今日费用</div></div>
@@ -105,7 +133,7 @@
 <span id="dash-cost-detail">$0.00 / $0.00</span>
 </div>
 </div>
-<div style="font-size:0.72rem;color:var(--text-muted);padding:0.5rem 0.75rem;background:rgba(108,92,231,0.08);border-radius:var(--radius-sm);line-height:1.5;">
+<div class="surface-note" style="background:rgba(0,199,255,0.08);">
 请求次数和费用限制为"或"的关系，任一达到限制即触发限流
 </div>
 </div>
@@ -131,7 +159,7 @@
 <span id="dash-week-detail">无限制</span>
 </div>
 </div>
-<div style="font-size:0.72rem;color:var(--text-muted);padding:0.5rem 0.75rem;background:rgba(84,160,255,0.08);border-radius:var(--radius-sm);line-height:1.5;">
+<div class="surface-note" style="background:rgba(84,160,255,0.08);">
 月限制为30天固定窗口，窗口期过自动重置。周期内超过限制后将无法继续使用（可以使用加油包），直到月限窗口重置。
 </div>
 </div>
@@ -160,7 +188,7 @@
 <div style="font-size:0.7rem;color:var(--text-muted);">总购买</div>
 </div>
 </div>
-<div style="font-size:0.72rem;color:var(--text-muted);padding:0.5rem 0.75rem;background:rgba(254,202,87,0.08);border-radius:var(--radius-sm);line-height:1.5;">
+<div class="surface-note" style="background:rgba(254,202,87,0.08);">
 💡 购买加油包可获得独立额度，不受套餐限制影响
 </div>
 </div>
@@ -181,11 +209,14 @@
 
       <!-- API Keys -->
       <div id="page-apikeys" class="page-content" style="display:none;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-          <h2>API Keys</h2>
+        <div class="console-head">
+          <div>
+            <div class="console-title" style="font-size:1.55rem;">API Keys</div>
+            <div class="console-subtitle">管理访问密钥与使用状态。</div>
+          </div>
           <button class="btn-accent" onclick="showCreateKeyModal()">+ 创建 Key</button>
         </div>
-        <div class="oc-card">
+        <div class="oc-card table-card">
           <table class="oc-table" id="keys-table">
             <thead><tr><th>名称</th><th>Key</th><th>状态</th><th>创建时间</th><th>最后使用</th><th>操作</th></tr></thead>
             <tbody id="keys-tbody"></tbody>
@@ -196,15 +227,20 @@
 
       <!-- Logs -->
       <div id="page-logs" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">调用日志</h2>
+        <div class="console-head">
+          <div>
+            <div class="console-title" style="font-size:1.55rem;">调用日志</div>
+            <div class="console-subtitle">按模型、状态与时间维度查看请求明细。</div>
+          </div>
+        </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
-          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+          <div class="filter-bar">
             <select class="oc-select" id="log-filter-model" style="width:160px;"><option value="">全部模型</option></select>
             <select class="oc-select" id="log-filter-status" style="width:120px;"><option value="">全部状态</option><option value="success">成功</option><option value="error">失败</option></select>
             <button class="btn-accent btn-sm" onclick="loadLogs()">筛选</button>
           </div>
         </div>
-        <div class="oc-card">
+        <div class="oc-card table-card">
           <table class="oc-table">
             <thead><tr><th>时间</th><th>模型</th><th>Tokens</th><th>费用</th><th>状态</th><th>IP</th></tr></thead>
             <tbody id="logs-tbody"></tbody>
@@ -215,7 +251,12 @@
 
       <!-- Packages -->
       <div id="page-packages" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">套餐</h2>
+        <div class="console-head">
+          <div>
+            <div class="console-title" style="font-size:1.55rem;">套餐</div>
+            <div class="console-subtitle">查看当前可购套餐与生效中的订阅周期。</div>
+          </div>
+        </div>
         <div class="oc-grid oc-grid-4" id="packages-grid"></div>
         <div style="margin-top:2rem;">
           <h3 style="margin-bottom:1rem;">我的套餐</h3>
@@ -231,7 +272,10 @@
       <!-- Statistics -->
       <div id="page-statistics" class="page-content" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-          <h2>数据统计</h2>
+          <div>
+            <div class="console-title" style="font-size:1.55rem;">数据统计</div>
+            <div class="console-subtitle">从总量、趋势和模型分布维度观察使用情况。</div>
+          </div>
           <button class="btn-outline btn-sm" onclick="loadStatistics()">&#x1f504; 刷新</button>
         </div>
         <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
@@ -354,8 +398,9 @@
 
       <!-- Rewards -->
       <div id="page-rewards" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">我的奖励</h2>
-        <div class="oc-grid oc-grid-3" style="margin-bottom:1.5rem;">
+        <h2 style="margin-bottom:1.5rem;">财富中心</h2>
+        <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-wallet-balance">-</div><div class="oc-stat-label">钱包余额</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-total">¥0</div><div class="oc-stat-label">累计奖励</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-received">¥0</div><div class="oc-stat-label">已领取</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-pending">¥0</div><div class="oc-stat-label">待领取</div></div>
@@ -396,7 +441,12 @@
             </div>
             <div class="form-group" style="margin-bottom:0.75rem;">
               <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">模型</label>
-              <select class="oc-select" id="pg-model" style="width:100%;"></select>
+              <select class="oc-select" id="pg-model" style="width:100%;" onchange="updatePlaygroundModelMeta()"></select>
+            </div>
+            <div id="pg-model-meta" style="margin:-0.2rem 0 0.75rem;font-size:0.78rem;color:var(--text-muted);line-height:1.6;"></div>
+            <div class="form-group" id="pg-image-url-group" style="margin-bottom:0.75rem;display:none;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">图片 URL（视觉模型可选）</label>
+              <input class="oc-input" id="pg-image-url" placeholder="https://example.com/image.png">
             </div>
             <div class="form-group" style="margin-bottom:0.75rem;">
               <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">消息</label>
@@ -412,6 +462,57 @@
             <div id="pg-response" class="oc-code" style="min-height:200px;max-height:400px;overflow-y:auto;white-space:pre-wrap;font-size:0.8rem;"></div>
             <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-muted);" id="pg-stats"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- 账户设置 -->
+      <div id="page-account" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">账户设置</h2>
+        <div style="max-width:480px;display:flex;flex-direction:column;gap:1.5rem;">
+
+          <!-- 账户信息 -->
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">账户信息</span></div>
+            <div style="padding:0.25rem 0;">
+              <div style="display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border);font-size:0.9rem;">
+                <span style="color:var(--text-muted);">用户名</span>
+                <span id="acc-username" style="font-weight:500;"></span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:0.5rem 0;font-size:0.9rem;">
+                <span style="color:var(--text-muted);">当前邮箱</span>
+                <span id="acc-email" style="font-weight:500;"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 修改密码 -->
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">修改密码</span></div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">当前密码</label>
+              <input class="oc-input" id="acc-old-password" type="password" placeholder="输入当前密码" autocomplete="current-password">
+            </div>
+            <div class="form-group" style="margin-bottom:0.75rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">新密码（至少6位）</label>
+              <input class="oc-input" id="acc-new-password" type="password" placeholder="输入新密码" autocomplete="new-password">
+            </div>
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">确认新密码</label>
+              <input class="oc-input" id="acc-new-password-confirm" type="password" placeholder="再次输入新密码" autocomplete="new-password">
+            </div>
+            <button class="btn-accent" onclick="changePassword()">更新密码</button>
+          </div>
+
+          <!-- 修改邮箱 -->
+          <div class="oc-card">
+            <div class="oc-card-header"><span class="oc-card-title">修改邮箱</span></div>
+            <div class="form-group" style="margin-bottom:1rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">新邮箱地址</label>
+              <input class="oc-input" id="acc-new-email" type="email" placeholder="输入新邮箱">
+            </div>
+            <button class="btn-accent" onclick="changeEmail()">更新邮箱</button>
+          </div>
+
         </div>
       </div>
     </main>
@@ -472,20 +573,21 @@
     </div>
   </div>
 
-  <script src="/js/api.js?v=20260326"></script>
+  <script src="/js/api.js?v=20260328"></script>
   <script>
     try {
       if (typeof requireAuth !== 'function') throw new Error('api.js not loaded');
       if (!requireAuth()) { document.body.style.visibility = 'visible'; throw new Error('need auth'); }
     } catch(e) {
       document.body.style.visibility = 'visible';
-      window.location.href = (typeof SSO_LOGIN_URL !== 'undefined') ? SSO_LOGIN_URL : 'https://yunjunet.cn/login';
+      window.location.href = '/login.html?return_url=' + encodeURIComponent('/console.html');
       throw e;
     }
 
     let currentPage = 'dashboard';
     let logsPage = 1;
     let userInfo = null;
+    let playgroundModels = [];
 
     function switchPage(page) {
       currentPage = page;
@@ -509,6 +611,7 @@
       else if (page === 'invite') loadInvite();
       else if (page === 'rewards') loadRewards();
       else if (page === 'notifications') loadNotifications();
+      else if (page === 'account') loadAccount();
     }
 
     function showModal(id) { document.getElementById(id).classList.add('show'); }
@@ -563,7 +666,7 @@
       } catch(e) {
         document.body.style.visibility = 'visible';
         api.clearToken();
-        window.location.href = SSO_LOGIN_URL;
+        window.location.href = '/login.html?return_url=' + encodeURIComponent('/console.html');
       }
     }
 
@@ -573,8 +676,8 @@
         const [info, stats] = await Promise.all([api.getUserInfo(), api.getStats()]);
 
       // 剩余额度
-      const balance = parseFloat(info.balance || 0);
-      document.getElementById('stat-balance').textContent = `$${balance.toFixed(2)}`;
+      const quotaBalance = parseFloat(info.quota_balance ?? info.balance ?? 0);
+      document.getElementById('stat-balance').textContent = `$${quotaBalance.toFixed(4)}`;
 
         // 今日调用：3 / 200次
         const todayCalls = stats.today?.calls || 0;
@@ -982,78 +1085,354 @@
     // Playground
     async function loadPlayground() {
       const sel = document.getElementById('pg-model');
-      if (sel.options.length <= 0) {
-        const models = await api.getModels();
-        models.forEach(m => { sel.innerHTML += `<option value="${m.model_id}">${m.display_name || m.model_id}</option>`; });
+      if (playgroundModels.length > 0) return updatePlaygroundModelMeta();
+      playgroundModels = await api.getModels();
+      const categoryLabel = {
+        language: '语言模型',
+        coding: '编程模型',
+        vision: '视觉模型',
+        image: '图片模型',
+        audio: '语音模型',
+      };
+      const groups = {};
+      playgroundModels.forEach((model) => {
+        const category = model.model_category || 'language';
+        if (!groups[category]) groups[category] = [];
+        groups[category].push(model);
+      });
+      sel.innerHTML = Object.entries(categoryLabel).map(([category, label]) => {
+        const models = groups[category] || [];
+        if (!models.length) return '';
+        return `<optgroup label="${label}">${models.map(m => `<option value="${m.model_id}">${m.display_name || m.model_id}</option>`).join('')}</optgroup>`;
+      }).join('');
+      updatePlaygroundModelMeta();
+    }
+
+    function getSelectedPlaygroundModel() {
+      const modelId = document.getElementById('pg-model').value;
+      return playgroundModels.find(item => item.model_id === modelId) || null;
+    }
+
+    function updatePlaygroundModelMeta() {
+      const modelMeta = getSelectedPlaygroundModel();
+      const metaEl = document.getElementById('pg-model-meta');
+      const imageGroup = document.getElementById('pg-image-url-group');
+      const messageEl = document.getElementById('pg-message');
+      if (!modelMeta) {
+        metaEl.textContent = '未加载模型信息';
+        imageGroup.style.display = 'none';
+        return;
       }
+
+      const categoryLabel = {
+        language: '语言',
+        coding: '编程',
+        vision: '视觉',
+        image: '图片',
+        audio: '语音',
+      };
+      const billingLabel = modelMeta.billing_mode === 'per_call'
+        ? `按次 $${parseFloat(modelMeta.per_call_price || 0).toFixed(6)}`
+        : '按 Token';
+      metaEl.textContent = `分类: ${categoryLabel[modelMeta.model_category] || '语言'} | 计费: ${billingLabel}`;
+      const embeddingsModel = isEmbeddingsPlaygroundModel(modelMeta);
+      const parserModel = isParserPlaygroundModel(modelMeta);
+      imageGroup.style.display = (modelMeta.model_category === 'vision' && !embeddingsModel) || parserModel ? 'block' : 'none';
+
+      if (parserModel) {
+        messageEl.placeholder = '文档解析模型将返回 tool_calls，请填写图片 URL。';
+      } else if (embeddingsModel) {
+        messageEl.placeholder = '输入需要生成向量的文本内容。';
+      } else if (modelMeta.model_category === 'vision') {
+        messageEl.placeholder = '输入视觉模型提示词，可选填写图片 URL。';
+      } else if (modelMeta.model_category === 'image') {
+        messageEl.placeholder = '图片模型调试端点待接入，当前仅展示模型信息。';
+      } else if (modelMeta.model_category === 'audio') {
+        messageEl.placeholder = '语音模型调试端点待接入，当前仅展示模型信息。';
+      } else {
+        messageEl.placeholder = '输入消息内容...';
+      }
+    }
+
+    function shouldUseResponsesPlayground(modelId) {
+      const model = String(modelId || '').toLowerCase();
+      return /^gpt-5(?:$|[-.])/.test(model) || model.includes('codex') || /^o[1-9](?:$|[-.])/.test(model);
+    }
+
+    function isEmbeddingsPlaygroundModel(modelMeta) {
+      const modelId = typeof modelMeta === 'string' ? modelMeta : (modelMeta?.model_id || '');
+      const model = String(modelId || '').toLowerCase();
+      return /(^|[-_])(embed|embedqa)([-_]|$)|arctic-embed|bge-m3|nvclip/.test(model);
+    }
+
+    function isParserPlaygroundModel(modelMeta) {
+      const modelId = typeof modelMeta === 'string' ? modelMeta : (modelMeta?.model_id || '');
+      const model = String(modelId || '').toLowerCase();
+      return model.includes('nemoretriever-parse') || model.includes('nemotron-parse');
+    }
+
+    function getPlaygroundRequestConfig(model, message, stream, modelMeta) {
+      const category = modelMeta?.model_category || 'language';
+      const imageUrl = document.getElementById('pg-image-url').value.trim();
+      const embeddingsModel = isEmbeddingsPlaygroundModel(modelMeta);
+      const parserModel = isParserPlaygroundModel(modelMeta);
+      if (category === 'image') {
+        return { unsupported: '当前网关尚未开放图片生成调试端点。' };
+      }
+      if (category === 'audio') {
+        return { unsupported: '当前网关尚未开放语音调试端点。' };
+      }
+      if (parserModel) {
+        if (!imageUrl) {
+          return { unsupported: '文档解析模型调试需要图片 URL。' };
+        }
+        return {
+          mode: 'chat',
+          endpoint: '/v1/chat/completions',
+          body: {
+            model,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'text', text: message || 'Extract the document into markdown.' },
+                { type: 'image_url', image_url: { url: imageUrl } }
+              ]
+            }],
+            tools: [{
+              type: 'function',
+              function: {
+                name: 'markdown_bbox',
+                description: 'Parse the document into markdown with bounding boxes.',
+                parameters: { type: 'object', properties: {}, additionalProperties: false }
+              }
+            }],
+            tool_choice: { type: 'function', function: { name: 'markdown_bbox' } },
+            stream: false
+          }
+        };
+      }
+      if (embeddingsModel) {
+        const lowerModel = String(model || '').toLowerCase();
+        const body = {
+          model,
+          input: message,
+          encoding_format: 'float'
+        };
+        if (lowerModel.includes('embedqa') || lowerModel.includes('e5')) {
+          body.input_type = 'query';
+        }
+        if (lowerModel.includes('nvclip') || lowerModel.includes('embed-vl')) {
+          body.modality = 'text';
+        }
+        return {
+          mode: 'embeddings',
+          endpoint: '/v1/embeddings',
+          body
+        };
+      }
+      if (category === 'vision') {
+        return {
+          mode: 'chat',
+          endpoint: '/v1/chat/completions',
+          body: {
+            model,
+            messages: [{
+              role: 'user',
+              content: imageUrl
+                ? [
+                    { type: 'text', text: message },
+                    { type: 'image_url', image_url: { url: imageUrl } }
+                  ]
+                : [{ type: 'text', text: message }]
+            }],
+            stream
+          }
+        };
+      }
+
+      if ((category === 'coding' && shouldUseResponsesPlayground(model)) || shouldUseResponsesPlayground(model)) {
+        return {
+          mode: 'responses',
+          endpoint: '/v1/responses',
+          body: {
+            model,
+            input: message,
+            stream
+          }
+        };
+      }
+
+      return {
+        mode: 'chat',
+        endpoint: '/v1/chat/completions',
+        body: {
+          model,
+          messages: [{ role: 'user', content: message }],
+          stream
+        }
+      };
+    }
+
+    function extractResponsesOutputText(data) {
+      if (!data) return '';
+      if (typeof data.output_text === 'string' && data.output_text) return data.output_text;
+      if (!Array.isArray(data.output)) return '';
+
+      return data.output
+        .flatMap(item => Array.isArray(item.content) ? item.content : [])
+        .filter(part => part.type === 'output_text' || part.type === 'text')
+        .map(part => part.text || '')
+        .join('');
+    }
+
+    function readPlaygroundUsage(data) {
+      const usage = data?.usage || {};
+      const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? 0;
+      const completionTokens = usage.completion_tokens ?? usage.output_tokens ?? 0;
+      const totalTokens = usage.total_tokens ?? (promptTokens + completionTokens);
+      return { promptTokens, completionTokens, totalTokens };
+    }
+
+    function formatPlaygroundStats(endpoint, startTime, data) {
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      const { promptTokens, completionTokens, totalTokens } = readPlaygroundUsage(data);
+      if (promptTokens || completionTokens || totalTokens) {
+        return `路由: ${endpoint} | Tokens: ${promptTokens} + ${completionTokens} = ${totalTokens} | 耗时: ${elapsed}s`;
+      }
+      return `路由: ${endpoint} | 耗时: ${elapsed}s`;
+    }
+
+    async function readPlaygroundError(res) {
+      const text = await res.text();
+      if (!text) return `HTTP ${res.status}`;
+      try {
+        return JSON.stringify(JSON.parse(text), null, 2);
+      } catch (e) {
+        return text;
+      }
+    }
+
+    function consumePlaygroundSse(buffer, onPayload) {
+      const normalized = buffer.replace(/\r\n/g, '\n');
+      const blocks = normalized.split('\n\n');
+      const remainder = blocks.pop() || '';
+
+      for (const block of blocks) {
+        const dataLines = [];
+        for (const line of block.split('\n')) {
+          if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+        }
+        if (!dataLines.length) continue;
+
+        const payloadText = dataLines.join('\n');
+        if (payloadText === '[DONE]') continue;
+
+        try {
+          onPayload(JSON.parse(payloadText));
+        } catch (e) {}
+      }
+
+      return remainder;
     }
 
     async function sendPlayground() {
       const model = document.getElementById('pg-model').value;
       const message = document.getElementById('pg-message').value.trim();
       const stream = document.getElementById('pg-stream').checked;
+      const manualApiKey = document.getElementById('pg-apikey').value.trim();
       if (!message) return showToast('请输入消息', 'error');
 
       const respDiv = document.getElementById('pg-response');
       const statsDiv = document.getElementById('pg-stats');
+      const modelMeta = getSelectedPlaygroundModel();
+      const requestConfig = getPlaygroundRequestConfig(model, message, stream, modelMeta);
+      const shouldStream = requestConfig.body?.stream === true;
+      const authToken = manualApiKey || api.token;
+      if (!authToken) {
+        showToast('请先登录或填写 API Key', 'error');
+        return;
+      }
+
+      if (requestConfig.unsupported) {
+        respDiv.textContent = requestConfig.unsupported;
+        statsDiv.textContent = '当前模型分类暂未接入该调试端点';
+        return;
+      }
+
       respDiv.textContent = '';
-      statsDiv.textContent = '请求中...';
+      statsDiv.textContent = `路由: ${requestConfig.endpoint} | 请求中...`;
       const startTime = Date.now();
 
-      // Find user's first API key or use token
-      let apiKey = null;
       try {
-        const keys = await api.getApiKeys();
-        const active = keys.find(k => k.status === 'active');
-        if (!active) {
-          showToast('请先创建一个 API Key', 'error');
-          switchPage('apikeys');
-          return;
-        }
-        // We can't get the full key, so use SSO token for playground via a proxy
-        // Actually, playground should use the token-based approach
-      } catch(e) {}
-
-      try {
-        const res = await fetch('/v1/chat/completions', {
+        const res = await fetch(requestConfig.endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api.token}` },
-          body: JSON.stringify({ model, messages: [{ role: 'user', content: message }], stream })
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+          body: JSON.stringify(requestConfig.body)
         });
 
         if (!res.ok) {
-          const err = await res.json();
-          respDiv.textContent = JSON.stringify(err, null, 2);
+          respDiv.textContent = await readPlaygroundError(res);
           statsDiv.textContent = '请求失败';
           return;
         }
 
-        if (stream) {
+        if (shouldStream && requestConfig.mode !== 'embeddings') {
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
           let text = '';
+          let sseBuffer = '';
+          let usagePayload = null;
+
+          const applyPayload = (payload) => {
+            if (!payload) return;
+
+            if (requestConfig.mode === 'responses') {
+              if (payload.type === 'response.output_text.delta' && payload.delta) {
+                text += payload.delta;
+                respDiv.textContent = text;
+              }
+              if (payload.response?.usage || payload.usage) usagePayload = payload.response || payload;
+              if (payload.type === 'response.completed' && payload.response) {
+                usagePayload = payload.response;
+                if (!text) {
+                  text = extractResponsesOutputText(payload.response);
+                  respDiv.textContent = text;
+                }
+              }
+              return;
+            }
+
+            const content = payload.choices?.[0]?.delta?.content || '';
+            if (content) {
+              text += content;
+              respDiv.textContent = text;
+            }
+            if (payload.usage) usagePayload = payload;
+          };
+
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-            for (const line of lines) {
-              if (line.startsWith('data: ') && line !== 'data: [DONE]') {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  const content = data.choices?.[0]?.delta?.content || '';
-                  text += content;
-                  respDiv.textContent = text;
-                } catch(e) {}
+            sseBuffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+            sseBuffer = consumePlaygroundSse(sseBuffer, applyPayload);
+            if (done) {
+              if (sseBuffer.trim()) {
+                consumePlaygroundSse(sseBuffer + '\n\n', applyPayload);
               }
+              break;
             }
           }
-          statsDiv.textContent = `耗时: ${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+
+          statsDiv.textContent = formatPlaygroundStats(requestConfig.endpoint, startTime, usagePayload);
         } else {
           const data = await res.json();
-          respDiv.textContent = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
-          const u = data.usage || {};
-          statsDiv.textContent = `Tokens: ${u.prompt_tokens || 0} + ${u.completion_tokens || 0} = ${u.total_tokens || 0} | 耗时: ${((Date.now() - startTime) / 1000).toFixed(1)}s`;
+          if (requestConfig.mode === 'responses') {
+            respDiv.textContent = extractResponsesOutputText(data) || JSON.stringify(data, null, 2);
+          } else if (requestConfig.mode === 'embeddings') {
+            respDiv.textContent = JSON.stringify(data, null, 2);
+          } else {
+            respDiv.textContent = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
+          }
+          statsDiv.textContent = formatPlaygroundStats(requestConfig.endpoint, startTime, data);
         }
       } catch(e) {
         respDiv.textContent = e.message;
@@ -1360,7 +1739,9 @@
     // Rewards
     async function loadRewards() {
       try {
-        const data = await api.getRewards();
+        const [data, info] = await Promise.all([api.getRewards(), api.getUserInfo()]);
+        const walletBalance = parseFloat(info.wallet_balance ?? 0);
+        document.getElementById('reward-wallet-balance').textContent = `$${walletBalance.toFixed(4)}`;
         document.getElementById('reward-total').textContent = '¥' + Number(data.total || 0).toFixed(2);
         document.getElementById('reward-received').textContent = '¥' + Number(data.received || 0).toFixed(2);
         document.getElementById('reward-pending').textContent = '¥' + Number(data.pending || 0).toFixed(2);
@@ -1407,6 +1788,51 @@
         }
       } catch(e) {
         showToast('加载通知失败', 'error');
+      }
+    }
+
+    async function loadAccount() {
+      try {
+        const data = await api.get('/user/profile');
+        document.getElementById('acc-username').textContent = data.username || '-';
+        document.getElementById('acc-email').textContent = data.email || '未设置';
+        document.getElementById('acc-new-email').value = '';
+        document.getElementById('acc-old-password').value = '';
+        document.getElementById('acc-new-password').value = '';
+        document.getElementById('acc-new-password-confirm').value = '';
+      } catch(e) {
+        showToast('加载账户信息失败', 'error');
+      }
+    }
+
+    async function changePassword() {
+      const oldPwd = document.getElementById('acc-old-password').value;
+      const newPwd = document.getElementById('acc-new-password').value;
+      const confirm = document.getElementById('acc-new-password-confirm').value;
+      if (!oldPwd || !newPwd) return showToast('请填写密码', 'error');
+      if (newPwd !== confirm) return showToast('两次输入的密码不一致', 'error');
+      if (newPwd.length < 6) return showToast('新密码至少6位', 'error');
+      try {
+        await api.put('/user/password', { old_password: oldPwd, new_password: newPwd });
+        showToast('密码已更新', 'success');
+        document.getElementById('acc-old-password').value = '';
+        document.getElementById('acc-new-password').value = '';
+        document.getElementById('acc-new-password-confirm').value = '';
+      } catch(e) {
+        showToast(e.message || '修改失败', 'error');
+      }
+    }
+
+    async function changeEmail() {
+      const email = document.getElementById('acc-new-email').value.trim();
+      if (!email || !email.includes('@')) return showToast('请输入有效邮箱', 'error');
+      try {
+        await api.put('/user/email', { email });
+        showToast('邮箱已更新', 'success');
+        document.getElementById('acc-email').textContent = email;
+        document.getElementById('acc-new-email').value = '';
+      } catch(e) {
+        showToast(e.message || '修改失败', 'error');
       }
     }
 

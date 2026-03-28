@@ -1,0 +1,9 @@
+{
+  "name": "ai-gateway",
+  "displayName": "AI网关",
+  "description": "OpenAI兼容AI网关 - 多模型路由、API Key管理、计费",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/ai-gateway"
+}

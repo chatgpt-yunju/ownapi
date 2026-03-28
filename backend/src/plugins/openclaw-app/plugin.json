@@ -1,0 +1,9 @@
+{
+  "name": "openclaw-app",
+  "displayName": "OpenClaw App",
+  "description": "OpenClaw内容管理 - 文章、热点、发布",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/openclaw-app"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "planet",
+  "displayName": "星球社区",
+  "description": "星球社区 - 圈子、帖子、评论、定时发帖",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/planet"
+}

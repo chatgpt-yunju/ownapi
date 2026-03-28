@@ -4,16 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenClaw API - 企业级大模型 API 中转平台</title>
-  <meta name="description" content="统一接入 GPT、Claude、DeepSeek、Qwen 等 200+ 模型，兼容 OpenAI、Anthropic、Gemini 三种 API 格式，按量计费，毫秒级响应">
+  <meta name="description" content="统一接入 GPT、Claude、DeepSeek、Qwen 等主流模型，兼容 OpenAI、Anthropic、Gemini 三种 API 格式，按量计费，毫秒级响应">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.52rem 1rem;
+      border: 1px solid rgba(116, 245, 255, 0.24);
+      border-radius: 999px;
+      background: rgba(5, 19, 35, 0.56);
+      box-shadow: 0 10px 26px rgba(0, 199, 255, 0.12);
+      color: #dffaff;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .hero-badge::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #29d6b0, #74f5ff);
+      box-shadow: 0 0 12px rgba(116, 245, 255, 0.7);
+    }
     .hero-stats { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; margin: 2rem 0; }
-    .hero-stat { text-align: center; }
-    .hero-stat-value { font-size: 2.5rem; font-weight: 800; background: linear-gradient(135deg, var(--accent), #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .hero-stat { text-align: center; min-width: 160px; padding: 1rem 1.2rem; border: 1px solid rgba(130, 205, 255, 0.16); border-radius: 20px; background: rgba(7, 19, 34, 0.5); backdrop-filter: blur(10px); }
+    .hero-stat-value { font-size: 2.5rem; font-weight: 800; background: linear-gradient(135deg, var(--accent-light), var(--accent-alt)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .hero-stat-label { font-size: 0.9rem; color: var(--text-muted); }
-    .format-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--bg-secondary); border-radius: 2rem; font-size: 0.85rem; margin: 0.25rem; }
+    .format-badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.62rem 1rem; background: rgba(8, 24, 41, 0.72); border-radius: 2rem; font-size: 0.85rem; margin: 0.25rem; }
     .format-badge svg { width: 18px; height: 18px; }
     .pricing-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
     .pricing-table th, .pricing-table td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
@@ -21,15 +42,39 @@
     .pricing-table td { font-family: var(--font-mono); font-size: 0.9rem; }
     .pricing-table tr:hover { background: var(--bg-secondary); }
     .model-tag { display: inline-block; padding: 0.2rem 0.5rem; background: var(--accent-bg); color: var(--accent); border-radius: 4px; font-size: 0.75rem; margin-right: 0.25rem; }
-    .api-toggle { display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 1.5rem; }
-    .api-toggle button { padding: 0.5rem 1.5rem; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); cursor: pointer; border-radius: 4px; font-size: 0.9rem; transition: all 0.2s; }
-    .api-toggle button.active { background: var(--accent); border-color: var(--accent); color: white; }
-    .api-toggle button:hover:not(.active) { border-color: var(--accent); }
-    .code-block { position: relative; background: #1a1a2e; border-radius: 8px; overflow: hidden; }
+    .api-toggle { display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .api-toggle button { padding: 0.68rem 1.25rem; border: 1px solid var(--border-color); background: rgba(4, 18, 32, 0.74); color: var(--text-primary); cursor: pointer; border-radius: 999px; font-size: 0.9rem; transition: all 0.2s; }
+    .api-toggle button.active { background: var(--gradient-primary); border-color: transparent; color: white; box-shadow: 0 10px 24px rgba(0, 199, 255, 0.22); }
+    .api-toggle button:hover:not(.active) { border-color: var(--accent-light); }
+    .code-block { position: relative; background: #1a1a2e; border-radius: 16px; overflow: hidden; }
     .code-block pre { padding: 1.25rem; margin: 0; overflow-x: auto; font-size: 0.85rem; line-height: 1.6; }
     .code-header { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 1rem; background: #252542; border-bottom: 1px solid #333; }
     .code-header span { color: #888; font-size: 0.8rem; }
-    .copy-btn { background: var(--accent); color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+    .copy-btn { background: var(--accent); color: white; border: none; padding: 0.42rem 0.9rem; border-radius: 999px; cursor: pointer; font-size: 0.75rem; }
+    .hero-actions { display:flex; gap:1rem; justify-content:center; flex-wrap:wrap; margin-top:1.5rem; }
+    .hero-title { font-size:3.3rem; line-height:1.04; margin-bottom:1rem; max-width:900px; margin-left:auto; margin-right:auto; }
+    .hero-subtitle { font-size:1.15rem; max-width:720px; margin:0 auto 1.5rem; opacity:0.88; }
+    .section-title { text-align:center; margin-bottom:0.5rem; font-size:1.9rem; }
+    .section-subtitle { text-align:center; color:var(--text-muted); margin-bottom:1.5rem; }
+    .search-panel { text-align:center; margin-bottom:1rem; display:flex; justify-content:center; align-items:center; gap:1rem; flex-wrap:wrap; }
+    .cta-panel { max-width:680px; margin:0 auto; text-align:center; padding:3.4rem 2rem; background:linear-gradient(135deg, rgba(10, 28, 48, 0.92), rgba(4, 16, 31, 0.9)); position:relative; overflow:hidden; }
+    .cta-panel::before { content:''; position:absolute; inset:auto -10% -40% auto; width:260px; height:260px; border-radius:50%; background:radial-gradient(circle, rgba(255, 95, 207, 0.22), rgba(255, 95, 207, 0)); pointer-events:none; }
+    .search-panel .oc-input { max-width: 340px; }
+    .contact-card { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 16px 34px rgba(2,12,24,0.26); }
+    @media (max-width: 768px) {
+      .hero-title { font-size: 2.35rem; }
+      .hero-subtitle { font-size: 1rem; }
+      .hero-stat { min-width: calc(50% - 0.75rem); }
+      .search-panel input { width: 100% !important; }
+      .contact-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .hero-title { font-size: 1.95rem; }
+      .hero-stat { min-width: 100%; }
+      .hero-actions a { width: 100%; justify-content: center; }
+      .api-toggle button { width: 100%; }
+      .format-badge { width: 100%; justify-content: center; }
+    }
     .trust-section { display: flex; gap: 3rem; justify-content: center; flex-wrap: wrap; padding: 2rem 0; border-top: 1px solid var(--border-color); margin-top: 3rem; }
     .trust-item { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
 
@@ -53,14 +98,35 @@
     .contact-value { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; word-break: break-all; }
     .contact-copy { margin-top: 0.5rem; font-size: 0.75rem; color: var(--accent); cursor: pointer; opacity: 0; transition: opacity 0.2s; }
     .contact-card:hover .contact-copy { opacity: 1; }
+    /* 应用中心 */
+    .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; margin-top: 1.5rem; max-width: 960px; margin-left: auto; margin-right: auto; }
+    .app-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; transition: border-color 0.2s, transform 0.2s; text-decoration: none; color: inherit; }
+    .app-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .app-card-icon { font-size: 2.25rem; }
+    .app-card-name { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
+    .app-card-desc { font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; flex: 1; }
+    .app-card-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .app-card-tag { padding: 0.15rem 0.5rem; background: var(--accent-bg); color: var(--accent); border-radius: 4px; font-size: 0.75rem; }
+    .app-card-link { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; color: var(--accent); font-weight: 500; margin-top: 0.25rem; }
+
+    /* API中转技术流程 */
+    .pipeline-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.5rem; }
+    .pipeline-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 1rem; }
+    .pipeline-step { font-size: 0.78rem; color: var(--accent); font-weight: 700; margin-bottom: 0.35rem; }
+    .pipeline-title { font-size: 1rem; font-weight: 700; margin-bottom: 0.45rem; color: var(--text-primary); }
+    .pipeline-desc { color: var(--text-secondary); font-size: 0.86rem; line-height: 1.65; margin: 0; }
+    .pipeline-bullets { margin: 0.25rem 0 0; padding-left: 1.1rem; color: var(--text-secondary); font-size: 0.84rem; line-height: 1.6; }
+    @media (max-width: 1024px) {
+      .pipeline-grid { grid-template-columns: repeat(2, 1fr); }
+    }
     @media (max-width: 768px) {
-      .contact-grid { grid-template-columns: repeat(2, 1fr); }
+      .pipeline-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <!-- Navbar -->
-  <nav class="oc-navbar">
+  <nav class="oc-navbar nav-collapsible">
     <a href="/" class="oc-logo">
       <div class="oc-logo-icon">&gt;_</div>
       <span>OpenClaw <span style="font-weight:400;opacity:0.7;">API</span></span>
@@ -70,13 +136,15 @@
     </div>
     <div class="oc-nav-links">
       <a href="/" class="active">首页</a>
+      <a href="#pipeline">技术流程</a>
       <a href="#models">模型列表</a>
+      <a href="#apps">应用中心</a>
       <a href="/docs.html">文档</a>
       <a href="/console.html">控制台</a>
       <a href="#contact">联系我们</a>
     </div>
     <div class="oc-nav-right">
-      <a href="/console.html" class="btn-accent">立即接入</a>
+      <a href="/login.html?return_url=%2Fconsole.html&v=20260328" class="btn-accent">立即接入</a>
     </div>
   </nav>
 
@@ -84,10 +152,10 @@
   <section class="oc-hero">
     <div class="oc-hero-grid"></div>
     <div style="margin-bottom:1rem;">
-      <span style="background:linear-gradient(135deg,#10b981,#059669);color:white;padding:0.35rem 1rem;border-radius:2rem;font-size:0.85rem;font-weight:500;">正式上线</span>
+      <span class="hero-badge">正式上线</span>
     </div>
-    <h1 style="font-size:3rem;line-height:1.1;margin-bottom:1rem;">统一大模型 API 接口</h1>
-    <p style="font-size:1.15rem;max-width:640px;margin:0 auto 1.5rem;opacity:0.85;">一个 API Key，接入 GPT、Claude、DeepSeek、Qwen、Llama 等 200+ 模型。<br>三格式兼容，原生支持 Claude Code / Codex / Gemini CLI。</p>
+    <h1 class="hero-title">统一大模型 API 接口</h1>
+    <p class="hero-subtitle">一个 API Key，接入 GPT、Claude、DeepSeek、Qwen、Llama 等主流模型。<br>三格式兼容，原生支持 Claude Code / Codex / Gemini CLI。</p>
 
     <!-- 三格式徽章 -->
     <div style="margin-bottom:2rem;">
@@ -108,8 +176,8 @@
     <!-- 核心数据 -->
     <div class="hero-stats">
       <div class="hero-stat">
-        <div class="hero-stat-value">200+</div>
-        <div class="hero-stat-label">可用模型</div>
+        <div class="hero-stat-value">丰富</div>
+        <div class="hero-stat-label">模型生态</div>
       </div>
       <div class="hero-stat">
         <div class="hero-stat-value">99.9%</div>
@@ -121,16 +189,16 @@
       </div>
     </div>
 
-    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:1.5rem;">
-      <a href="/console.html" class="btn-accent" style="padding:0.85rem 2.5rem;font-size:1rem;">免费接入</a>
+    <div class="hero-actions">
+      <a href="/login.html?return_url=%2Fconsole.html&v=20260328" class="btn-accent" style="padding:0.85rem 2.5rem;font-size:1rem;">免费接入</a>
       <a href="/docs.html" class="btn-outline" style="padding:0.85rem 2.5rem;font-size:1rem;">API 文档</a>
     </div>
   </section>
 
   <!-- 三格式支持 + CLI -->
   <section class="oc-container" style="padding-top:4rem;">
-    <h2 style="text-align:center;margin-bottom:1rem;font-size:1.75rem;">三种 API 格式 + 三大 CLI 全兼容</h2>
-    <p style="text-align:center;color:var(--text-muted);margin-bottom:2rem;">SDK 替换 base_url 即可切换 — 原生支持 Claude Code、Codex、Gemini CLI</p>
+    <h2 class="section-title" style="margin-bottom:1rem;">三种 API 格式 + 三大 CLI 全兼容</h2>
+    <p class="section-subtitle" style="margin-bottom:2rem;">SDK 替换 base_url 即可切换，原生支持 Claude Code、Codex、Gemini CLI</p>
 
     <div class="api-toggle">
       <button class="active" onclick="showCode('anthropic')">Anthropic</button>
@@ -236,14 +304,17 @@ wire_api = "responses"
 env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
 
 <span style="color:#6b7280;"># 设置环境变量</span>
-<span style="color:#6b7280;"># export OPENCLAW_API_KEY=sk-your-api-key</span></code></pre>
+<span style="color:#6b7280;"># export OPENCLAW_API_KEY=sk-your-api-key</span>
+
+<span style="color:#6b7280;"># 注意：这是 Codex CLI 直连本站 API 的写法</span>
+<span style="color:#6b7280;"># 如果你要接官方 OpenClaw，请使用 openclaw onboard / models auth</span></code></pre>
       </div>
     </div>
   </section>
 
   <!-- 核心优势 -->
   <section class="oc-container" style="padding-top:4rem;">
-    <h2 style="text-align:center;margin-bottom:2.5rem;font-size:1.75rem;">为什么选择 OpenClaw</h2>
+    <h2 class="section-title" style="margin-bottom:2.5rem;">为什么选择 OpenClaw</h2>
     <div class="oc-grid oc-grid-3" style="margin-bottom:3rem;">
       <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
         <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f517;</div>
@@ -262,7 +333,7 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
       </div>
       <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
         <div style="font-size:2.5rem;margin-bottom:1rem;">&#x1f916;</div>
-        <h3 style="margin-bottom:0.75rem;">200+ 模型</h3>
+        <h3 style="margin-bottom:0.75rem;">模型生态</h3>
         <p style="color:var(--text-secondary);">GPT-4o、Claude 4.6、Gemini 2.5、DeepSeek、Qwen、Llama 全系列，一站式接入</p>
       </div>
       <div class="oc-card oc-feature" style="text-align:center;padding:2rem;">
@@ -278,11 +349,67 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
     </div>
   </section>
 
+  <!-- API中转技术流程 -->
+  <section class="oc-container" id="pipeline" style="padding-top:2rem;padding-bottom:4rem;">
+    <h2 class="section-title">API 中转技术 8 步</h2>
+    <p class="section-subtitle" style="max-width:860px;margin:0 auto 1rem;">入口接入、鉴权验证、限流排队、动态调度、上游调用、响应回传、容灾切换，构成完整请求处理链路。</p>
+    <div class="pipeline-grid">
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 1</div>
+        <div class="pipeline-title">入口接入</div>
+        <p class="pipeline-desc">用户请求抵达中转服务器，触发后续处理流程。</p>
+      </div>
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 2</div>
+        <div class="pipeline-title">鉴权验证</div>
+        <p class="pipeline-desc">校验 API Key 有效性、套餐余额及权限等级。</p>
+      </div>
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 3</div>
+        <div class="pipeline-title">智能限流</div>
+        <p class="pipeline-desc">通过动态速率限制防止上游账号过载，平衡系统压力。</p>
+      </div>
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 4</div>
+        <div class="pipeline-title">请求排队</div>
+        <p class="pipeline-desc">请求进入优先级队列等待调度，延迟主要由排队时长决定。</p>
+      </div>
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 5</div>
+        <div class="pipeline-title">动态调度（核心）</div>
+        <ul class="pipeline-bullets">
+          <li>地域优选：选择延迟最低可用区</li>
+          <li>额度分配：倾斜到余额充足账号</li>
+          <li>健康监测：自动隔离高风险账号</li>
+          <li>模型路由：按成本与质量策略路由</li>
+        </ul>
+      </div>
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 6</div>
+        <div class="pipeline-title">上游调用</div>
+        <p class="pipeline-desc">通过选定账号向官方 API 发起真实请求，可支持多层中转。</p>
+      </div>
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 7</div>
+        <div class="pipeline-title">响应回传</div>
+        <p class="pipeline-desc">AI 生成内容沿链路回传到用户端，可能叠加中转延迟。</p>
+      </div>
+      <div class="pipeline-card">
+        <div class="pipeline-step">STEP 8</div>
+        <div class="pipeline-title">容灾处理</div>
+        <p class="pipeline-desc">自动重试、熔断机制与账号切换，保障高可用与稳定体验。</p>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:1.4rem;">
+      <a href="/pipeline.html" class="btn-outline" style="padding:0.7rem 1.8rem;">查看完整技术流程说明</a>
+    </div>
+  </section>
+
   <!-- 可用模型列表（动态加载） -->
   <section class="oc-container" id="models" style="padding-top:2rem;padding-bottom:4rem;">
-    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">模型列表</h2>
-    <p style="text-align:center;color:var(--text-muted);margin-bottom:1rem;">实时从 API 加载，显示当前全部可用模型 — 价格单位 $/1M tokens</p>
-    <div style="text-align:center;margin-bottom:1rem;">
+    <h2 class="section-title">模型列表</h2>
+    <p class="section-subtitle" style="margin-bottom:1rem;">实时从 API 加载，显示当前全部可用模型，价格单位 $/1M tokens</p>
+    <div class="search-panel">
       <input id="model-search" class="oc-input" placeholder="搜索模型..." oninput="filterModels()" style="width:300px;display:inline-block;">
       <span id="model-count" style="margin-left:1rem;color:var(--text-muted);font-size:0.85rem;"></span>
     </div>
@@ -305,10 +432,40 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
     </div>
   </section>
 
+  <!-- 应用中心 -->
+  <section class="oc-container" id="apps" style="padding-top:2rem;padding-bottom:4rem;">
+    <h2 class="section-title">应用中心</h2>
+    <p class="section-subtitle">基于 OpenClaw API 构建的 AI 应用</p>
+    <div class="app-grid">
+      <a class="app-card" href="https://aippt.yunjunet.cn/" target="_blank" rel="noopener">
+        <div class="app-card-icon">📊</div>
+        <div class="app-card-name">AI 讲 PPT</div>
+        <div class="app-card-desc">上传 PPT，AI 自动解析内容并生成讲稿，支持多种大模型，一键导出演讲稿。</div>
+        <div class="app-card-tags">
+          <span class="app-card-tag">PPT 解析</span>
+          <span class="app-card-tag">演讲稿生成</span>
+          <span class="app-card-tag">多模型</span>
+        </div>
+        <span class="app-card-link">立即使用 →</span>
+      </a>
+      <a class="app-card" href="https://meeting.yunjunet.cn/" target="_blank" rel="noopener">
+        <div class="app-card-icon">🎙️</div>
+        <div class="app-card-name">AI 会议助手</div>
+        <div class="app-card-desc">实时会议录音转写、自动生成会议纪要与行动项，提升团队协作效率。</div>
+        <div class="app-card-tags">
+          <span class="app-card-tag">会议纪要</span>
+          <span class="app-card-tag">语音转写</span>
+          <span class="app-card-tag">行动项</span>
+        </div>
+        <span class="app-card-link">立即使用 →</span>
+      </a>
+    </div>
+  </section>
+
   <!-- 联系我们 -->
   <section class="oc-container" id="contact" style="padding-top:4rem;padding-bottom:2rem;">
-    <h2 style="text-align:center;margin-bottom:0.5rem;font-size:1.75rem;">联系我们</h2>
-    <p style="text-align:center;color:var(--text-muted);margin-bottom:0.5rem;">技术支持 &middot; 商务合作 &middot; 问题反馈，随时欢迎联系</p>
+    <h2 class="section-title">联系我们</h2>
+    <p class="section-subtitle" style="margin-bottom:0.5rem;">技术支持 &middot; 商务合作 &middot; 问题反馈，随时欢迎联系</p>
 
     <div class="contact-grid">
       <div class="contact-card" onclick="copyContact('2042132648')">
@@ -340,7 +497,7 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
 
   <!-- CTA -->
   <section class="oc-container" style="padding:4rem 0;">
-    <div class="oc-card" style="max-width:600px;margin:0 auto;text-align:center;padding:3rem;background:linear-gradient(135deg,var(--bg-secondary),var(--bg-primary));">
+    <div class="oc-card cta-panel">
       <h2 style="margin-bottom:1rem;">立即开始使用</h2>
       <p style="color:var(--text-secondary);margin-bottom:1.5rem;">免费注册，获得 $1 初始额度，体验全部模型</p>
       <a href="/console.html" class="btn-accent" style="padding:0.85rem 2.5rem;font-size:1rem;display:inline-block;">免费接入 →</a>
@@ -405,12 +562,8 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
       try {
         const res = await fetch('/api/models');
         allModelsList = await res.json();
-        // 填充供应商筛选
-        const providers = [...new Set(allModelsList.map(m => m.provider).filter(Boolean))].sort();
-        const sel = document.getElementById('model-provider-filter');
-        providers.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p; sel.appendChild(o); });
-        // 更新统计
-        document.querySelector('.hero-stat-value')?.textContent && updateModelCount();
+        // 首页当前没有供应商筛选器，避免空节点导致加载脚本报错
+        updateModelCount();
         filterModels();
       } catch(e) { console.error('加载模型失败', e); }
     })();
@@ -433,9 +586,7 @@ env_key = "<span style="color:#f59e0b;">OPENCLAW_API_KEY</span>"
 
     function filterModels() {
       const search = (document.getElementById('model-search')?.value || '').toLowerCase();
-      const provider = document.getElementById('model-provider-filter')?.value || '';
       const filtered = allModelsList.filter(m => {
-        if (provider && m.provider !== provider) return false;
         if (search && !m.model_id.toLowerCase().includes(search) && !m.display_name.toLowerCase().includes(search)) return false;
         return true;
       });

@@ -1,6 +1,9 @@
 /* OpenClaw API - API Client */
 const API_BASE = '/api';
-const SSO_LOGIN_URL = 'https://yunjunet.cn/login?return_url=' + encodeURIComponent(window.location.origin + '/console.html');
+function getLoginUrl() {
+  const next = window.location.pathname + window.location.search;
+  return `/login.html?return_url=` + encodeURIComponent(next || '/console.html');
+}
 
 const api = {
   // 动态获取 token，每次请求时重新读取
@@ -22,7 +25,7 @@ const api = {
     const res = await fetch(API_BASE + path, { ...opts, headers });
     if (res.status === 401) {
       this.clearToken();
-      window.location.href = SSO_LOGIN_URL;
+      window.location.href = getLoginUrl();
       throw new Error('未登录');
     }
     const data = await res.json();
@@ -94,7 +97,7 @@ const api = {
     const q = new URLSearchParams(params).toString();
     return this.get('/admin/users' + (q ? '?' + q : ''));
   },
-  adminCharge(user_id, amount, remark) { return this.post('/admin/charge', { user_id, amount, remark }); },
+  adminCharge(user_id, amount, remark, balance_type = 'wallet') { return this.post('/admin/charge', { user_id, amount, remark, balance_type }); },
   adminGetModels() { return this.get('/admin/models'); },
   adminUpdateModel(id, data) { return this.put('/admin/models/' + id, data); },
   adminCreateModel(data) { return this.post('/admin/models', data); },
@@ -104,6 +107,26 @@ const api = {
   adminDeleteProvider(id) { return this.del('/admin/providers/' + id); },
   adminDeleteModel(id) { return this.del('/admin/models/' + id); },
   adminGetUserDetail(userId) { return this.get('/admin/users/' + userId); },
+  adminCcclubMessages(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get('/admin/ccclub/messages' + (q ? '?' + q : ''));
+  },
+  adminSendCcclubMessagesEmail(payload) {
+    return this.post('/admin/ccclub/messages/send-email', payload);
+  },
+  adminCcclubLatencyTest(payload) {
+    return this.post('/admin/ccclub/test-latency', payload);
+  },
+  adminGetRequestDebugTraces(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get('/admin/request-debug/traces' + (q ? '?' + q : ''));
+  },
+  adminGetRequestDebugTrace(requestId) {
+    return this.get('/admin/request-debug/traces/' + requestId);
+  },
+  adminRunRequestDebug(payload) {
+    return this.post('/admin/request-debug/run', payload);
+  },
 };
 
 // Check SSO callback token
@@ -169,7 +192,7 @@ function formatDate(d) {
 function requireAuth() {
   const token = localStorage.getItem('token') || localStorage.getItem('openclaw_token');
   if (!token) {
-    window.location.href = SSO_LOGIN_URL;
+    window.location.href = getLoginUrl();
     return false;
   }
   return true;

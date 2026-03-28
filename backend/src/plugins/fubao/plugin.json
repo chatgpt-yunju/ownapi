@@ -1,0 +1,9 @@
+{
+  "name": "fubao",
+  "displayName": "福报评估",
+  "description": "福报评估平台 - 任务管理与个人档案",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/fubao"
+}

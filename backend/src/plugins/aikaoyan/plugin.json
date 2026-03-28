@@ -1,0 +1,9 @@
+{
+  "name": "aikaoyan",
+  "displayName": "AI考研真题",
+  "description": "考研真题市场：学校/专业/真题管理、订单、VIP会员、邮件发送",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/aikaoyan"
+}

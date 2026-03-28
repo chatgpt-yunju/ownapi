@@ -1,0 +1,9 @@
+{
+  "name": "ai-image",
+  "displayName": "AI图片生成",
+  "description": "通过AI生成图片，支持游客体验1次",
+  "version": "1.0.0",
+  "quotaCost": 1,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/ai-image"
+}

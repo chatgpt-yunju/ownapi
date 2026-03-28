@@ -1,0 +1,341 @@
+const db = require('../../config/db');
+const {
+  classifyModelCategory,
+  normalizeModelCategory,
+} = require('./utils/billing');
+
+module.exports = async function migrate() {
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_models (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    model_id VARCHAR(100) NOT NULL UNIQUE,
+    display_name VARCHAR(200),
+    provider VARCHAR(50),
+    input_price_per_1k DECIMAL(10,6) DEFAULT 0,
+    output_price_per_1k DECIMAL(10,6) DEFAULT 0,
+    status ENUM('active','inactive') DEFAULT 'active',
+    sort_order INT DEFAULT 0
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+  await db.query("ALTER TABLE openclaw_models ADD COLUMN price_currency VARCHAR(10) DEFAULT 'CNY'").catch(() => {});
+  await db.query("ALTER TABLE openclaw_models ADD COLUMN upstream_model_id VARCHAR(200) DEFAULT NULL").catch(() => {});
+  await db.query("ALTER TABLE openclaw_models ADD COLUMN upstream_endpoint VARCHAR(500) DEFAULT NULL").catch(() => {});
+  await db.query("ALTER TABLE openclaw_models ADD COLUMN upstream_key VARCHAR(500) DEFAULT NULL").catch(() => {});
+  await db.query("ALTER TABLE openclaw_models ADD COLUMN billing_mode ENUM('token','per_call') NOT NULL DEFAULT 'token'").catch(() => {});
+  await db.query('ALTER TABLE openclaw_models ADD COLUMN per_call_price DECIMAL(12,6) DEFAULT NULL').catch(() => {});
+  await db.query("ALTER TABLE openclaw_models ADD COLUMN model_category ENUM('language','image','vision','audio','coding') NOT NULL DEFAULT 'language'").catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_api_keys (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    key_hash VARCHAR(255) NOT NULL,
+    key_prefix VARCHAR(20),
+    name VARCHAR(100),
+    balance DECIMAL(12,4) DEFAULT 0,
+    status ENUM('active','disabled') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_request_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT,
+    api_key_id INT,
+    model VARCHAR(100),
+    input_tokens INT DEFAULT 0,
+    output_tokens INT DEFAULT 0,
+    cost DECIMAL(10,6) DEFAULT 0,
+    status VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  // CC Club key 冷却记录：记录每个 key 的重置时间，未到期自动禁用，到期自动启用
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_ccclub_key_resets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    key_fingerprint CHAR(64) NOT NULL UNIQUE,
+    provider_name VARCHAR(100) DEFAULT '',
+    base_url VARCHAR(500) DEFAULT '',
+    reset_at DATETIME NOT NULL,
+    status ENUM('cooldown','ready') DEFAULT 'cooldown',
+    last_status_code INT DEFAULT NULL,
+    last_error_message TEXT,
+    last_seen_at DATETIME DEFAULT NOW(),
+    cooldown_notified_at DATETIME DEFAULT NULL,
+    recovered_notified_at DATETIME DEFAULT NULL,
+    created_at DATETIME DEFAULT NOW(),
+    updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+    INDEX idx_status_reset (status, reset_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+  await db.query('ALTER TABLE openclaw_ccclub_key_resets ADD COLUMN cooldown_notified_at DATETIME DEFAULT NULL').catch(() => {});
+  await db.query('ALTER TABLE openclaw_ccclub_key_resets ADD COLUMN recovered_notified_at DATETIME DEFAULT NULL').catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_packages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100),
+    type VARCHAR(50),
+    price DECIMAL(10,2),
+    balance DECIMAL(12,4) DEFAULT 0,
+    models_allowed TEXT,
+    status ENUM('active','inactive') DEFAULT 'active'
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_user_packages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    package_id INT NOT NULL,
+    status ENUM('active','expired') DEFAULT 'active',
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  // users 表加 ai-gateway 所需列
+  await db.query('ALTER TABLE users ADD COLUMN extra_quota DECIMAL(12,4) DEFAULT 0').catch(() => {});
+  await db.query('ALTER TABLE users ADD COLUMN vip_level INT DEFAULT 0').catch(() => {});
+  await db.query('ALTER TABLE users ADD COLUMN balance DECIMAL(12,4) DEFAULT 0').catch(() => {});
+
+  // 充值订单表
+  await db.query(`CREATE TABLE IF NOT EXISTS recharge_orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    out_trade_no VARCHAR(64) NOT NULL UNIQUE,
+    user_id INT NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    quota DECIMAL(12,4) DEFAULT 0,
+    bonus_quota DECIMAL(12,4) DEFAULT 0,
+    status ENUM('pending','paid','failed','refunded') DEFAULT 'pending',
+    order_type VARCHAR(30) DEFAULT 'recharge',
+    trade_no VARCHAR(100),
+    paid_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_trade (out_trade_no)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  // 余额日志表
+  await db.query(`CREATE TABLE IF NOT EXISTS balance_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    amount DECIMAL(12,6) NOT NULL,
+    balance_before DECIMAL(12,6) DEFAULT 0,
+    balance_after DECIMAL(12,6) DEFAULT 0,
+    type VARCHAR(30),
+    description VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_wallet (
+    user_id INT NOT NULL PRIMARY KEY,
+    balance DECIMAL(12,6) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_balance_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    balance_type ENUM('quota','wallet') NOT NULL DEFAULT 'quota',
+    amount DECIMAL(12,6) NOT NULL,
+    balance_before DECIMAL(12,6) DEFAULT 0,
+    balance_after DECIMAL(12,6) DEFAULT 0,
+    type VARCHAR(30),
+    description VARCHAR(500),
+    detail_json LONGTEXT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_balance_type (balance_type),
+    INDEX idx_user_balance_type (user_id, balance_type)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  // 精度升级：DECIMAL(12,2) → DECIMAL(12,6)，匹配 billing.js MIN_COST=0.000001
+  await db.query('ALTER TABLE openclaw_quota MODIFY COLUMN balance DECIMAL(12,6) NOT NULL DEFAULT 0').catch(() => {});
+  await db.query('ALTER TABLE openclaw_wallet MODIFY COLUMN balance DECIMAL(12,6) NOT NULL DEFAULT 0').catch(() => {});
+  await db.query('ALTER TABLE balance_logs MODIFY COLUMN amount DECIMAL(12,6) NOT NULL').catch(() => {});
+  await db.query('ALTER TABLE balance_logs MODIFY COLUMN balance_before DECIMAL(12,6) DEFAULT 0').catch(() => {});
+  await db.query('ALTER TABLE balance_logs MODIFY COLUMN balance_after DECIMAL(12,6) DEFAULT 0').catch(() => {});
+  await db.query('ALTER TABLE openclaw_balance_logs MODIFY COLUMN amount DECIMAL(12,6) NOT NULL').catch(() => {});
+  await db.query('ALTER TABLE openclaw_balance_logs MODIFY COLUMN balance_before DECIMAL(12,6) DEFAULT 0').catch(() => {});
+  await db.query('ALTER TABLE openclaw_balance_logs MODIFY COLUMN balance_after DECIMAL(12,6) DEFAULT 0').catch(() => {});
+  await db.query("ALTER TABLE openclaw_balance_logs ADD COLUMN balance_type ENUM('quota','wallet') NOT NULL DEFAULT 'quota' AFTER user_id").catch(() => {});
+  await db.query('ALTER TABLE openclaw_balance_logs ADD COLUMN detail_json LONGTEXT DEFAULT NULL AFTER description').catch(() => {});
+
+  await db.query("ALTER TABLE openclaw_call_logs ADD COLUMN billing_mode ENUM('token','per_call') DEFAULT 'token'").catch(() => {});
+  await db.query("ALTER TABLE openclaw_call_logs ADD COLUMN charged_balance_type ENUM('quota','wallet') DEFAULT NULL").catch(() => {});
+  await db.query('ALTER TABLE openclaw_call_logs ADD COLUMN charged_amount DECIMAL(12,6) DEFAULT 0').catch(() => {});
+
+  // 供应商端点表：一个供应商可绑定多个 base_url + api_key
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_provider_endpoints (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    provider_id INT NOT NULL,
+    base_url VARCHAR(500) NOT NULL,
+    api_key VARCHAR(500) NOT NULL,
+    weight INT DEFAULT 1,
+    status ENUM('active','disabled') DEFAULT 'active',
+    remark VARCHAR(200) DEFAULT NULL,
+    created_at DATETIME DEFAULT NOW(),
+    INDEX idx_provider (provider_id, status)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  // 将现有 provider 的 base_url+api_key 迁移到 endpoints 表（幂等）
+  try {
+    const [providers] = await db.query(
+      'SELECT id, base_url, api_key FROM openclaw_providers WHERE base_url IS NOT NULL AND api_key IS NOT NULL'
+    );
+    for (const p of providers) {
+      const [[exists]] = await db.query(
+        'SELECT id FROM openclaw_provider_endpoints WHERE provider_id = ? AND api_key = ? LIMIT 1',
+        [p.id, p.api_key]
+      );
+      if (!exists) {
+        await db.query(
+          'INSERT INTO openclaw_provider_endpoints (provider_id, base_url, api_key) VALUES (?, ?, ?)',
+          [p.id, p.base_url, p.api_key]
+        );
+      }
+    }
+  } catch (e) { console.error('[migrate] provider endpoints migration:', e.message); }
+
+  // 合并重复供应商（nvidia-2→nvidia, ccclub-2→ccclub-1 等）
+  const mergeMap = {
+    'nvidia-2': 'nvidia', 'nvidia-3': 'nvidia',
+    'ccclub-2': 'ccclub-1', 'ccclub-openai-2': 'ccclub-openai-1'
+  };
+  for (const [oldName, newName] of Object.entries(mergeMap)) {
+    try {
+      const [[oldP]] = await db.query('SELECT id FROM openclaw_providers WHERE name = ?', [oldName]);
+      const [[newP]] = await db.query('SELECT id FROM openclaw_providers WHERE name = ?', [newName]);
+      if (!oldP || !newP) continue;
+      // 迁移 endpoints 到目标供应商
+      await db.query('UPDATE openclaw_provider_endpoints SET provider_id = ? WHERE provider_id = ?', [newP.id, oldP.id]);
+      // 迁移 model_providers 引用
+      // 先删除已存在的映射（避免 unique 冲突）
+      const [existingMPs] = await db.query(
+        'SELECT model_id FROM openclaw_model_providers WHERE provider_id = ?', [newP.id]
+      );
+      const existingModelIds = new Set(existingMPs.map(r => r.model_id));
+      await db.query(
+        'DELETE FROM openclaw_model_providers WHERE provider_id = ? AND model_id IN (?)',
+        [oldP.id, existingMPs.length ? existingMPs.map(r => r.model_id) : [0]]
+      ).catch(() => {});
+      await db.query('UPDATE openclaw_model_providers SET provider_id = ? WHERE provider_id = ?', [newP.id, oldP.id]).catch(() => {});
+      // 禁用旧供应商
+      await db.query('UPDATE openclaw_providers SET status = "disabled" WHERE id = ?', [oldP.id]);
+    } catch (e) { console.error(`[migrate] merge ${oldName}→${newName}:`, e.message); }
+  }
+
+  // 将仍在旧 upstream 表中生效的 CC Club OpenAI 绑定同步到 provider 体系，
+  // 避免 /v1/responses 仅依赖新表时拿不到可用端点。
+  try {
+    const providerName = 'ccclub-openai';
+    const providerDisplayName = 'CC Club OpenAI';
+    const [legacyCcclubRows] = await db.query(
+      `SELECT DISTINCT u.model_id, u.base_url, u.api_key, u.upstream_model_id, u.weight
+       FROM openclaw_model_upstreams u
+       JOIN openclaw_models m ON m.id = u.model_id
+       WHERE u.status = 'active'
+         AND m.status = 'active'
+         AND u.api_key IS NOT NULL AND u.api_key <> ''
+         AND (
+           u.provider_name LIKE 'ccclub-openai%'
+           OR u.base_url LIKE '%claude-code.club/openai%'
+         )`
+    );
+
+    if (legacyCcclubRows.length > 0) {
+      const primaryBaseUrl = legacyCcclubRows[0].base_url;
+      const primaryApiKey = legacyCcclubRows[0].api_key;
+
+      let providerId;
+      const [[existingProvider]] = await db.query(
+        'SELECT id FROM openclaw_providers WHERE name = ? LIMIT 1',
+        [providerName]
+      );
+
+      if (existingProvider) {
+        providerId = existingProvider.id;
+        await db.query(
+          `UPDATE openclaw_providers
+           SET display_name = ?, base_url = ?, api_key = ?
+           WHERE id = ?`,
+          [providerDisplayName, primaryBaseUrl, primaryApiKey, providerId]
+        );
+      } else {
+        const [insertProvider] = await db.query(
+          `INSERT INTO openclaw_providers
+            (name, display_name, base_url, api_key, weight, status, sort_order)
+           VALUES (?, ?, ?, ?, 1, 'active', 0)`,
+          [providerName, providerDisplayName, primaryBaseUrl, primaryApiKey]
+        );
+        providerId = insertProvider.insertId;
+      }
+
+      for (const row of legacyCcclubRows) {
+        const [[existingEndpoint]] = await db.query(
+          `SELECT id
+           FROM openclaw_provider_endpoints
+           WHERE provider_id = ? AND base_url = ? AND api_key = ?
+           LIMIT 1`,
+          [providerId, row.base_url, row.api_key]
+        );
+
+        if (existingEndpoint) {
+          await db.query(
+            `UPDATE openclaw_provider_endpoints
+             SET weight = ?
+             WHERE id = ?`,
+            [row.weight || 1, existingEndpoint.id]
+          );
+        } else {
+          await db.query(
+            `INSERT INTO openclaw_provider_endpoints
+              (provider_id, base_url, api_key, weight, status, remark)
+             VALUES (?, ?, ?, ?, 'active', 'synced-from-legacy-upstreams')`,
+            [providerId, row.base_url, row.api_key, row.weight || 1]
+          );
+        }
+
+        const [[existingBinding]] = await db.query(
+          `SELECT id
+           FROM openclaw_model_providers
+           WHERE model_id = ? AND provider_id = ?
+           LIMIT 1`,
+          [row.model_id, providerId]
+        );
+
+        if (existingBinding) {
+          await db.query(
+            `UPDATE openclaw_model_providers
+             SET weight = ?, upstream_model_id = ?
+             WHERE id = ?`,
+            [row.weight || 1, row.upstream_model_id, existingBinding.id]
+          );
+        } else {
+          await db.query(
+            `INSERT INTO openclaw_model_providers
+              (model_id, provider_id, weight, status, upstream_model_id)
+             VALUES (?, ?, ?, 'active', ?)`,
+            [row.model_id, providerId, row.weight || 1, row.upstream_model_id]
+          );
+        }
+
+      }
+    }
+  } catch (e) {
+    console.error('[migrate] ccclub-openai provider sync:', e.message);
+  }
+
+  try {
+    const [models] = await db.query('SELECT id, model_id, provider, model_category, billing_mode, per_call_price FROM openclaw_models');
+    for (const model of models) {
+      const currentCategory = normalizeModelCategory(model.model_category);
+      const detectedCategory = classifyModelCategory(model.model_id, model.provider);
+      const nextCategory = currentCategory === 'language' && detectedCategory !== 'language'
+        ? detectedCategory
+        : currentCategory;
+      const nextBillingMode = model.billing_mode === 'per_call' ? 'per_call' : 'token';
+      const nextPerCallPrice = model.per_call_price == null ? null : Number(model.per_call_price);
+      await db.query(
+        'UPDATE openclaw_models SET model_category = ?, billing_mode = ?, per_call_price = ? WHERE id = ?',
+        [nextCategory, nextBillingMode, nextPerCallPrice, model.id]
+      );
+    }
+  } catch (e) {
+    console.error('[migrate] model billing/category backfill:', e.message);
+  }
+};

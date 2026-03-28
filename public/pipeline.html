@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API中转技术8步 - OpenClaw API</title>
+  <meta name="description" content="API中转核心技术流程：入口、鉴权、限流、排队、调度、上游调用、响应回传、容灾处理。">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    .pipeline-wrap { max-width: 1180px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+    .pipeline-hero { position: relative; overflow: hidden; padding: 2.4rem; margin-bottom: 2rem; }
+    .pipeline-hero::before { content: ''; position: absolute; inset: auto -8% -40% auto; width: 280px; height: 280px; border-radius: 50%; background: radial-gradient(circle, rgba(255,95,207,0.2), rgba(255,95,207,0)); pointer-events: none; }
+    .pipeline-eyebrow { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.48rem 0.85rem; border-radius: 999px; border: 1px solid rgba(116,245,255,0.2); background: rgba(8,24,41,0.66); color: #dffaff; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .pipeline-eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #29d6b0, #74f5ff); box-shadow: 0 0 10px rgba(116,245,255,0.65); }
+    .pipeline-title { font-family: var(--font-display); font-size: 2.4rem; margin: 1rem 0 0.8rem; line-height: 1.08; max-width: 860px; }
+    .pipeline-intro { color: var(--text-secondary); line-height: 1.8; margin-bottom: 1.25rem; max-width: 760px; }
+    .pipeline-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1.4rem; }
+    .pipeline-kpi { padding: 1rem 1.1rem; }
+    .pipeline-kpi-value { font-family: var(--font-display); font-size: 1.4rem; color: var(--accent-light); margin-bottom: 0.3rem; }
+    .pipeline-kpi-label { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .pipeline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .pipeline-step-card { border: 1px solid var(--border-color); background: var(--bg-card); border-radius: 18px; padding: 1.2rem 1.2rem 1.15rem; position: relative; overflow: hidden; }
+    .pipeline-step-card::before { content: ''; position: absolute; inset: 0 auto auto 0; width: 100%; height: 2px; background: var(--gradient-primary); opacity: 0.8; }
+    .pipeline-step-no { display: inline-flex; align-items: center; justify-content: center; min-width: 84px; height: 28px; padding: 0 0.8rem; border-radius: 999px; background: rgba(0,199,255,0.12); color: var(--accent-light); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 0.8rem; }
+    .pipeline-step-card h3 { margin: 0 0 0.45rem; font-size: 1.08rem; }
+    .pipeline-step-card p { margin: 0; color: var(--text-secondary); line-height: 1.75; font-size: 0.92rem; }
+    .pipeline-step-card ul { margin: 0.55rem 0 0; padding-left: 1.2rem; color: var(--text-secondary); line-height: 1.7; font-size: 0.9rem; }
+    .pipeline-footer { margin-top: 1.5rem; color: var(--text-secondary); line-height: 1.8; }
+    .pipeline-reference { margin-top: 1.8rem; padding: 1.35rem; }
+    .ref-list { margin-top: 0.7rem; padding-left: 1.2rem; }
+    .ref-list li { margin: 0.35rem 0; }
+    .ref-list a { color: var(--accent); }
+    @media (max-width: 900px) {
+      .pipeline-grid { grid-template-columns: 1fr; }
+      .pipeline-kpis { grid-template-columns: 1fr; }
+      .pipeline-title { font-size: 2rem; }
+      .pipeline-hero { padding: 1.4rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="oc-navbar nav-collapsible">
+    <a href="/" class="oc-logo">
+      <div class="oc-logo-icon">&gt;_</div>
+      <span>OpenClaw <span style="font-weight:400;opacity:0.7;">API</span></span>
+    </a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')">
+      <span></span><span></span><span></span>
+    </div>
+    <div class="oc-nav-links">
+      <a href="/">首页</a>
+      <a href="/pipeline.html" class="active">技术流程</a>
+      <a href="/docs.html">文档</a>
+      <a href="/console.html">控制台</a>
+    </div>
+    <div class="oc-nav-right">
+      <a href="/console.html" class="btn-accent">立即接入</a>
+    </div>
+  </nav>
+
+  <section class="pipeline-wrap">
+    <section class="oc-card pipeline-hero">
+      <div class="pipeline-eyebrow">System Flow</div>
+      <h1 class="pipeline-title">API 中转的核心技术 8 步</h1>
+      <p class="pipeline-intro">从入口接入到容灾切换，中转平台不是简单转发，而是一条包含鉴权、限流、调度、回传与保护机制的完整请求链路。每一步都直接影响稳定性、延迟和成本结构。</p>
+      <div class="pipeline-kpis">
+        <div class="oc-card pipeline-kpi">
+          <div class="pipeline-kpi-value">8 Steps</div>
+          <div class="pipeline-kpi-label">处理链路</div>
+        </div>
+        <div class="oc-card pipeline-kpi">
+          <div class="pipeline-kpi-value">Routing</div>
+          <div class="pipeline-kpi-label">动态调度核心</div>
+        </div>
+        <div class="oc-card pipeline-kpi">
+          <div class="pipeline-kpi-value">Failover</div>
+          <div class="pipeline-kpi-label">容灾保护</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="pipeline-grid">
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 01</div>
+        <h3>入口接入</h3>
+        <p>用户请求首先抵达中转入口，协议识别、请求格式校验与基础元信息提取都从这里开始，相当于整条链路的网关门厅。</p>
+      </div>
+
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 02</div>
+        <h3>鉴权验证</h3>
+        <p>平台校验 API Key、套餐权限、余额状态与模型访问范围，确保请求来自合法主体，且具备当前资源条件。</p>
+      </div>
+
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 03</div>
+        <h3>智能限流</h3>
+        <p>通过用户级、模型级和上游级多层速率限制，防止流量冲击穿透到供应侧，同时维持整体系统的平稳响应。</p>
+      </div>
+
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 04</div>
+        <h3>请求排队</h3>
+        <p>请求进入优先级队列，等待资源窗口释放。用户感知到的延迟，往往就发生在这个排队和等待调度的阶段。</p>
+      </div>
+
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 05</div>
+        <h3>动态调度</h3>
+        <ul>
+          <li>地域优选：选择延迟更低的可用区或节点</li>
+          <li>额度分配：优先分发到资源充足的上游账号</li>
+          <li>健康监测：隔离风险节点，减少失败扩散</li>
+          <li>模型路由：按成本、能力与策略做请求映射</li>
+        </ul>
+      </div>
+
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 06</div>
+        <h3>上游调用</h3>
+        <p>调度完成后，平台以选定身份和协议向真实上游发起请求。在一些场景里，还会存在多层代理或再转发结构。</p>
+      </div>
+
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 07</div>
+        <h3>响应回传</h3>
+        <p>模型生成结果沿链路回传给用户端，流式与非流式格式会在这一层完成统一封装，确保客户端接口行为稳定。</p>
+      </div>
+
+      <div class="pipeline-step-card">
+        <div class="pipeline-step-no">STEP 08</div>
+        <h3>容灾处理</h3>
+        <ul>
+          <li>自动重试：失败请求切换备用账号重新发起</li>
+          <li>熔断机制：异常节点快速隔离，防止雪崩</li>
+          <li>无缝切换：尽量将故障吸收在系统内部</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="pipeline-footer">技术本质：通过协议转换层实现多模型统一接口，用工程化手段将账号资源利用率最大化，同时隐藏复杂度。每个环节的算法优化直接影响损耗率与利润空间，是商业竞争力的技术基石。</p>
+
+    <section class="oc-card pipeline-reference">
+      <h2 style="font-size:1.25rem;">工程参考</h2>
+      <ul class="ref-list">
+        <li><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-usage-plans.html" target="_blank" rel="noopener">AWS API Gateway - API Keys 与 Usage Plans</a></li>
+        <li><a href="https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html" target="_blank" rel="noopener">AWS API Gateway - Throttling</a></li>
+        <li><a href="https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/circuit_breaking" target="_blank" rel="noopener">Envoy - Circuit Breaking</a></li>
+        <li><a href="https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/outlier" target="_blank" rel="noopener">Envoy - Outlier Detection</a></li>
+        <li><a href="https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling" target="_blank" rel="noopener">Azure - Queue-Based Load Leveling Pattern</a></li>
+      </ul>
+    </section>
+  </section>
+
+  <footer class="oc-footer" style="padding:2rem 0;text-align:center;border-top:1px solid var(--border-color);">
+    <div style="display:flex;justify-content:center;gap:2rem;flex-wrap:wrap;margin-bottom:1rem;font-size:0.9rem;">
+      <a href="/" style="color:var(--text-secondary);">首页</a>
+      <a href="/pipeline.html" style="color:var(--text-secondary);">技术流程</a>
+      <a href="/docs.html" style="color:var(--text-secondary);">API 文档</a>
+      <a href="/console.html" style="color:var(--text-secondary);">控制台</a>
+    </div>
+    <p style="color:var(--text-muted);font-size:0.8rem;">&copy; 2024-2026 OpenClaw API</p>
+  </footer>
+</body>
+</html>

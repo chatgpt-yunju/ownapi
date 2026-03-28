@@ -1,0 +1,9 @@
+{
+  "name": "aippt",
+  "displayName": "AI PPT",
+  "description": "AI智能PPT生成与转换",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/aippt"
+}

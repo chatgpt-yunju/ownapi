@@ -1,0 +1,9 @@
+{
+  "name": "study-cases",
+  "displayName": "赚钱案例库",
+  "description": "全网赚钱案例采集与查询，支持平台/关键词筛选，每4小时自动采集",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/study-cases"
+}

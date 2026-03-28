@@ -7,8 +7,13 @@
   <link rel="stylesheet" href="/css/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
+    .docs-shell { display:flex; max-width:1280px; margin:0 auto; padding:2rem; gap:2rem; align-items:flex-start; }
+    .docs-hero { margin-bottom: 2rem; padding: 2rem; position: relative; overflow: hidden; }
+    .docs-hero::before { content:''; position:absolute; inset:auto -6% -35% auto; width:220px; height:220px; border-radius:50%; background:radial-gradient(circle, rgba(255,95,207,0.18), rgba(255,95,207,0)); pointer-events:none; }
+    .docs-hero h1 { font-family: var(--font-display); font-size: 2.1rem; margin-bottom: 0.75rem; }
+    .docs-hero p { color: var(--text-secondary); max-width: 760px; }
     .doc-section { margin-bottom: 3rem; }
-    .doc-section h2 { font-size: 1.5rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); }
+    .doc-section h2 { font-size: 1.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
     .doc-section h3 { font-size: 1.1rem; margin: 1.5rem 0 0.75rem; color: var(--accent-light); }
     .doc-method { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; font-family: var(--font-mono); margin-right: 0.5rem; }
     .doc-method.post { background: rgba(0,206,201,0.15); color: var(--success); }
@@ -16,13 +21,30 @@
     .doc-endpoint { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-primary); }
     .doc-param-table { width: 100%; margin: 0.75rem 0; font-size: 0.85rem; }
     .doc-param-table th { background: var(--bg-secondary); }
-    .doc-nav { position: sticky; top: 80px; }
-    .doc-nav a { display: block; padding: 0.4rem 0; font-size: 0.85rem; color: var(--text-secondary); }
-    .doc-nav a:hover { color: var(--accent-light); }
+    .doc-nav { position: sticky; top: 90px; width: 240px; flex-shrink: 0; padding: 1.2rem; border: 1px solid var(--border-color); border-radius: 20px; background: rgba(7, 21, 38, 0.76); backdrop-filter: blur(12px); }
+    .doc-nav a { display: block; padding: 0.55rem 0.75rem; font-size: 0.85rem; color: var(--text-secondary); border-radius: 12px; transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease; }
+    .doc-nav a:hover,
+    .doc-nav a:focus-visible { color: var(--accent-light); background: rgba(0, 199, 255, 0.1); transform: translateX(2px); }
+    .doc-main { flex:1; min-width:0; }
+    .doc-meta-grid { margin-top:1rem; display:flex; gap:1rem; flex-wrap:wrap; }
+    .doc-meta-card { flex:1; min-width:200px; padding:1rem; }
+    .doc-main .oc-code { margin-top: 0.9rem; border-radius: 18px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 16px 32px rgba(2,12,24,0.28); }
+    .doc-main .oc-code pre { line-height: 1.75; }
+    .doc-main .copy-btn { top: 0.75rem; right: 0.75rem; }
+    @media (max-width: 960px) {
+      .docs-shell { flex-direction: column; padding: 1rem; }
+      .doc-nav { position: static; width: 100%; }
+    }
+    @media (max-width: 560px) {
+      .docs-hero { padding: 1.25rem; }
+      .docs-hero h1 { font-size: 1.65rem; }
+      .doc-nav { padding: 0.8rem; }
+      .doc-nav a { padding: 0.7rem 0.8rem; }
+    }
   </style>
 </head>
 <body>
-  <nav class="oc-navbar">
+  <nav class="oc-navbar nav-collapsible">
     <a href="/" class="oc-logo">
       <div class="oc-logo-icon">&gt;_</div>
       OpenClaw API
@@ -38,11 +60,12 @@
     </div>
   </nav>
 
-  <div style="display:flex;max-width:1200px;margin:0 auto;padding:2rem;gap:3rem;">
+  <div class="docs-shell">
     <!-- Sidebar Nav -->
-    <aside style="width:200px;flex-shrink:0;" class="doc-nav">
+    <aside class="doc-nav">
       <div class="oc-sidebar-section">快速开始</div>
       <a href="#intro">简介</a>
+      <a href="#openclaw-guide">OpenClaw 正确接入</a>
       <a href="#auth">认证方式</a>
       <a href="#quickstart">快速接入</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">API 参考</div>
@@ -52,17 +75,44 @@
       <a href="#models">模型列表</a>
       <a href="#streaming">流式输出</a>
       <a href="#responses">Responses API</a>
-      <div class="oc-sidebar-section" style="margin-top:1rem;">集成指南</div>
+      <div class="oc-sidebar-section" style="margin-top:1rem;">CLI 工具</div>
       <a href="#claude-code">Claude Code CLI</a>
       <a href="#codex-cli">Codex CLI</a>
       <a href="#gemini-cli">Gemini CLI</a>
+      <div class="oc-sidebar-section" style="margin-top:1rem;">GUI 客户端</div>
+      <a href="#cherry-studio">Cherry Studio</a>
+      <a href="#nextchat">NextChat</a>
+      <a href="#lobechat">LobeChat</a>
+      <a href="#chatbox">ChatBox</a>
+      <div class="oc-sidebar-section" style="margin-top:1rem;">IDE 插件</div>
+      <a href="#cursor">Cursor / Windsurf</a>
+      <a href="#cline">Cline (VS Code)</a>
+      <a href="#continue">Continue</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">其他</div>
       <a href="#errors">错误码</a>
       <a href="#limits">限制说明</a>
     </aside>
 
     <!-- Content -->
-    <main style="flex:1;min-width:0;">
+    <main class="doc-main">
+      <section class="oc-card docs-hero">
+        <h1>API 文档中心</h1>
+        <p>围绕 OpenAI、Anthropic、Gemini 三套协议做统一接入说明，保留工程视角下的快速上手、请求格式、流式输出与 CLI 集成能力。</p>
+        <div class="doc-meta-grid">
+          <div class="oc-card doc-meta-card">
+            <div style="font-size:0.8rem;color:var(--text-muted);">协议兼容</div>
+            <div style="font-family:var(--font-mono);margin-top:0.3rem;">OpenAI / Anthropic / Gemini</div>
+          </div>
+          <div class="oc-card doc-meta-card">
+            <div style="font-size:0.8rem;color:var(--text-muted);">推荐入口</div>
+            <div style="font-family:var(--font-mono);margin-top:0.3rem;">https://api.yunjunet.cn</div>
+          </div>
+          <div class="oc-card doc-meta-card">
+            <div style="font-size:0.8rem;color:var(--text-muted);">输出能力</div>
+            <div style="font-family:var(--font-mono);margin-top:0.3rem;">JSON / SSE / CLI</div>
+          </div>
+        </div>
+      </section>
       <div class="doc-section" id="intro">
         <h2>简介</h2>
         <p style="color:var(--text-secondary);">OpenClaw API 同时兼容 <strong>OpenAI Chat Completions / Responses</strong>、<strong>Anthropic Messages</strong> 和 <strong>Gemini</strong> 三种 API 格式，支持多种主流大语言模型。原生支持 <strong>Claude Code CLI</strong>、<strong>Codex CLI</strong>、<strong>Gemini CLI</strong> 以及 OpenAI / Anthropic SDK 直接接入。</p>
@@ -79,6 +129,130 @@
             <div style="font-size:0.8rem;color:var(--text-muted);">响应格式</div>
             <div style="font-family:var(--font-mono);margin-top:0.25rem;">JSON / SSE</div>
           </div>
+        </div>
+      </div>
+
+      <div class="doc-section" id="openclaw-guide">
+        <h2>OpenClaw 正确接入</h2>
+        <p style="color:var(--text-secondary);">这里需要先区分两个不同概念：<strong>官方 OpenClaw</strong> 是独立的 CLI / Gateway 产品；<strong>本站 OpenClaw API</strong> 是 <code>https://api.yunjunet.cn</code> 提供的 OpenAI / Anthropic / Gemini 兼容网关。两者接入方式不同，不要混用。</p>
+
+        <h3>A. 官方 OpenClaw（openclaw.ai）当前推荐接法</h3>
+        <p style="color:var(--text-secondary);">根据 OpenClaw 官方文档，当前推荐流程是先安装 CLI，再运行 onboarding，随后通过 provider 登录并把默认模型设为 <code>provider/model</code> 格式。</p>
+        <div style="background:rgba(0,199,255,0.08);border:1px solid rgba(0,199,255,0.22);border-radius:12px;padding:1rem;margin:0.9rem 0 1rem;">
+          <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
+            <strong style="color:var(--accent-light);">官方文档：</strong>
+            <a href="https://docs.openclaw.ai/" target="_blank" rel="noopener" style="color:var(--accent-light);">首页</a> /
+            <a href="https://docs.openclaw.ai/providers/openai" target="_blank" rel="noopener" style="color:var(--accent-light);">OpenAI / Codex</a> /
+            <a href="https://docs.openclaw.ai/providers/anthropic" target="_blank" rel="noopener" style="color:var(--accent-light);">Anthropic / Claude</a><br>
+            <strong style="color:var(--accent-light);">最后核验：</strong> 2026-03-28
+          </p>
+        </div>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># macOS / Linux / WSL
+curl -fsSL https://openclaw.ai/install.sh | bash
+
+# 初始化并安装后台服务
+openclaw onboard --install-daemon
+
+# 检查 Gateway
+openclaw gateway status
+
+# 打开控制台
+openclaw dashboard</pre></div>
+
+        <p style="color:var(--text-secondary);margin-top:0.75rem;">按 CC Club 的 OpenClaw 配置方式，核心是配置目录 <code>~/.openclaw/</code> 下的两个文件：</p>
+        <div class="oc-code"><pre style="margin:0;">~/.openclaw/
+├── openclaw.json
+└── agents/main/agent/auth-profiles.json</pre></div>
+
+        <p style="color:var(--text-secondary);margin-top:0.75rem;">第一步：把 API Key 写入 <code>auth-profiles.json</code>：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">{
+  "version": 1,
+  "profiles": {
+    "anthropic:default": {
+      "type": "api_key",
+      "provider": "anthropic",
+      "key": "你的CC-Club-API-Key"
+    }
+  },
+  "lastGood": {
+    "anthropic": "anthropic:default"
+  }
+}</pre></div>
+
+        <p style="color:var(--text-secondary);margin-top:0.75rem;">第二步：在 <code>~/.openclaw/openclaw.json</code> 中配置默认模型和自定义 <code>baseUrl</code>：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-6"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "anthropic": {
+        "baseUrl": "https://claude-code.club/api",
+        "models": []
+      }
+    }
+  }
+}</pre></div>
+
+        <p style="color:var(--text-secondary);margin-top:0.75rem;">也可以通过命令行写入 API Key：</p>
+        <div class="oc-code"><pre style="margin:0;">openclaw onboard --auth-choice apiKey --anthropic-api-key 你的CC-Club-API-Key</pre></div>
+
+        <div style="background:rgba(255,95,95,0.08);border:1px solid rgba(255,95,95,0.24);border-radius:12px;padding:1rem;margin:1rem 0 1.5rem;">
+          <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
+            <strong style="color:#ff8b8b;">避免误配：</strong><br>
+            &#8226; CC Club 场景下，关键不是 <code>OPENCLAW_API_KEY + base_url</code> 这种单一环境变量写法，而是 <code>~/.openclaw/</code> 目录配置<br>
+            &#8226; <code>auth-profiles.json</code> 负责保存 API Key，<code>openclaw.json</code> 负责配置模型和 <code>baseUrl</code><br>
+            &#8226; <code>models.providers.anthropic.models</code> 必须写成空数组 <code>[]</code>，省略会触发配置校验错误<br>
+            &#8226; 默认模型要写成 <code>provider/model</code>，例如 <code>anthropic/claude-sonnet-4-6</code>
+          </p>
+        </div>
+
+        <h3>B. 本站 OpenClaw API（api.yunjunet.cn）接入</h3>
+        <p style="color:var(--text-secondary);">如果你要接入的是本站 API 网关，而不是官方 OpenClaw CLI，可以参考 <a href="https://docs.openclaw.ai/" target="_blank" rel="noopener" style="color:var(--accent-light);">OpenClaw 官方文档</a> 的接入结构，但实际参数请以下面的本站网关地址与认证方式为准。</p>
+
+        <h3>1. 获取 API Key</h3>
+        <p style="color:var(--text-secondary);">到 <a href="/console.html" style="color:var(--accent-light);">控制台</a> 创建 API Key（以 <code>sk-</code> 开头），创建后仅显示一次，请妥善保管。</p>
+
+        <h3>2. 选择接入方式</h3>
+        <p style="color:var(--text-secondary);">根据你使用的工具，选择对应的接入方式：</p>
+        <table class="oc-table doc-param-table" style="margin-top:0.5rem;">
+          <thead><tr><th>工具 / 客户端</th><th>协议</th><th>文档</th></tr></thead>
+          <tbody>
+            <tr><td>Claude Code CLI</td><td>Anthropic Messages</td><td><a href="#claude-code" style="color:var(--accent-light);">查看配置 →</a></td></tr>
+            <tr><td>Codex CLI（OpenAI）</td><td>Responses API</td><td><a href="#codex-cli" style="color:var(--accent-light);">查看配置 →</a></td></tr>
+            <tr><td>Gemini CLI</td><td>Gemini API</td><td><a href="#gemini-cli" style="color:var(--accent-light);">查看配置 →</a></td></tr>
+            <tr><td>Cherry Studio / LobeChat / NextChat</td><td>OpenAI Chat</td><td><a href="#cherry-studio" style="color:var(--accent-light);">查看配置 →</a></td></tr>
+            <tr><td>Cursor / Windsurf</td><td>OpenAI Chat</td><td><a href="#cursor" style="color:var(--accent-light);">查看配置 →</a></td></tr>
+            <tr><td>Cline / Continue（VS Code）</td><td>OpenAI / Anthropic</td><td><a href="#cline" style="color:var(--accent-light);">查看配置 →</a></td></tr>
+          </tbody>
+        </table>
+
+        <h3>3. 通用接入参数</h3>
+        <p style="color:var(--text-secondary);">所有客户端填写以下参数即可接入：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># OpenAI 兼容格式（适用于大多数客户端）
+API Base URL: https://api.yunjunet.cn/v1
+API Key:      sk-your-api-key
+
+# Anthropic 格式（Claude Code CLI / Cline / LobeChat Anthropic 模式）
+API Base URL: https://api.yunjunet.cn
+API Key:      sk-your-api-key
+
+# Gemini 格式（Gemini CLI）
+Base URL:     https://api.yunjunet.cn/v1beta/
+API Key:      sk-your-api-key</pre></div>
+
+        <div style="background:rgba(0,199,255,0.08);border:1px solid rgba(0,199,255,0.22);border-radius:12px;padding:1rem;margin-bottom:1.5rem;">
+          <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
+            <strong style="color:var(--accent-light);">关键说明：</strong><br>
+            &#8226; OpenAI 格式 Base URL 含 <code>/v1</code>，Anthropic 格式不含<br>
+            &#8226; 平台上所有模型均支持全部三种协议格式，自动完成格式转换<br>
+            &#8226; 模型 ID 直接使用控制台中显示的 ID，如 <code>claude-sonnet-4-6</code>、<code>deepseek-chat</code>
+          </p>
         </div>
       </div>
 
@@ -175,7 +349,7 @@ console.log(completion.choices[0].message.content);</pre></div>
       <div class="doc-section" id="messages">
         <h2>Messages API（Anthropic 兼容）</h2>
         <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1/messages</span></p>
-        <p style="color:var(--text-secondary);margin-top:0.5rem;">完全兼容 Anthropic Messages API 格式，支持 Claude Code CLI、Anthropic SDK 等原生客户端直接接入。所有模型（包括 OpenAI、DeepSeek、NVIDIA 等非 Anthropic 模型）均可通过此端点调用，平台自动完成格式转换。</p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">完全兼容 Anthropic Messages API 格式，支持 Claude Code CLI、Anthropic SDK 等原生客户端直接接入。所有模型（包括 OpenAI、DeepSeek、GPT 等非 Anthropic 模型）均可通过此端点调用，平台自动完成格式转换。</p>
 
         <h3>请求参数</h3>
         <table class="oc-table doc-param-table">
@@ -241,7 +415,7 @@ event: message_stop
 data: {"type":"message_stop"}</pre></div>
 
         <h3>格式自动转换</h3>
-        <p style="color:var(--text-secondary);">通过 <code>/v1/messages</code> 端点调用非 Anthropic 模型（如 DeepSeek、GPT、NVIDIA）时，平台自动完成双向格式转换：</p>
+        <p style="color:var(--text-secondary);">通过 <code>/v1/messages</code> 端点调用非 Anthropic 模型（如 DeepSeek、GPT）时，平台自动完成双向格式转换：</p>
         <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
           <li>请求：Anthropic Messages 格式 → OpenAI Chat Completions 格式（含 tool_use 转换）</li>
           <li>响应：OpenAI 格式 → Anthropic Messages 格式（含 SSE 事件流转换）</li>
@@ -391,8 +565,8 @@ data: {"candidates":[{"content":{"parts":[{"text":""}],"role":"model"},"finishRe
       </div>
 
       <div class="doc-section" id="codex-cli">
-        <h2>Codex CLI 接入（OpenAI）</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 完全兼容 <a href="https://github.com/openai/codex" style="color:var(--accent-light);">OpenAI Codex CLI</a>（OpenAI 官方编程助手），您可以使用 OpenClaw 的 API Key 接入平台上的所有模型。</p>
+        <h2>Codex CLI 直连本站 API（OpenAI）</h2>
+        <p style="color:var(--text-secondary);">这一节讲的是 <a href="https://github.com/openai/codex" style="color:var(--accent-light);">OpenAI Codex CLI</a> 如何直连本站 API 网关，不是官方 OpenClaw CLI 的配置方式。</p>
 
         <h3>配置文件</h3>
         <p style="color:var(--text-secondary);">编辑 <code>~/.codex/config.toml</code>：</p>
@@ -600,6 +774,220 @@ for chunk in stream:
           <li>余额为 0 时将无法发起新的 API 调用</li>
         </ul>
       </div>
+
+      <!-- ===== GUI 客户端 ===== -->
+
+      <div class="doc-section" id="cherry-studio">
+        <h2>Cherry Studio 接入</h2>
+        <p style="color:var(--text-secondary);"><a href="https://cherry-ai.com" style="color:var(--accent-light);">Cherry Studio</a> 是国内最流行的多模型桌面客户端，支持 Windows / macOS / Linux。通过添加自定义服务商即可接入本站所有模型。</p>
+
+        <h3>配置步骤</h3>
+        <ol style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>打开 Cherry Studio → 左下角 <strong>设置</strong> → <strong>模型服务</strong></li>
+          <li>点击 <strong>添加服务商</strong>，类型选择 <strong>OpenAI</strong>（兼容格式）</li>
+          <li>填写以下信息：</li>
+        </ol>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">服务商名称: OpenClaw API
+API 地址:   https://api.yunjunet.cn/v1
+API Key:    sk-your-api-key</pre></div>
+        <ol start="4" style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>点击 <strong>检查</strong> 验证连通性，成功后点击保存</li>
+          <li>在模型列表中手动添加需要的模型 ID（如 <code>claude-sonnet-4-6</code>、<code>deepseek-chat</code>）</li>
+        </ol>
+
+        <div style="background:rgba(0,199,255,0.08);border:1px solid rgba(0,199,255,0.22);border-radius:12px;padding:1rem;margin-top:1rem;">
+          <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
+            <strong style="color:var(--accent-light);">提示：</strong> Cherry Studio 支持从 <code>/v1/models</code> 自动拉取模型列表，在服务商设置中勾选"自动获取模型"即可。
+          </p>
+        </div>
+      </div>
+
+      <div class="doc-section" id="nextchat">
+        <h2>NextChat（ChatGPT-Next-Web）接入</h2>
+        <p style="color:var(--text-secondary);"><a href="https://github.com/ChatGPTNextWeb/ChatGPT-Next-Web" style="color:var(--accent-light);">NextChat</a> 是最广泛使用的开源 ChatGPT Web 界面，支持自定义 API 端点。</p>
+
+        <h3>Web 版配置（推荐）</h3>
+        <ol style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>进入 NextChat 设置页面（右下角齿轮图标）</li>
+          <li>找到 <strong>OpenAI API Key</strong>，填入你的 API Key</li>
+          <li>找到 <strong>接口地址（API Endpoint）</strong>，填写：</li>
+        </ol>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">接口地址: https://api.yunjunet.cn
+API Key:  sk-your-api-key
+自定义模型: claude-sonnet-4-6,deepseek-chat,gpt-4o</pre></div>
+
+        <h3>自部署环境变量</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">OPENAI_API_KEY=sk-your-api-key
+BASE_URL=https://api.yunjunet.cn
+CUSTOM_MODELS=claude-sonnet-4-6,deepseek-chat,gpt-4o,gpt-4o-mini</pre></div>
+
+        <div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.25);border-radius:8px;padding:1rem;margin-top:1rem;">
+          <p style="color:var(--text-secondary);font-size:0.85rem;margin:0;">
+            <strong style="color:var(--warning);">&#9888; 注意：</strong> 接口地址填写 <code>https://api.yunjunet.cn</code>（不含 /v1），NextChat 会自动拼接路径。
+          </p>
+        </div>
+      </div>
+
+      <div class="doc-section" id="lobechat">
+        <h2>LobeChat 接入</h2>
+        <p style="color:var(--text-secondary);"><a href="https://github.com/lobehub/lobe-chat" style="color:var(--accent-light);">LobeChat</a> 是功能丰富的现代 AI 聊天框架，支持多种模型提供商配置。</p>
+
+        <h3>界面配置（Web/Desktop）</h3>
+        <ol style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>进入 <strong>设置</strong> → <strong>AI 服务商</strong> → <strong>OpenAI</strong></li>
+          <li>填写配置信息：</li>
+        </ol>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">API Key:    sk-your-api-key
+代理地址:   https://api.yunjunet.cn/v1</pre></div>
+        <ol start="3" style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>开启 <strong>自定义模型</strong>，手动输入模型 ID（如 <code>claude-sonnet-4-6</code>）</li>
+          <li>保存并在对话中选择对应模型</li>
+        </ol>
+
+        <h3>自部署环境变量</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">OPENAI_API_KEY=sk-your-api-key
+OPENAI_PROXY_URL=https://api.yunjunet.cn/v1
+OPENAI_MODEL_LIST=claude-sonnet-4-6,claude-haiku-4-5,deepseek-chat,gpt-4o</pre></div>
+
+        <h3>Anthropic 直连（推荐 Claude 模型）</h3>
+        <p style="color:var(--text-secondary);">LobeChat 也支持直连 Anthropic 格式，使用 Claude 模型体验更完整：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">设置 → AI 服务商 → Anthropic
+API Key:  sk-your-api-key
+API 地址: https://api.yunjunet.cn</pre></div>
+      </div>
+
+      <div class="doc-section" id="chatbox">
+        <h2>ChatBox 接入</h2>
+        <p style="color:var(--text-secondary);"><a href="https://chatboxai.app" style="color:var(--accent-light);">ChatBox</a> 是一款跨平台 AI 桌面客户端（Windows / macOS / Linux / iOS / Android）。</p>
+
+        <h3>配置步骤</h3>
+        <ol style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>打开 ChatBox → <strong>设置</strong> → <strong>模型</strong></li>
+          <li>AI 服务提供方选择 <strong>OpenAI API</strong></li>
+          <li>填写配置：</li>
+        </ol>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">OpenAI API 域名: https://api.yunjunet.cn
+API Key:         sk-your-api-key
+模型:            claude-sonnet-4-6（或任意平台模型 ID）</pre></div>
+        <ol start="4" style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>保存后直接使用</li>
+        </ol>
+      </div>
+
+      <!-- ===== IDE 插件 ===== -->
+
+      <div class="doc-section" id="cursor">
+        <h2>Cursor / Windsurf 接入</h2>
+        <p style="color:var(--text-secondary);">Cursor 和 Windsurf 均为基于 VS Code 的 AI 代码编辑器，支持通过覆盖 OpenAI 接口地址接入本站 API。</p>
+
+        <h3>Cursor 配置</h3>
+        <ol style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>打开 <strong>Cursor Settings</strong>（<code>Ctrl/Cmd + Shift + J</code>）</li>
+          <li>进入 <strong>Models</strong> 选项卡</li>
+          <li>在 <strong>OpenAI API Key</strong> 填入你的 Key，并开启 <strong>Override OpenAI Base URL</strong></li>
+        </ol>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">OpenAI API Key:       sk-your-api-key
+Override Base URL:    https://api.yunjunet.cn/v1</pre></div>
+        <ol start="4" style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>在模型选择器中添加自定义模型名（如 <code>claude-sonnet-4-6</code>）</li>
+        </ol>
+
+        <h3>Windsurf 配置</h3>
+        <ol style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>打开 <strong>Windsurf Settings</strong> → <strong>Windsurf AI</strong></li>
+          <li>选择 <strong>OpenAI</strong> 作为 provider</li>
+          <li>填写配置：</li>
+        </ol>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">API Key:  sk-your-api-key
+Base URL: https://api.yunjunet.cn/v1
+Model:    claude-sonnet-4-6</pre></div>
+
+        <div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.25);border-radius:8px;padding:1rem;margin-top:1rem;">
+          <p style="color:var(--text-secondary);font-size:0.85rem;margin:0;">
+            <strong style="color:var(--warning);">&#9888; 注意：</strong> Cursor 的 AI 补全（Tab 键）与 Chat 功能走不同的后端通道，自定义接口主要影响 Chat 和 Composer 功能；代码补全功能仍会使用 Cursor 自己的服务。
+          </p>
+        </div>
+      </div>
+
+      <div class="doc-section" id="cline">
+        <h2>Cline（VS Code 插件）接入</h2>
+        <p style="color:var(--text-secondary);"><a href="https://github.com/cline/cline" style="color:var(--accent-light);">Cline</a> 是 VS Code 中功能最强大的 AI 编码 Agent 插件，支持完整的文件编辑、命令执行和浏览器操作。</p>
+
+        <h3>配置步骤</h3>
+        <ol style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
+          <li>在 VS Code 中安装 <strong>Cline</strong> 插件</li>
+          <li>点击侧边栏 Cline 图标 → 右上角设置齿轮</li>
+          <li>API Provider 选择 <strong>OpenAI Compatible</strong></li>
+          <li>填写以下配置：</li>
+        </ol>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">API Provider:  OpenAI Compatible
+Base URL:      https://api.yunjunet.cn/v1
+API Key:       sk-your-api-key
+Model ID:      claude-sonnet-4-6</pre></div>
+
+        <h3>使用 Anthropic 格式（推荐）</h3>
+        <p style="color:var(--text-secondary);">如需使用 Claude 的完整能力（tool use、扩展 context 等），选择 Anthropic 格式：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">API Provider:   Anthropic
+Base URL:       https://api.yunjunet.cn
+API Key:        sk-your-api-key
+Model:          claude-sonnet-4-6</pre></div>
+
+        <div style="background:rgba(0,199,255,0.08);border:1px solid rgba(0,199,255,0.22);border-radius:12px;padding:1rem;margin-top:1rem;">
+          <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
+            <strong style="color:var(--accent-light);">推荐：</strong> Cline 配合 Claude Sonnet 4.6 效果最佳，支持完整的 tool use 和 computer use 协议。
+          </p>
+        </div>
+      </div>
+
+      <div class="doc-section" id="continue">
+        <h2>Continue（VS Code / JetBrains）接入</h2>
+        <p style="color:var(--text-secondary);"><a href="https://continue.dev" style="color:var(--accent-light);">Continue</a> 是开源 AI 编码助手，支持 VS Code 和所有 JetBrains IDE，通过配置文件接入自定义 API。</p>
+
+        <h3>配置文件（~/.continue/config.json）</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">{
+  "models": [
+    {
+      "title": "Claude Sonnet (OpenClaw)",
+      "provider": "openai",
+      "model": "claude-sonnet-4-6",
+      "apiKey": "sk-your-api-key",
+      "apiBase": "https://api.yunjunet.cn/v1"
+    },
+    {
+      "title": "DeepSeek Chat (OpenClaw)",
+      "provider": "openai",
+      "model": "deepseek-chat",
+      "apiKey": "sk-your-api-key",
+      "apiBase": "https://api.yunjunet.cn/v1"
+    }
+  ],
+  "tabAutocompleteModel": {
+    "title": "Autocomplete",
+    "provider": "openai",
+    "model": "deepseek-chat",
+    "apiKey": "sk-your-api-key",
+    "apiBase": "https://api.yunjunet.cn/v1"
+  }
+}</pre></div>
+
+        <h3>使用 Anthropic 格式</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">{
+  "models": [
+    {
+      "title": "Claude Sonnet (Anthropic)",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "apiKey": "sk-your-api-key",
+      "apiBase": "https://api.yunjunet.cn"
+    }
+  ]
+}</pre></div>
+
+        <h3>打开配置文件</h3>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># VS Code：Ctrl/Cmd+Shift+P，输入：Continue: Open config.json
+# 或直接编辑
+~/.continue/config.json</pre></div>
+      </div>
     </main>
   </div>
 
@@ -609,6 +997,30 @@ for chunk in stream:
 
   <script src="/js/api.js"></script>
   <script>
+    function copyText(text) {
+      navigator.clipboard.writeText(text).then(() => alert('已复制到剪贴板'));
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const links = Array.from(document.querySelectorAll('.doc-nav a[href^="#"]'));
+      const sections = links.map(link => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+
+      function syncActiveLink() {
+        let activeId = sections[0]?.id || '';
+        for (const section of sections) {
+          if (section.getBoundingClientRect().top <= 140) activeId = section.id;
+        }
+        links.forEach(link => {
+          const active = link.getAttribute('href') === `#${activeId}`;
+          link.style.background = active ? 'rgba(0, 199, 255, 0.12)' : '';
+          link.style.color = active ? 'var(--accent-light)' : '';
+        });
+      }
+
+      window.addEventListener('scroll', syncActiveLink, { passive: true });
+      syncActiveLink();
+    });
+
     (async function() {
       try {
         const models = await api.getModels();

@@ -1,0 +1,9 @@
+{
+  "name": "opc",
+  "displayName": "一人公司",
+  "description": "OnePersonClaw一人公司管理",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/opc"
+}

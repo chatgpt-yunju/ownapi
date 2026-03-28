@@ -1,0 +1,9 @@
+{
+  "name": "aijob",
+  "displayName": "AI求职匹配",
+  "description": "简历分析与岗位智能匹配",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": false,
+  "routePrefix": "/api/plugins/aijob"
+}

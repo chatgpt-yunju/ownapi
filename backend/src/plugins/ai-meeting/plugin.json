@@ -1,0 +1,9 @@
+{
+  "name": "ai-meeting",
+  "displayName": "AI员工会议",
+  "description": "5位AI员工角色进行头脑风暴会议，SSE流式输出",
+  "version": "1.0.0",
+  "quotaCost": 0,
+  "requireAuth": true,
+  "routePrefix": "/api/plugins/ai-meeting"
+}
