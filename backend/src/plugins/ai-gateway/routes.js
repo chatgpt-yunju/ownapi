@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const compression = require('compression');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../../config/db');
 const { authMiddleware } = require('./middleware/auth');
@@ -43,6 +44,9 @@ async function attachRequestTrace(req, _res, next) {
   req.aiGatewayEntryTraced = true;
   next();
 }
+
+// gzip 压缩：仅压缩非流式响应（SSE text/event-stream 自动跳过），> 512B 才压缩
+router.use(compression({ threshold: 512 }));
 
 // 请求日志
 router.use('/v1', (req, res, next) => {

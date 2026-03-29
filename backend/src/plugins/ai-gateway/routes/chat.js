@@ -20,8 +20,8 @@ const { extractUpstreamErrorMessage } = require('../utils/upstreamError');
 
 // ── HTTP Keep-Alive：复用 TCP 连接，降低上游请求延迟 ──────────────────────
 const axiosInstance = axios.create({
-  httpAgent: new http.Agent({ keepAlive: true, maxSockets: 100, maxFreeSockets: 20 }),
-  httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 100, maxFreeSockets: 20 }),
+  httpAgent: new http.Agent({ keepAlive: true, maxSockets: 200, maxFreeSockets: 50 }),
+  httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 200, maxFreeSockets: 50 }),
 });
 
 const MODEL_CACHE_TTL = 10 * 60 * 1000;          // 模型配置缓存 10 分钟
@@ -66,7 +66,7 @@ async function getProviderEndpoints(modelConfig) {
   if (cached !== undefined) return cached;
 
   const [endpoints] = await db.query(
-    `SELECT pe.id, p.name AS provider_name, pe.base_url, pe.api_key, mp.upstream_model_id, pe.weight
+    `SELECT pe.id, p.name AS provider_name, p.base_url AS provider_base_url, pe.base_url, pe.api_key, mp.upstream_model_id, pe.weight
      FROM openclaw_model_providers mp
      JOIN openclaw_providers p ON mp.provider_id = p.id
      JOIN openclaw_provider_endpoints pe ON pe.provider_id = p.id
@@ -75,8 +75,10 @@ async function getProviderEndpoints(modelConfig) {
     [modelConfig.id]
   );
   if (endpoints.length > 0) {
-    await cache.set(cacheKey, endpoints, UPSTREAM_CACHE_TTL);
-    return endpoints;
+    const compatibleEndpoints = endpoints.filter((endpoint) => isCompatibleProviderEndpoint(endpoint.provider_base_url, endpoint.base_url));
+    const result = compatibleEndpoints.length > 0 ? compatibleEndpoints : endpoints;
+    await cache.set(cacheKey, result, UPSTREAM_CACHE_TTL);
+    return result;
   }
 
   const [legacy] = await db.query(
@@ -205,6 +207,41 @@ function setHeaderIfPresent(headers, name, value) {
   headers[name] = Array.isArray(value) ? value.join(',') : String(value);
 }
 
+const FORWARDED_OPENAI_CLIENT_HEADERS = [
+  'openai-beta',
+  'user-agent',
+  'x-openai-client-user-agent',
+  'x-openai-meta-client-version',
+  'x-openai-meta-language',
+  'x-openai-meta-platform',
+  'x-openai-meta-runtime',
+  'x-openai-meta-runtime-version',
+  'x-openai-meta-os',
+  'x-openai-meta-arch',
+  'x-client-version',
+  'x-codex-cli-version',
+  'x-codex-client-user-agent',
+];
+
+const FORWARDED_OPENAI_CLIENT_HEADER_PREFIXES = [
+  'x-codex-',
+  'x-stainless-',
+  'x-openai-',
+];
+
+function withForwardedOpenAIClientHeaders(req, headers) {
+  const merged = { ...headers };
+  for (const name of FORWARDED_OPENAI_CLIENT_HEADERS) {
+    setHeaderIfPresent(merged, name, req.headers[name]);
+  }
+  for (const [name, value] of Object.entries(req.headers || {})) {
+    if (FORWARDED_OPENAI_CLIENT_HEADERS.includes(name)) continue;
+    if (!FORWARDED_OPENAI_CLIENT_HEADER_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
+    setHeaderIfPresent(merged, name, value);
+  }
+  return merged;
+}
+
 function buildAnthropicUpstreamHeaders(req, apiKey, betas) {
   const headers = {
     'x-api-key': apiKey,
@@ -273,6 +310,20 @@ function selectUpstream(upstreams) {
     if (r <= 0) return u;
   }
   return best[0];
+}
+
+function endpointFlavor(baseUrl) {
+  const normalized = String(baseUrl || '').replace(/\/+$/, '').toLowerCase();
+  if (normalized.includes('/openai')) return 'openai';
+  if (normalized.includes('/api')) return 'api';
+  return 'generic';
+}
+
+function isCompatibleProviderEndpoint(providerBaseUrl, endpointBaseUrl) {
+  const providerFlavor = endpointFlavor(providerBaseUrl);
+  const endpointFlavorValue = endpointFlavor(endpointBaseUrl);
+  if (providerFlavor === 'generic' || endpointFlavorValue === 'generic') return true;
+  return providerFlavor === endpointFlavorValue;
 }
 
 function normalizeUpstreamProviderName(providerName) {
@@ -1002,6 +1053,7 @@ router.post('/chat/completions', async (req, res) => {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       };
+      headers = withForwardedOpenAIClientHeaders(req, headers);
     }
 
     await debug.step(5, 'success', {
@@ -1904,7 +1956,7 @@ router.post('/messages', async (req, res) => {
         }));
       }
 
-      const headers = { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+      const headers = withForwardedOpenAIClientHeaders(req, { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' });
 
       if (stream) {
         await debug.step(6, 'pending', {
