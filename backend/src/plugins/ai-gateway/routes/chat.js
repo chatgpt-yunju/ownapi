@@ -27,6 +27,7 @@ const axiosInstance = axios.create({
 const MODEL_CACHE_TTL = 10 * 60 * 1000;          // 模型配置缓存 10 分钟
 const UPSTREAM_CACHE_TTL = 10 * 60 * 1000;       // 上游配置缓存 10 分钟
 const MONTHLY_QUOTA_CACHE_TTL = 5 * 60 * 1000;  // 月度限额缓存 5 分钟
+const PKG_LIMITS_CACHE_TTL = 10 * 60 * 1000;    // 套餐限额字段缓存 10 分钟
 const PRE_RESERVE = 0.01;
 
 function hasQuotaCoverageAfterMonthlyLimit(billingContext) {
@@ -92,6 +93,26 @@ async function getProviderEndpoints(modelConfig) {
   );
   await cache.set(cacheKey, legacy, UPSTREAM_CACHE_TTL);
   return legacy;
+}
+
+// 查用户套餐限额字段（daily_limit/monthly_quota/started_at），Redis 缓存 10 分钟
+// /v1/chat/completions 与 /v1/messages 共用，避免重复全量 DB 查询
+async function getUserPackageLimits(userId) {
+  const cacheKey = `pkglimits:${userId}`;
+  const cached = await cache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const [[row]] = await db.query(
+    `SELECT p.daily_limit, p.monthly_quota, up.started_at, up.expires_at
+     FROM openclaw_user_packages up
+     JOIN openclaw_packages p ON up.package_id = p.id
+     WHERE up.user_id = ? AND up.status = 'active'
+       AND (up.expires_at IS NULL OR up.expires_at > NOW())
+     ORDER BY up.started_at DESC LIMIT 1`,
+    [userId]
+  );
+  const result = row || null;
+  await cache.set(cacheKey, result, PKG_LIMITS_CACHE_TTL);
+  return result;
 }
 
 async function getAvailableUpstreams(modelConfig) {
@@ -890,16 +911,9 @@ router.post('/chat/completions', async (req, res) => {
   const billingMeta = reservation.billing;
   const billingContext = reservation.billingContext;
 
-  // 检查月度调用次数限制（聚合查询缓存 5 分钟，减少全表扫描）
+  // 检查月度调用次数限制（聚合查询缓存 5 分钟，套餐字段缓存 10 分钟）
   try {
-    const [[userPkg]] = await db.query(
-      `SELECT p.daily_limit, p.monthly_quota, up.started_at, up.expires_at
-       FROM openclaw_user_packages up
-       JOIN openclaw_packages p ON up.package_id = p.id
-       WHERE up.user_id = ? AND up.status = 'active' AND (up.expires_at IS NULL OR up.expires_at > NOW())
-       ORDER BY up.started_at DESC LIMIT 1`,
-      [req.apiUserId]
-    );
+    const userPkg = await getUserPackageLimits(req.apiUserId);
     if (userPkg) {
       const monthStart = userPkg.started_at || new Date(Date.now() - 30 * 24 * 3600000);
       const needCallLimit = !!userPkg.daily_limit;
@@ -1675,37 +1689,54 @@ router.post('/messages', async (req, res) => {
   const billingMeta2 = reservation.billing;
   const billingContext2 = reservation.billingContext;
 
- // 检查月度配额限制
- try {
- const [[userPkg]] = await db.query(
- `SELECT p.daily_limit, p.monthly_quota, up.started_at, up.expires_at
- FROM openclaw_user_packages up
- JOIN openclaw_packages p ON up.package_id = p.id
- WHERE up.user_id = ? AND up.status = 'active' AND (up.expires_at IS NULL OR up.expires_at > NOW())
- ORDER BY up.started_at DESC LIMIT 1`,
- [req.apiUserId]
- );
- if (userPkg) {
- const monthStart = userPkg.started_at || new Date(Date.now() - 30 * 24 * 3600000);
- if (userPkg.monthly_quota && billingMeta2.billingMode === 'token') {
- const [[monthCost]] = await db.query(
- 'SELECT COALESCE(SUM(total_cost), 0) as cost FROM openclaw_call_logs WHERE user_id = ? AND created_at >= ? AND status = "success"',
- [req.apiUserId, monthStart]
- );
- const quota = Number(userPkg.monthly_quota);
- const used = Number(monthCost.cost);
- console.log(`[Messages Limit] User ${req.apiUserId}: quota $${used.toFixed(4)}/$${quota.toFixed(2)}`);
- if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext2)) {
- await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
- await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 月度配额超限，释放预留余额');
- await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
- return res.status(429).json({ type: 'error', error: { type: 'rate_limit_error', message: `月度配额已用尽（$${used.toFixed(4)}/$${quota.toFixed(2)}）。请购买加油包或升级套餐以增加配额。` } });
- }
- }
- }
- } catch (err) {
- console.error('[Messages Limit Check Error]:', err);
- }
+  // 检查月度配额限制（套餐字段缓存 10 分钟，聚合查询缓存 5 分钟，与 chat.completions 共享缓存）
+  try {
+    const userPkg = await getUserPackageLimits(req.apiUserId);
+    if (userPkg) {
+      const monthStart = userPkg.started_at || new Date(Date.now() - 30 * 24 * 3600000);
+      const needCallLimit = !!userPkg.daily_limit;
+      const needCostLimit = !!(userPkg.monthly_quota && billingMeta2.billingMode === 'token');
+
+      if (needCallLimit || needCostLimit) {
+        const yearMonth = new Date(monthStart).toISOString().slice(0, 7);
+        const monthCacheKey = `monthly:${req.apiUserId}:${yearMonth}`;
+        let monthlyStats = await cache.get(monthCacheKey);
+        if (monthlyStats === undefined) {
+          const [[row]] = await db.query(
+            `SELECT COUNT(*) AS cnt, COALESCE(SUM(total_cost), 0) AS cost
+             FROM openclaw_call_logs
+             WHERE user_id = ? AND created_at >= ? AND status = 'success'`,
+            [req.apiUserId, monthStart]
+          );
+          monthlyStats = { cnt: Number(row.cnt), cost: Number(row.cost) };
+          await cache.set(monthCacheKey, monthlyStats, MONTHLY_QUOTA_CACHE_TTL);
+        }
+
+        if (needCallLimit) {
+          const monthlyCallLimit = userPkg.daily_limit * 30;
+          if (monthlyStats.cnt >= monthlyCallLimit) {
+            await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: monthlyStats.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
+            await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 调用次数超限，释放预留余额');
+            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0));
+            return res.status(429).json({ type: 'error', error: { type: 'rate_limit_error', message: `月度调用次数已达上限（${monthlyStats.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以提升限额。` } });
+          }
+        }
+
+        if (needCostLimit) {
+          const quota = Number(userPkg.monthly_quota);
+          const used = monthlyStats.cost;
+          if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext2)) {
+            await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
+            await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 月度配额超限，释放预留余额');
+            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
+            return res.status(429).json({ type: 'error', error: { type: 'rate_limit_error', message: `月度配额已用尽（$${used.toFixed(4)}/$${quota.toFixed(2)}）。请购买加油包或升级套餐以增加配额。` } });
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Messages Limit Check Error]:', err);
+  }
 
   // 确定上游地址（从 model_upstreams 直接读取，429 自动轮询）
   let baseUrl, apiKey;
