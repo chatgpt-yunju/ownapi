@@ -16,6 +16,7 @@ const {
 const cache = require('../utils/cache');
 const { noteCcClubRateLimit } = require('../utils/ccClubKeyGuard');
 const { createDebugRecorder } = require('../utils/requestDebug');
+const { extractUpstreamErrorMessage } = require('../utils/upstreamError');
 
 // ── HTTP Keep-Alive：复用 TCP 连接，降低上游请求延迟 ──────────────────────
 const axiosInstance = axios.create({
@@ -23,9 +24,16 @@ const axiosInstance = axios.create({
   httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 100, maxFreeSockets: 20 }),
 });
 
-const MODEL_CACHE_TTL = 10 * 60 * 1000;    // 模型配置缓存 10 分钟
-const UPSTREAM_CACHE_TTL = 10 * 60 * 1000; // 上游配置缓存 10 分钟
+const MODEL_CACHE_TTL = 10 * 60 * 1000;          // 模型配置缓存 10 分钟
+const UPSTREAM_CACHE_TTL = 10 * 60 * 1000;       // 上游配置缓存 10 分钟
+const MONTHLY_QUOTA_CACHE_TTL = 5 * 60 * 1000;  // 月度限额缓存 5 分钟
 const PRE_RESERVE = 0.01;
+
+function hasQuotaCoverageAfterMonthlyLimit(billingContext) {
+  const balanceAfter = Number(billingContext?.balanceAfter || 0);
+  const reservedAmount = Number(billingContext?.reservedAmount || 0);
+  return roundAmount(balanceAfter + reservedAmount) > 0;
+}
 
 // ========== 模型 & 上游缓存查询 ==========
 async function getModelConfig(modelId) {
@@ -117,6 +125,115 @@ function recordSuccess(upstreamId) {
     rec.fails = Math.max(0, getFailCount(upstreamId) - 0.5);
     rec.lastFail = Date.now();
   }
+}
+
+// ========== Relay 重试工具 ==========
+// cc club 等 relay 服务账号池不稳定，遇到 500/503 自动重试。
+// Claude 账号池经常需要更长的等待窗口，浏览器/API 调试链路需要贴近 Claude CLI 的重试节奏。
+const DEFAULT_RELAY_RETRY_CONFIG = Object.freeze({
+  maxRetries: 3,
+  baseDelayMs: 1500,
+  backoffFactor: 1,
+  maxDelayMs: 1500,
+});
+
+const CLAUDE_RELAY_RETRY_CONFIG = Object.freeze({
+  maxRetries: 8,
+  baseDelayMs: 1500,
+  backoffFactor: 2,
+  maxDelayMs: 8000,
+});
+
+function getRelayRetryConfig({ model } = {}) {
+  const normalizedModel = String(model || '').toLowerCase();
+  if (normalizedModel.includes('claude')) {
+    return CLAUDE_RELAY_RETRY_CONFIG;
+  }
+  return DEFAULT_RELAY_RETRY_CONFIG;
+}
+
+function getRelayRetryDelayMs(attempt, retryConfig) {
+  const baseDelayMs = retryConfig?.baseDelayMs ?? DEFAULT_RELAY_RETRY_CONFIG.baseDelayMs;
+  const backoffFactor = retryConfig?.backoffFactor ?? DEFAULT_RELAY_RETRY_CONFIG.backoffFactor;
+  const maxDelayMs = retryConfig?.maxDelayMs ?? DEFAULT_RELAY_RETRY_CONFIG.maxDelayMs;
+  const delay = baseDelayMs * Math.pow(backoffFactor, Math.max(0, attempt - 1));
+  return Math.min(maxDelayMs, delay);
+}
+
+async function getRelayRetryDecision(err) {
+  const status = err.response?.status;
+  const message = await extractUpstreamErrorMessage(err, err.message || 'Upstream request failed');
+
+  if (err?.response && message) {
+    err.response.data = { error: { message } };
+  }
+
+  if (status !== 500 && status !== 503) {
+    return { retryable: false, message, status };
+  }
+
+  const retryable = message.includes('No available')
+    || message.includes('service_unavailable')
+    || message.includes('Service temporarily');
+
+  return { retryable, message, status };
+}
+
+async function withRelayRetry(fn, { model, debug, logger, retryConfig } = {}) {
+  let lastErr;
+  const effectiveRetryConfig = retryConfig || getRelayRetryConfig({ model });
+  const maxRetries = effectiveRetryConfig.maxRetries || DEFAULT_RELAY_RETRY_CONFIG.maxRetries;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const retryDecision = await getRelayRetryDecision(err);
+      if (!retryDecision.retryable || attempt === maxRetries) throw err;
+      const msg = retryDecision.message || err.message;
+      const delayMs = getRelayRetryDelayMs(attempt, effectiveRetryConfig);
+      console.log(`[Relay Retry] model=${model} attempt=${attempt}/${maxRetries} delay=${delayMs}ms status=${retryDecision.status} reason=${msg.slice(0, 100)}`);
+      if (debug) await debug.step(6, 'info', { retry_attempt: attempt, next_delay_ms: delayMs, reason: msg.slice(0, 200) });
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
+function setHeaderIfPresent(headers, name, value) {
+  if (value === undefined || value === null || value === '') return;
+  headers[name] = Array.isArray(value) ? value.join(',') : String(value);
+}
+
+function buildAnthropicUpstreamHeaders(req, apiKey, betas) {
+  const headers = {
+    'x-api-key': apiKey,
+    'anthropic-version': req.headers['anthropic-version'] || '2023-06-01',
+    'Content-Type': 'application/json',
+  };
+
+  const betaHeader = req.headers['anthropic-beta']
+    || (betas ? (Array.isArray(betas) ? betas.join(',') : betas) : null);
+  if (betaHeader) headers['anthropic-beta'] = betaHeader;
+
+  // Claude Code CLI adds extra Anthropic/Stainless headers that some relays
+  // use for routing or account-pool selection. Keep a tight whitelist.
+  const passthroughHeaders = [
+    'x-anthropic-billing-header',
+    'anthropic-client-sha',
+    'anthropic-dangerous-direct-browser-access',
+    'user-agent',
+  ];
+  for (const name of passthroughHeaders) {
+    setHeaderIfPresent(headers, name, req.headers[name]);
+  }
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (name.startsWith('x-stainless-')) {
+      setHeaderIfPresent(headers, name, value);
+    }
+  }
+
+  return headers;
 }
 
 // 熔断器：连续失败 5 次后熔断 60 秒，防止请求堆积在故障上游
@@ -513,7 +630,7 @@ router.post('/embeddings', async (req, res) => {
         );
         const quota = Number(userPkg.monthly_quota);
         const used = Number(monthCost.cost);
-        if (used >= quota) {
+        if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext)) {
           await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
           await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 月度配额超限，释放预留余额');
           await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
@@ -722,7 +839,7 @@ router.post('/chat/completions', async (req, res) => {
   const billingMeta = reservation.billing;
   const billingContext = reservation.billingContext;
 
-  // 检查月度调用次数限制
+  // 检查月度调用次数限制（聚合查询缓存 5 分钟，减少全表扫描）
   try {
     const [[userPkg]] = await db.query(
       `SELECT p.daily_limit, p.monthly_quota, up.started_at, up.expires_at
@@ -734,33 +851,44 @@ router.post('/chat/completions', async (req, res) => {
     );
     if (userPkg) {
       const monthStart = userPkg.started_at || new Date(Date.now() - 30 * 24 * 3600000);
-      // 检查月度调用次数
-      if (userPkg.daily_limit) {
-        const monthlyCallLimit = userPkg.daily_limit * 30;
-        const [[callCount]] = await db.query(
-          'SELECT COUNT(*) as cnt FROM openclaw_call_logs WHERE user_id = ? AND created_at >= ? AND status = "success"',
-          [req.apiUserId, monthStart]
-        );
-        console.log(`[Limit Check] User ${req.apiUserId}: calls ${callCount.cnt}/${monthlyCallLimit}`); if (callCount.cnt >= monthlyCallLimit) {
-          await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: callCount.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
-          await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 调用次数超限，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0));
-          return res.status(429).json({ error: { message: `月度调用次数已达上限（${callCount.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以提升限额。`, type: 'rate_limit_error' } });
+      const needCallLimit = !!userPkg.daily_limit;
+      const needCostLimit = !!(userPkg.monthly_quota && billingMeta.billingMode === 'token');
+
+      if (needCallLimit || needCostLimit) {
+        // 单次查询同时取 COUNT 和 SUM，并用 Redis 缓存 5 分钟
+        const yearMonth = new Date(monthStart).toISOString().slice(0, 7);
+        const monthCacheKey = `monthly:${req.apiUserId}:${yearMonth}`;
+        let monthlyStats = await cache.get(monthCacheKey);
+        if (monthlyStats === undefined) {
+          const [[row]] = await db.query(
+            `SELECT COUNT(*) AS cnt, COALESCE(SUM(total_cost), 0) AS cost
+             FROM openclaw_call_logs
+             WHERE user_id = ? AND created_at >= ? AND status = 'success'`,
+            [req.apiUserId, monthStart]
+          );
+          monthlyStats = { cnt: Number(row.cnt), cost: Number(row.cost) };
+          await cache.set(monthCacheKey, monthlyStats, MONTHLY_QUOTA_CACHE_TTL);
         }
-      }
-      // 检查月度配额（费用）是否超出
-      if (userPkg.monthly_quota && billingMeta.billingMode === 'token') {
-        const [[monthCost]] = await db.query(
-          'SELECT COALESCE(SUM(total_cost), 0) as cost FROM openclaw_call_logs WHERE user_id = ? AND created_at >= ? AND status = "success"',
-          [req.apiUserId, monthStart]
-        );
-        const quota = Number(userPkg.monthly_quota);
-        const used = Number(monthCost.cost);
-        console.log(`[Limit Check] User ${req.apiUserId}: quota $${used.toFixed(4)}/$${quota.toFixed(2)}`); if (used >= quota) {
-          await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
-          await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 月度配额超限，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
-          return res.status(429).json({ error: { message: `月度配额已用尽（$${used.toFixed(4)}/$${quota.toFixed(2)}）。请购买加油包或升级套餐以增加配额。`, type: 'rate_limit_error' } });
+
+        if (needCallLimit) {
+          const monthlyCallLimit = userPkg.daily_limit * 30;
+          if (monthlyStats.cnt >= monthlyCallLimit) {
+            await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: monthlyStats.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
+            await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 调用次数超限，释放预留余额');
+            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0));
+            return res.status(429).json({ error: { message: `月度调用次数已达上限（${monthlyStats.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以提升限额。`, type: 'rate_limit_error' } });
+          }
+        }
+
+        if (needCostLimit) {
+          const quota = Number(userPkg.monthly_quota);
+          const used = monthlyStats.cost;
+          if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext)) {
+            await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
+            await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 月度配额超限，释放预留余额');
+            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
+            return res.status(429).json({ error: { message: `月度配额已用尽（$${used.toFixed(4)}/$${quota.toFixed(2)}）。请购买加油包或升级套餐以增加配额。`, type: 'rate_limit_error' } });
+          }
         }
       }
     }
@@ -894,12 +1022,11 @@ router.post('/chat/completions', async (req, res) => {
         upstream_url: upstreamUrl,
         provider: selectedProviderName,
       });
-      // 流式响应
-      const upstreamRes = await axiosInstance.post(upstreamUrl, upstreamBody, {
-        headers,
-        responseType: 'stream',
-        timeout: 120000
-      });
+      // 流式响应（带 relay 重试）
+      const upstreamRes = await withRelayRetry(
+        () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 }),
+        { model, debug }
+      );
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -1202,11 +1329,11 @@ router.post('/chat/completions', async (req, res) => {
         upstream_url: upstreamUrl,
         provider: selectedProviderName,
       });
-      // 非流式响应
-      const upstreamRes = await axiosInstance.post(upstreamUrl, upstreamBody, {
-        headers,
-        timeout: 120000
-      });
+      // 非流式响应（带 relay 重试）
+      const upstreamRes = await withRelayRetry(
+        () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: 120000 }),
+        { model, debug }
+      );
 
       const data = upstreamRes.data;
       let promptTokens, completionTokens, responseContent;
@@ -1393,7 +1520,7 @@ router.post('/chat/completions', async (req, res) => {
     }
   } catch (err) {
     if (selectedUpstreamId) recordFail(selectedUpstreamId);
-    const errMsg = err.response?.data?.error?.message || err.message;
+    const errMsg = await extractUpstreamErrorMessage(err);
     const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
     if (is429) {
       await noteCcClubRateLimit({
@@ -1424,7 +1551,7 @@ router.post('/chat/completions', async (req, res) => {
       }, { errorMessage: errMsg });
     }
 
-    const isTimeout = err.code === 'ECONNABORTED' || errMsg.includes('timeout');
+    const isTimeout = err.code === 'ECONNABORTED' || errMsg.toLowerCase().includes('timeout');
     console.error(`Upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
     await debug.step(6, 'error', {
       stream,
@@ -1516,7 +1643,7 @@ router.post('/messages', async (req, res) => {
  const quota = Number(userPkg.monthly_quota);
  const used = Number(monthCost.cost);
  console.log(`[Messages Limit] User ${req.apiUserId}: quota $${used.toFixed(4)}/$${quota.toFixed(2)}`);
- if (used >= quota) {
+ if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext2)) {
  await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
  await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 月度配额超限，释放预留余额');
  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
@@ -1588,14 +1715,7 @@ router.post('/messages', async (req, res) => {
       if (metadata) upstreamBody.metadata = metadata;
       if (stream) upstreamBody.stream = true;
 
-      const headers = {
-        'x-api-key': apiKey,
-        'anthropic-version': req.headers['anthropic-version'] || '2023-06-01',
-        'Content-Type': 'application/json'
-      };
-      // 透传 anthropic-beta 头（扩展思考、文件API等功能依赖此头）
-      const betaHeader = req.headers['anthropic-beta'] || (betas ? (Array.isArray(betas) ? betas.join(',') : betas) : null);
-      if (betaHeader) headers['anthropic-beta'] = betaHeader;
+      const headers = buildAnthropicUpstreamHeaders(req, apiKey, betas);
 
       if (stream) {
         await debug.step(6, 'pending', {
@@ -1604,7 +1724,10 @@ router.post('/messages', async (req, res) => {
           upstream_url: upstreamUrl,
           provider: selectedProviderName2,
         });
-        const upstreamRes = await axiosInstance.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 });
+        const upstreamRes = await withRelayRetry(
+          () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 }),
+          { model, debug }
+        );
 
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
@@ -1697,12 +1820,13 @@ router.post('/messages', async (req, res) => {
 
         upstreamRes.data.on('error', async (err) => {
           if (selectedUpstreamId2) recordFail(selectedUpstreamId2);
-          console.error('Anthropic stream error:', err);
+          const errMsg = await extractUpstreamErrorMessage(err);
+          console.error('Anthropic stream error:', errMsg);
           res.end();
-          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl }, { errorMessage: err.message });
-          await debug.step(8, 'error', { reason: 'stream_upstream_error', fallback_candidates: Math.max(0, allProviders.length - 1) }, { errorMessage: err.message });
+          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl }, { errorMessage: errMsg });
+          await debug.step(8, 'error', { reason: 'stream_upstream_error', fallback_candidates: Math.max(0, allProviders.length - 1) }, { errorMessage: errMsg });
           await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages Anthropic stream error，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', err.message, requestId, getLogExtra(modelConfig, 0));
+          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
           await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
         });
 
@@ -1713,8 +1837,11 @@ router.post('/messages', async (req, res) => {
           upstream_url: upstreamUrl,
           provider: selectedProviderName2,
         });
-        // 非流式 Anthropic 透传
-        const upstreamRes = await axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: 120000 });
+        // 非流式 Anthropic 透传（带 relay 重试）
+        const upstreamRes = await withRelayRetry(
+          () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: 120000 }),
+          { model, debug }
+        );
         const data = upstreamRes.data;
 
         const promptTokens = data.usage?.input_tokens || estimateTokens(messages);
@@ -1916,12 +2043,13 @@ router.post('/messages', async (req, res) => {
 
         upstreamRes.data.on('error', async (err) => {
           if (selectedUpstreamId2) recordFail(selectedUpstreamId2);
-          console.error('OpenAI→Anthropic stream error:', err);
+          const errMsg = await extractUpstreamErrorMessage(err);
+          console.error('OpenAI→Anthropic stream error:', errMsg);
           res.end();
-          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl }, { errorMessage: err.message });
-          await debug.step(8, 'error', { reason: 'stream_upstream_error', fallback_candidates: Math.max(0, allProviders.length - 1) }, { errorMessage: err.message });
+          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl }, { errorMessage: errMsg });
+          await debug.step(8, 'error', { reason: 'stream_upstream_error', fallback_candidates: Math.max(0, allProviders.length - 1) }, { errorMessage: errMsg });
           await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages OpenAI stream error，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', err.message, requestId, getLogExtra(modelConfig, 0));
+          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
           await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
         });
 
@@ -1993,7 +2121,7 @@ router.post('/messages', async (req, res) => {
     }
   } catch (err) {
     if (selectedUpstreamId2) recordFail(selectedUpstreamId2);
-    const errMsg = err.response?.data?.error?.message || err.message;
+    const errMsg = await extractUpstreamErrorMessage(err);
     const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
     if (is429) {
       await noteCcClubRateLimit({
@@ -2005,7 +2133,7 @@ router.post('/messages', async (req, res) => {
         source: 'messages'
       });
     }
-    const isTimeout = err.code === 'ECONNABORTED' || errMsg.includes('timeout');
+    const isTimeout = err.code === 'ECONNABORTED' || errMsg.toLowerCase().includes('timeout');
 
     console.error(`Messages API upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
 

@@ -89,6 +89,7 @@ module.exports = async function migrate() {
   await db.query('ALTER TABLE users ADD COLUMN extra_quota DECIMAL(12,4) DEFAULT 0').catch(() => {});
   await db.query('ALTER TABLE users ADD COLUMN vip_level INT DEFAULT 0').catch(() => {});
   await db.query('ALTER TABLE users ADD COLUMN balance DECIMAL(12,4) DEFAULT 0').catch(() => {});
+  await db.query("ALTER TABLE users ADD COLUMN status ENUM('active','banned') DEFAULT 'active'").catch(() => {});
 
   // 充值订单表
   await db.query(`CREATE TABLE IF NOT EXISTS recharge_orders (
@@ -155,9 +156,61 @@ module.exports = async function migrate() {
   await db.query("ALTER TABLE openclaw_balance_logs ADD COLUMN balance_type ENUM('quota','wallet') NOT NULL DEFAULT 'quota' AFTER user_id").catch(() => {});
   await db.query('ALTER TABLE openclaw_balance_logs ADD COLUMN detail_json LONGTEXT DEFAULT NULL AFTER description').catch(() => {});
 
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_rewards (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    description VARCHAR(500) DEFAULT NULL,
+    status ENUM('pending','received','expired') DEFAULT 'received',
+    related_id INT DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    received_at DATETIME DEFAULT NULL,
+    INDEX idx_user_status (user_id, status)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_invite_records (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    inviter_id INT NOT NULL,
+    invitee_id INT NOT NULL,
+    invite_code VARCHAR(32) NOT NULL,
+    reward_amount DECIMAL(10,2) DEFAULT 0.00,
+    register_reward_amount DECIMAL(10,2) DEFAULT 0.00,
+    first_paid_reward_amount DECIMAL(10,2) DEFAULT 0.00,
+    first_paid_rewarded TINYINT(1) DEFAULT 0,
+    first_paid_order_no VARCHAR(64) DEFAULT NULL,
+    first_paid_at DATETIME DEFAULT NULL,
+    status ENUM('pending','active','expired') DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_inviter (inviter_id),
+    INDEX idx_invitee (invitee_id),
+    INDEX idx_invite_code (invite_code)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  await db.query('ALTER TABLE openclaw_rewards MODIFY COLUMN status ENUM("pending","received","expired") DEFAULT "received"').catch(() => {});
+  await db.query('ALTER TABLE openclaw_invite_records ADD COLUMN register_reward_amount DECIMAL(10,2) DEFAULT 0.00 AFTER reward_amount').catch(() => {});
+  await db.query('ALTER TABLE openclaw_invite_records ADD COLUMN first_paid_reward_amount DECIMAL(10,2) DEFAULT 0.00 AFTER register_reward_amount').catch(() => {});
+  await db.query('ALTER TABLE openclaw_invite_records ADD COLUMN first_paid_rewarded TINYINT(1) DEFAULT 0 AFTER first_paid_reward_amount').catch(() => {});
+  await db.query('ALTER TABLE openclaw_invite_records ADD COLUMN first_paid_order_no VARCHAR(64) DEFAULT NULL AFTER first_paid_rewarded').catch(() => {});
+  await db.query('ALTER TABLE openclaw_invite_records ADD COLUMN first_paid_at DATETIME DEFAULT NULL AFTER first_paid_order_no').catch(() => {});
+  await db.query('ALTER TABLE openclaw_invite_records ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at').catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_package_reminders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_package_id INT NOT NULL,
+    reminder_key VARCHAR(32) NOT NULL,
+    channel VARCHAR(20) NOT NULL DEFAULT 'both',
+    sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_user_package_reminder (user_package_id, reminder_key)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
   await db.query("ALTER TABLE openclaw_call_logs ADD COLUMN billing_mode ENUM('token','per_call') DEFAULT 'token'").catch(() => {});
   await db.query("ALTER TABLE openclaw_call_logs ADD COLUMN charged_balance_type ENUM('quota','wallet') DEFAULT NULL").catch(() => {});
   await db.query('ALTER TABLE openclaw_call_logs ADD COLUMN charged_amount DECIMAL(12,6) DEFAULT 0').catch(() => {});
+  // 覆盖索引：加速月度 COUNT/SUM 聚合查询（user_id + created_at + status）
+  await db.query('ALTER TABLE openclaw_call_logs ADD INDEX idx_user_month_status (user_id, created_at, status)').catch(() => {});
 
   // 供应商端点表：一个供应商可绑定多个 base_url + api_key
   await db.query(`CREATE TABLE IF NOT EXISTS openclaw_provider_endpoints (
@@ -338,4 +391,22 @@ module.exports = async function migrate() {
   } catch (e) {
     console.error('[migrate] model billing/category backfill:', e.message);
   }
+
+  // ── OpenClaw 教程表 ──────────────────────────────────────────────────────
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_tutorials (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    slug VARCHAR(200) NOT NULL UNIQUE,
+    title VARCHAR(300) NOT NULL,
+    category VARCHAR(50) NOT NULL DEFAULT 'general',
+    subcategory VARCHAR(100) DEFAULT NULL,
+    content MEDIUMTEXT NOT NULL,
+    source_url VARCHAR(500) DEFAULT NULL,
+    sort_order INT DEFAULT 0,
+    status ENUM('active','hidden') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_category (category),
+    INDEX idx_status (status),
+    FULLTEXT INDEX ft_search (title, content)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
 };

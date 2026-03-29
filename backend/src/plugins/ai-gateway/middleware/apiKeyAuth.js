@@ -9,9 +9,9 @@ const {
   adjustBalance,
 } = require('../utils/billing');
 
-const KEY_CACHE_TTL = 5 * 60 * 1000;   // API Key 缓存 5 分钟
-const PKG_CACHE_TTL = 3 * 60 * 1000;   // 用户套餐缓存 3 分钟
-const RATE_LIMIT = 10;
+const KEY_CACHE_TTL = 15 * 60 * 1000;  // API Key 缓存 15 分钟（含 user_status）
+const PKG_CACHE_TTL = 10 * 60 * 1000;  // 用户套餐缓存 10 分钟
+const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60 * 1000;
 
 // ── 速率限制：Redis Lua 原子操作（多进程共享）+ 内存降级 ─────────────────────
@@ -173,6 +173,11 @@ async function apiKeyAuth(req, res, next) {
         return res.status(401).json({ error: { message: 'Invalid API key or token', type: 'invalid_request_error' } });
       }
       const userInfo = await ssoRes.json();
+      const [[userRecord]] = await db.query('SELECT status FROM users WHERE id = ?', [userInfo.id]);
+      if (userRecord?.status === 'banned') {
+        await debugStep(req, 2, 'error', { auth_mode: 'sso', reason: 'user_banned', user_id: userInfo.id }, { errorMessage: '账号已被封禁' });
+        return res.status(403).json({ error: { message: '账号已被封禁，请联系管理员', type: 'invalid_request_error' } });
+      }
       const balance = await ensureQuota(userInfo.id);
       const userPkg = await getUserPackage(userInfo.id);
       req.apiKeyId = null;
@@ -194,7 +199,7 @@ async function apiKeyAuth(req, res, next) {
           window_ms: RATE_WINDOW_MS,
           limit: RATE_LIMIT
         }, { errorMessage: '请求过于频繁' });
-        return res.status(429).json({ error: { message: '请求过于频繁，Free 套餐限制 10 次/分钟', type: 'rate_limit_error' } });
+        return res.status(429).json({ error: { message: '请求过于频繁，Free 套餐限制 30 次/分钟', type: 'rate_limit_error' } });
       }
       await debugStep(req, 3, userPkg?.type && userPkg.type !== 'free' ? 'skipped' : 'success', {
         package_type: req.userPackageType,
@@ -210,13 +215,17 @@ async function apiKeyAuth(req, res, next) {
     }
   }
 
-  // API Key 认证（Redis 缓存 5 分钟）
+  // API Key 认证（Redis 缓存 15 分钟，含 user_status）
   const keyHash = crypto.createHash('sha256').update(token).digest('hex');
   try {
     let row = await cache.get(`key:${keyHash}`);
     if (row === undefined) {
+      // 单次 JOIN 查询，同时取 key 信息和用户封禁状态，避免后续额外查询
       const [[dbRow]] = await db.query(
-        'SELECT k.id, k.user_id, k.status FROM openclaw_api_keys k WHERE k.key_hash = ? AND k.is_deleted = 0',
+        `SELECT k.id, k.user_id, k.status, u.status AS user_status
+         FROM openclaw_api_keys k
+         JOIN users u ON k.user_id = u.id
+         WHERE k.key_hash = ? AND k.is_deleted = 0`,
         [keyHash]
       );
       row = dbRow || null;
@@ -229,6 +238,12 @@ async function apiKeyAuth(req, res, next) {
     if (row.status !== 'active') {
       await debugStep(req, 2, 'error', { auth_mode: 'api_key', reason: 'key_disabled', api_key_id: row.id, user_id: row.user_id }, { errorMessage: 'API key is disabled' });
       return res.status(403).json({ error: { message: 'API key is disabled', type: 'invalid_request_error' } });
+    }
+
+    // user_status 已缓存在 row 中，无需额外 DB 查询
+    if (row.user_status === 'banned') {
+      await debugStep(req, 2, 'error', { auth_mode: 'api_key', reason: 'user_banned', user_id: row.user_id }, { errorMessage: '账号已被封禁' });
+      return res.status(403).json({ error: { message: '账号已被封禁，请联系管理员', type: 'invalid_request_error' } });
     }
 
     const balance = await ensureQuota(row.user_id);
@@ -253,7 +268,7 @@ async function apiKeyAuth(req, res, next) {
         window_ms: RATE_WINDOW_MS,
         limit: RATE_LIMIT
       }, { errorMessage: '请求过于频繁' });
-      return res.status(429).json({ error: { message: '请求过于频繁，Free 套餐限制 10 次/分钟', type: 'rate_limit_error' } });
+      return res.status(429).json({ error: { message: '请求过于频繁，Free 套餐限制 30 次/分钟', type: 'rate_limit_error' } });
     }
 
     await debugStep(req, 3, userPkg?.type && userPkg.type !== 'free' ? 'skipped' : 'success', {
