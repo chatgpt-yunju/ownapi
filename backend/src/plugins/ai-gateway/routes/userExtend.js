@@ -136,13 +136,23 @@ router.post('/rewards/:id/claim', async (req, res) => {
 
     // 查询奖励
     const [[reward]] = await conn.query(
-      'SELECT * FROM openclaw_rewards WHERE id = ? AND user_id = ? AND status = "pending"',
+      'SELECT * FROM openclaw_rewards WHERE id = ? AND user_id = ?',
       [rewardId, userId]
     );
 
     if (!reward) {
       await conn.rollback();
-      return res.status(404).json({ error: '奖励不存在或已领取' });
+      return res.status(404).json({ error: '奖励不存在' });
+    }
+
+    if (reward.status === 'received') {
+      await conn.rollback();
+      return res.json({
+        success: true,
+        already_paid: true,
+        amount: reward.amount,
+        message: '奖励已自动到账钱包'
+      });
     }
 
     const walletResult = await adjustBalance(
@@ -167,7 +177,8 @@ router.post('/rewards/:id/claim', async (req, res) => {
     res.json({
       success: true,
       amount: reward.amount,
-      new_balance: newBalance
+      new_balance: newBalance,
+      message: '奖励已发放到钱包'
     });
   } catch (err) {
     await conn.rollback();

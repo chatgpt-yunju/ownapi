@@ -2,11 +2,19 @@ const router = require('express').Router();
 const compression = require('compression');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../../config/db');
+const cache = require('./utils/cache');
 const { authMiddleware } = require('./middleware/auth');
 const { apiKeyAuth } = require('./middleware/apiKeyAuth');
 const { internalAuth } = require('./middleware/internalAuth');
-const { requestQueueMiddleware } = require('./middleware/requestQueue');
+const { requestQueueMiddleware, getQueueStats } = require('./middleware/requestQueue');
 const { createDebugRecorder, detectRequestedModel, detectRouteName } = require('./utils/requestDebug');
+const { getSchedulerSummary } = require('./utils/upstreamScheduler');
+const {
+  getSnapshot,
+  recordRequestFinish,
+  recordRequestStart,
+  renderPrometheusMetrics,
+} = require('./utils/metrics');
 
 function buildRequestId(routeName) {
   const suffix = uuidv4().replace(/-/g, '').slice(0, 24);
@@ -48,6 +56,22 @@ async function attachRequestTrace(req, _res, next) {
 // gzip 压缩：仅压缩非流式响应（SSE text/event-stream 自动跳过），> 512B 才压缩
 router.use(compression({ threshold: 512 }));
 
+router.use((req, res, next) => {
+  const startedAt = process.hrtime.bigint();
+  recordRequestStart();
+
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    recordRequestFinish({
+      routeName: req.aiGatewayRouteName || detectRouteName(req),
+      statusCode: res.statusCode,
+      durationMs,
+    });
+  });
+
+  next();
+});
+
 // 请求日志
 router.use('/v1', (req, res, next) => {
   console.log(`[AI-GW] ${req.method} ${req.originalUrl} | model: ${req.body?.model || '-'}`);
@@ -68,6 +92,17 @@ router.use('/v1beta', (req, res, next) => {
   console.log(`[AI-GW] ${req.method} ${req.originalUrl} | model: ${req.body?.model || req.params?.modelAction?.split(':')[0] || '-'}`);
   next();
 }, attachRequestTrace, apiKeyAuth, requestQueueMiddleware, require('./routes/gemini'));
+
+function requireInternalSecret(req, res, next) {
+  const secret = req.headers['x-internal-secret'];
+  if (!process.env.INTERNAL_API_SECRET) {
+    return res.status(500).json({ error: 'INTERNAL_API_SECRET not configured' });
+  }
+  if (secret !== process.env.INTERNAL_API_SECRET) {
+    return res.status(401).json({ error: 'Invalid internal secret' });
+  }
+  next();
+}
 
 // 公开：模型列表
 router.get('/api/models', async (req, res) => {
@@ -110,10 +145,63 @@ router.use('/payment', paymentRoutes); // 支付宝回调不需要鉴权
 router.use('/api/email-code', require('../../routes/emailCode'));
 
 // 健康检查
-router.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+router.get('/api/internal/metrics', requireInternalSecret, async (req, res) => {
+  const queueStats = await getQueueStats();
+  const schedulerSummary = await getSchedulerSummary();
+  const pool = typeof db.getPool === 'function' ? db.getPool() : db;
+  const dbStats = {
+    total: pool?._allConnections?.length || 0,
+    free: pool?._freeConnections?.length || 0,
+    waiting: pool?._connectionQueue?.length || 0,
+  };
+  res.type('text/plain; version=0.0.4').send(renderPrometheusMetrics({
+    queueStats,
+    dbStats,
+    redisReady: cache.redis?.status === 'ready',
+    schedulerSummary,
+  }));
+});
+
+router.get('/api/health', async (req, res) => {
+  const queue = await getQueueStats();
+  const upstreams = await getSchedulerSummary();
+  const metricsSnapshot = getSnapshot();
+  let mysql = { ok: false };
+  let redis = { ok: false };
+
+  try {
+    await db.query('SELECT 1');
+    mysql = { ok: true };
+  } catch (error) {
+    mysql = { ok: false, error: error.message };
+  }
+
+  try {
+    if (cache.redis && cache.redis.status === 'ready') {
+      await cache.redis.ping();
+      redis = { ok: true };
+    } else {
+      redis = { ok: false, error: 'redis_not_ready' };
+    }
+  } catch (error) {
+    redis = { ok: false, error: error.message };
+  }
+
+  const ok = mysql.ok && (redis.ok || !process.env.REDIS_URL);
+  res.status(ok ? 200 : 503).json({
+    status: ok ? 'ok' : 'degraded',
+    time: new Date().toISOString(),
+    mysql,
+    redis,
+    queue,
+    upstreams,
+    latency: metricsSnapshot.latencyStages,
+  });
+});
 
 // 日志清理 cron（每天凌晨3点清理30天前日志）
 function scheduleCleanup() {
+  if (process.env.NODE_APP_INSTANCE && process.env.NODE_APP_INSTANCE !== '0') return;
   const now = new Date();
   const next = new Date();
   next.setHours(3, 0, 0, 0);

@@ -109,6 +109,12 @@ const defaultSettings = [
   ['queue_max_concurrent',  '10'],
   ['queue_max_size',        '100'],
   ['queue_wait_timeout_ms', '30000'],
+  ['gateway_global_max_inflight', '120'],
+  ['gateway_model_max_inflight_default', '30'],
+  ['gateway_endpoint_max_inflight_default', '10'],
+  ['gateway_queue_max_size', '3000'],
+  ['gateway_queue_wait_timeout_ms', '45000'],
+  ['gateway_log_detail_sample_rate', '0.05'],
 ];
 
 (async () => {
@@ -217,6 +223,10 @@ router.put('/', auth, requireAdmin, async (req, res) => {
     'admin_nav_items',
     // 请求队列
     'queue_max_concurrent', 'queue_max_size', 'queue_wait_timeout_ms',
+    'gateway_global_max_inflight', 'gateway_model_max_inflight_default',
+    'gateway_endpoint_max_inflight_default',
+    'gateway_queue_max_size', 'gateway_queue_wait_timeout_ms',
+    'gateway_log_detail_sample_rate',
   ];
   const protectedKeys = [
     'alipay_private_key', 'alipay_public_key', 'alipay_app_id',

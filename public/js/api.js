@@ -41,6 +41,7 @@ const api = {
 
   get(path) { return this.request(path); },
   post(path, body) { return this.request(path, { method: 'POST', body: JSON.stringify(body) }); },
+  patch(path, body) { return this.request(path, { method: 'PATCH', body: JSON.stringify(body) }); },
   put(path, body) { return this.request(path, { method: 'PUT', body: JSON.stringify(body) }); },
   del(path) { return this.request(path, { method: 'DELETE' }); },
 
@@ -93,6 +94,7 @@ const api = {
 
   // Admin
   adminOverview() { return this.get('/admin/overview'); },
+  adminStatsRange(start, end) { return this.get(`/admin/stats/range?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`); },
   adminUsers(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get('/admin/users' + (q ? '?' + q : ''));
@@ -114,6 +116,9 @@ const api = {
   adminSendCcclubMessagesEmail(payload) {
     return this.post('/admin/ccclub/messages/send-email', payload);
   },
+  adminSendBulkEmail(payload) {
+    return this.post('/admin/emails/send', payload);
+  },
   adminCcclubLatencyTest(payload) {
     return this.post('/admin/ccclub/test-latency', payload);
   },
@@ -127,6 +132,13 @@ const api = {
   adminRunRequestDebug(payload) {
     return this.post('/admin/request-debug/run', payload);
   },
+  adminStatsTrends(days = 7) { return this.get(`/admin/stats/trends?days=${days}`); },
+  adminStatsModelDistribution(days = 7) { return this.get(`/admin/stats/model-distribution?days=${days}`); },
+  adminSetUserStatus(id, status) { return this.put(`/admin/users/${id}/status`, { status }); },
+  adminSetUserRole(id, role) { return this.put(`/admin/users/${id}/role`, { role }); },
+  adminGetCardKeys() { return this.get('/cardkey/list'); },
+  adminGenerateCardKeys(quota, count, vip_days) { return this.post('/cardkey/generate', { quota, count, vip_days }); },
+  adminDeleteCardKey(id) { return this.del(`/cardkey/${id}`); },
 };
 
 // Check SSO callback token
@@ -185,7 +197,16 @@ function formatNum(n) {
 function formatDate(d) {
   if (!d) return '-';
   const dt = new Date(d);
-  return dt.toLocaleDateString('zh-CN') + ' ' + dt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  if (Number.isNaN(dt.getTime())) return '-';
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(dt).replace(/\//g, '-');
 }
 
 // Auth guard

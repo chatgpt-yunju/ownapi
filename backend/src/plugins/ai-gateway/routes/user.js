@@ -82,6 +82,7 @@ router.get('/info', async (req, res) => {
     const monthCalls = monthUsage.calls || 0;
     const monthCost = parseFloat(monthUsage.cost || 0);
     const boosterPurchasedCNY = parseFloat(boosterStats?.total_purchased_cny ?? 0);
+    const monthlyQuotaRemaining = monthlyQuota != null ? Math.max(0, monthlyQuota - monthCost) : null;
 
     // 计算每个24h窗口的费用限额
     let windowCostLimit = null;
@@ -99,8 +100,16 @@ router.get('/info', async (req, res) => {
 
     // 加油包余额统计（套餐配额优先消耗，加油包后消耗）
     const boosterTotal = boosterPurchasedCNY;
-    const boosterUsed = Math.max(0, monthCost - (monthlyQuota || 0));
-    const boosterBalance = Math.max(0, boosterTotal - boosterUsed);
+    const derivedBoosterUsed = Math.max(0, monthCost - (monthlyQuota || 0));
+    // openclaw_quota 是套餐额度和加油包额度的统一扣费账户，页面展示的加油包余额不能高于真实可扣余额，
+    // 否则会出现“加油包还有余额，但请求直接 402”的误导。
+    const boosterBalance = Math.min(
+      quotaBalance,
+      Math.max(0, boosterTotal - derivedBoosterUsed)
+    );
+    const boosterUsed = Math.max(0, boosterTotal - boosterBalance);
+    const totalQuota = monthlyQuota != null ? monthlyQuota + boosterTotal : null;
+    const totalQuotaRemaining = quotaBalance;
 
     res.json({
       id: req.user.id,
@@ -112,6 +121,9 @@ router.get('/info', async (req, res) => {
       daily_limit: myPkg?.daily_limit ?? null,
       monthly_call_limit: monthlyCallLimit,
       monthly_quota: monthlyQuota,
+      monthly_quota_remaining: monthlyQuotaRemaining,
+      total_quota: totalQuota,
+      total_quota_remaining: totalQuotaRemaining,
       window_cost_limit: windowCostLimit,
       active_keys: keyCnt.cnt,
       today_calls: todayUsage.calls,

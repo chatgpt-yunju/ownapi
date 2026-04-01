@@ -95,40 +95,9 @@ function detectRequestedModel(req) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-async function logDebugStep(payload) {
-  const stepInfo = PIPELINE_STEPS[payload.stepNo] || {};
-  if (!payload.requestId) return;
-  try {
-    await db.query(
-      `INSERT INTO openclaw_request_debug_logs
-       (request_id, trace_type, route_name, request_path, model, user_id, api_key_id,
-        step_no, step_key, step_name, status, duration_ms, attempt_no,
-        upstream_id, upstream_provider, upstream_base_url, error_message, detail_json)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
-        payload.requestId,
-        payload.traceType || 'live',
-        payload.routeName || null,
-        payload.requestPath || null,
-        payload.model || null,
-        payload.userId || null,
-        payload.apiKeyId || null,
-        payload.stepNo,
-        payload.stepKey || stepInfo.key || `step_${payload.stepNo}`,
-        payload.stepName || stepInfo.name || `Step ${payload.stepNo}`,
-        payload.status || 'info',
-        Number.isFinite(payload.durationMs) ? Math.max(0, Math.round(payload.durationMs)) : null,
-        payload.attemptNo || 1,
-        payload.upstreamId || null,
-        payload.upstreamProvider || null,
-        payload.upstreamBaseUrl || null,
-        safeString(payload.errorMessage, 4000),
-        serializeDetail(payload.detail)
-      ]
-    );
-  } catch (err) {
-    console.error('[request-debug] write failed:', err.message);
-  }
+// Step trace logging disabled — no-op to reduce DB writes
+async function logDebugStep(_payload) {
+  // Recording disabled
 }
 
 function createDebugRecorder(base = {}) {

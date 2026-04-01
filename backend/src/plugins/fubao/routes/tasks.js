@@ -2,12 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const db = require('../config/db');
+const { getChinaDateString } = require('../../../utils/chinaTime');
 
 // 获取任务列表
 router.get('/list', requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getChinaDateString();
 
     // 获取所有启用的任务
     const [tasks] = await db.query(
@@ -66,7 +67,7 @@ router.post('/complete', requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
     const { task_key } = req.body;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getChinaDateString();
 
     if (!task_key) {
       return res.status(400).json({ message: '缺少任务标识' });

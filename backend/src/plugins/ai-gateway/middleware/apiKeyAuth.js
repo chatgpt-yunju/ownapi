@@ -8,9 +8,12 @@ const {
   ensureWalletBalance,
   adjustBalance,
 } = require('../utils/billing');
+const { validateSilentToken } = require('../../../services/ssoAuth');
+const { trackApiKeyLastUsed } = require('../utils/lastUsedTracker');
 
 const KEY_CACHE_TTL = 15 * 60 * 1000;  // API Key 缓存 15 分钟（含 user_status）
 const PKG_CACHE_TTL = 10 * 60 * 1000;  // 用户套餐缓存 10 分钟
+const QUOTA_CACHE_TTL = 10 * 60 * 1000; // 用户余额缓存 10 分钟
 const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60 * 1000;
 
@@ -145,6 +148,18 @@ async function ensureQuota(userId) {
   }
 }
 
+// ── 缓存版 ensureQuota：10 分钟缓存余额状态，避免每次请求都查 DB ─────────────
+async function getQuotaBalanceCached(userId) {
+  const cacheKey = `quota_status:${userId}`;
+  const cached = await cache.get(cacheKey);
+  if (cached !== undefined) return cached.balance;
+
+  // 缓存未命中，执行原有逻辑
+  const balance = await ensureQuota(userId);
+  await cache.set(cacheKey, { balance }, QUOTA_CACHE_TTL);
+  return balance;
+}
+
 // ── API Key 鉴权中间件 ──────────────────────────────────────────────────────
 async function apiKeyAuth(req, res, next) {
   if (req._gatewayAuthDone) return next();
@@ -165,20 +180,17 @@ async function apiKeyAuth(req, res, next) {
   // SSO Token 认证（Playground 调试用）
   if (!token.startsWith('sk-')) {
     try {
-      const ssoRes = await fetch('http://localhost:3000/api/sso/silent', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!ssoRes.ok) {
+      const ssoResult = await validateSilentToken(token);
+      if (!ssoResult.ok) {
         await debugStep(req, 2, 'error', { auth_mode: 'sso', reason: 'invalid_token' }, { errorMessage: 'Invalid API key or token' });
         return res.status(401).json({ error: { message: 'Invalid API key or token', type: 'invalid_request_error' } });
       }
-      const userInfo = await ssoRes.json();
-      const [[userRecord]] = await db.query('SELECT status FROM users WHERE id = ?', [userInfo.id]);
-      if (userRecord?.status === 'banned') {
+      const userInfo = ssoResult.user;
+      if (userInfo.status === 'banned') {
         await debugStep(req, 2, 'error', { auth_mode: 'sso', reason: 'user_banned', user_id: userInfo.id }, { errorMessage: '账号已被封禁' });
         return res.status(403).json({ error: { message: '账号已被封禁，请联系管理员', type: 'invalid_request_error' } });
       }
-      const balance = await ensureQuota(userInfo.id);
+      const balance = await getQuotaBalanceCached(userInfo.id);
       const userPkg = await getUserPackage(userInfo.id);
       req.apiKeyId = null;
       req.apiUserId = userInfo.id;
@@ -246,7 +258,7 @@ async function apiKeyAuth(req, res, next) {
       return res.status(403).json({ error: { message: '账号已被封禁，请联系管理员', type: 'invalid_request_error' } });
     }
 
-    const balance = await ensureQuota(row.user_id);
+    const balance = await getQuotaBalanceCached(row.user_id);
     const userPkg = await getUserPackage(row.user_id);
     req.apiKeyId = row.id;
     req.apiUserId = row.user_id;
@@ -278,7 +290,7 @@ async function apiKeyAuth(req, res, next) {
       reason: userPkg?.type && userPkg.type !== 'free' ? 'non_free_package_bypass' : 'passed'
     });
 
-    db.query('UPDATE openclaw_api_keys SET last_used_at = NOW() WHERE id = ?', [row.id]).catch(() => {});
+    trackApiKeyLastUsed(row.id).catch(() => {});
     req._gatewayAuthDone = true;
     next();
   } catch (err) {

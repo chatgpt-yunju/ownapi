@@ -5,6 +5,7 @@ const db = require('../config/db');
 const { verifyCaptcha } = require('./captcha');
 const { getSettingCached } = require('./quota');
 const arkRateLimiter = require('../utils/arkRateLimiter');
+const { grantRegisterInviteRewards } = require('../plugins/ai-gateway/utils/inviteRewards');
 require('dotenv').config();
 
 const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY;
@@ -31,6 +32,22 @@ function recordFailure(username) {
 }
 
 function clearFailure(username) { loginFailures.delete(username); }
+
+async function hasReusableLoginCode(email) {
+  if (!email) return false;
+  const [[row]] = await db.query(
+    `SELECT id
+     FROM email_codes
+     WHERE email = ?
+       AND purpose = 'login'
+       AND used = 0
+       AND expires_at > NOW()
+     ORDER BY id DESC
+     LIMIT 1`,
+    [email]
+  );
+  return Boolean(row);
+}
 
 // Generate Chinese nickname using AI (via gateway)
 async function generateNickname() {
@@ -117,6 +134,16 @@ router.post('/login', async (req, res) => {
       await sendEmailCode(user.email, 'login');
     } catch (e) {
       console.error('[auth] 登录验证码发送失败:', e.message);
+      const message = String(e?.message || '');
+      const reusableCode = await hasReusableLoginCode(user.email);
+      if (reusableCode && (message.includes('请60秒后再试') || message.includes('验证码发送失败'))) {
+        return res.json({
+          step: 'email_verify',
+          temp_token: tempToken,
+          masked_email: maskEmail(user.email),
+          reused_code: true,
+        });
+      }
       return res.status(500).json({ message: '登录验证码发送失败，请稍后重试' });
     }
     return res.json({
@@ -258,40 +285,38 @@ router.post('/register', async (req, res) => {
   const myCode = genInviteCode();
   const tempNickname = `用户${Date.now().toString().slice(-6)}`;
   try {
-    const [result] = await db.query(
-      'INSERT INTO users (username, password, role, invite_code, nickname, email) VALUES (?, ?, "user", ?, ?, ?)',
-      [username, hash, myCode, tempNickname, email]
-    );
-    const newUserId = result.insertId;
+    const conn = await db.getConnection();
+    let newUserId;
+    try {
+      await conn.beginTransaction();
+      const [result] = await conn.query(
+        'INSERT INTO users (username, password, role, invite_code, nickname, email) VALUES (?, ?, "user", ?, ?, ?)',
+        [username, hash, myCode, tempNickname, email]
+      );
+      newUserId = result.insertId;
+
+      if (invite_code) {
+        await grantRegisterInviteRewards({
+          conn,
+          inviteCode: invite_code,
+          inviteeUserId: newUserId,
+          inviteeUsername: username,
+        });
+      }
+
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
     // AI 昵称后台异步生成，不阻塞注册
     generateNickname().then(aiNick => {
       if (aiNick && !aiNick.startsWith('用户')) {
         db.query('UPDATE users SET nickname=? WHERE id=?', [aiNick, newUserId]).catch(() => {});
       }
     }).catch(() => {});
-
-    // Reward inviter if valid invite code provided
-    if (invite_code) {
-      const [[inviter]] = await db.query('SELECT id FROM users WHERE invite_code = ?', [invite_code.toUpperCase()]);
-      if (inviter && inviter.id !== newUserId) {
-        const [[setting]] = await db.query("SELECT `value` FROM settings WHERE `key` = 'invite_reward'");
-        const reward = parseInt(setting?.value) || 10;
-        // 邀请人奖励
-        await db.query(
-          'INSERT INTO user_quota (user_id, extra_quota) VALUES (?, ?) ON DUPLICATE KEY UPDATE extra_quota = extra_quota + ?',
-          [inviter.id, reward, reward]
-        );
-        await db.query('INSERT INTO quota_logs (user_id, delta, reason) VALUES (?, ?, ?)', [inviter.id, reward, `邀请用户 ${username} 注册奖励`]);
-        // 被邀请人奖励（默认3积分）
-        const [[newUserSetting]] = await db.query("SELECT `value` FROM settings WHERE `key` = 'invite_new_user_reward'");
-        const newUserReward = parseInt(newUserSetting?.value) || 3;
-        await db.query(
-          'INSERT INTO user_quota (user_id, extra_quota) VALUES (?, ?) ON DUPLICATE KEY UPDATE extra_quota = extra_quota + ?',
-          [newUserId, newUserReward, newUserReward]
-        );
-        await db.query('INSERT INTO quota_logs (user_id, delta, reason) VALUES (?, ?, ?)', [newUserId, newUserReward, `使用邀请码注册奖励`]);
-      }
-    }
 
     // Generate JWT token for auto-login
     const jwtExpiry = await getSettingCached('jwt_expiry', '7d');

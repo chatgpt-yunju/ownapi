@@ -7,7 +7,6 @@
  * 支持 429 自动重试其他端点
  */
 const router = require('express').Router();
-const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../../../config/db');
 const PROVIDERS = require('../config/models');
@@ -20,9 +19,46 @@ const {
   roundAmount,
 } = require('../utils/billing');
 const { createDebugRecorder } = require('../utils/requestDebug');
+const { axiosInstance } = require('../utils/upstreamHttp');
+const {
+  acquireBestEndpoint,
+  getEndpointIdentity,
+  isRetryableUpstreamError,
+  recordUpstreamFailure,
+  recordUpstreamSuccess,
+  releaseEndpointLease,
+} = require('../utils/upstreamScheduler');
 
 const MAX_RETRIES = 2;
 const PRE_RESERVE = 0.01;
+const GEMINI_PASSTHROUGH_HEADERS = [
+  'user-agent',
+  'x-goog-api-client',
+  'x-goog-user-project',
+  'x-client-version',
+  'x-gemini-cli-version',
+  'x-gemini-client-user-agent',
+  'openai-beta',
+  'anthropic-beta',
+];
+
+function setHeaderIfPresent(headers, name, value) {
+  if (value === undefined || value === null || value === '') return;
+  headers[name] = Array.isArray(value) ? value.join(',') : String(value);
+}
+
+function withGeminiClientHeaders(req, headers) {
+  const merged = { ...headers };
+  for (const name of GEMINI_PASSTHROUGH_HEADERS) {
+    setHeaderIfPresent(merged, name, req.headers[name]);
+  }
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (name.startsWith('x-stainless-')) {
+      setHeaderIfPresent(merged, name, value);
+    }
+  }
+  return merged;
+}
 
 // ── 格式转换：Gemini → OpenAI messages ──────────────────────────────────────
 function geminiToOpenAIMessages(contents, systemInstruction) {
@@ -292,7 +328,7 @@ function resolveUpstream(model, modelConfig, baseUrl, providerName, isStream, up
 }
 
 // ── 构建上游请求体和头 ──────────────────────────────────────────────────────
-function buildUpstreamRequest(apiFormat, upstreamModel, contents, systemInstruction, messages, generationConfig, isStream, apiKey) {
+function buildUpstreamRequest(req, apiFormat, upstreamModel, contents, systemInstruction, messages, generationConfig, isStream, apiKey) {
   const normalizedGenerationConfig = normalizeGeminiGenerationConfig(generationConfig);
   const temperature = normalizedGenerationConfig.temperature;
   const maxTokens = normalizedGenerationConfig.maxOutputTokens || 4096;
@@ -302,7 +338,7 @@ function buildUpstreamRequest(apiFormat, upstreamModel, contents, systemInstruct
     const body = { contents: Array.isArray(contents) ? contents : [] };
     if (systemInstruction) body.systemInstruction = systemInstruction;
     if (Object.keys(normalizedGenerationConfig).length > 0) body.generationConfig = normalizedGenerationConfig;
-    const headers = { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' };
+    const headers = withGeminiClientHeaders(req, { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' });
     return { body, headers };
   }
 
@@ -317,7 +353,7 @@ function buildUpstreamRequest(apiFormat, upstreamModel, contents, systemInstruct
     if (temperature !== undefined) body.temperature = temperature;
     if (topP !== undefined) body.top_p = topP;
     if (isStream) body.stream = true;
-    const headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' };
+    const headers = withGeminiClientHeaders(req, { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' });
     return { body, headers };
   }
 
@@ -328,7 +364,7 @@ function buildUpstreamRequest(apiFormat, upstreamModel, contents, systemInstruct
     body.stream = true;
     body.stream_options = { include_usage: true };
   }
-  const headers = { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  const headers = withGeminiClientHeaders(req, { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' });
   return { body, headers };
 }
 
@@ -408,7 +444,17 @@ router.post(/^\/models\/(.+)$/, async (req, res) => {
 
   // 重试循环：429 时切换端点
   for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
-    const selected = pickEndpoint(remaining);
+    const leaseToken = `${requestId}:${attempt + 1}`;
+    const picked = await acquireBestEndpoint(remaining, leaseToken);
+    const selected = picked.endpoint;
+    if (!selected) {
+      lastErr = Object.assign(new Error('当前所有上游端点并发已满，请稍后重试'), {
+        code: 'UPSTREAM_SATURATED',
+        response: { status: 503, data: { error: { message: '当前所有上游端点并发已满，请稍后重试' } } },
+      });
+      break;
+    }
+    const startedAt = Date.now();
     const { apiFormat, upstreamUrl } = resolveUpstream(
       model,
       modelConfig,
@@ -418,7 +464,7 @@ router.post(/^\/models\/(.+)$/, async (req, res) => {
       upstreamModel
     );
     const { body, headers } = buildUpstreamRequest(
-      apiFormat, upstreamModel, contents, systemInstruction, messages, generationConfig, isStream, selected.api_key
+      req, apiFormat, upstreamModel, contents, systemInstruction, messages, generationConfig, isStream, selected.api_key
     );
     await debug.step(5, 'success', {
       attempt: attempt + 1,
@@ -427,6 +473,8 @@ router.post(/^\/models\/(.+)$/, async (req, res) => {
       selected_base_url: selected.base_url,
       upstream_url: upstreamUrl,
       upstream_count: remaining.length,
+      endpoint_health_score: selected.scheduler?.score ?? null,
+      endpoint_inflight: selected.scheduler?.inflight ?? null,
       api_format: apiFormat,
       stream: isStream,
     });
@@ -450,22 +498,29 @@ router.post(/^\/models\/(.+)$/, async (req, res) => {
       });
 
       if (isStream) {
-        return await handleStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext);
+        return await handleStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt });
       }
-      return await handleNonStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext);
+      return await handleNonStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt });
     } catch (err) {
+      const errMsg = err.response?.data?.error?.message || err.message;
+      await recordUpstreamFailure(selected, {
+        latencyMs: Date.now() - startedAt,
+        statusCode: err.response?.status || 0,
+        errorMessage: errMsg,
+      });
+      await releaseEndpointLease(selected, leaseToken);
       await debug.step(6, 'error', {
         attempt: attempt + 1,
         selected_upstream_id: selected.id,
         upstream_url: upstreamUrl,
         status_code: err.response?.status || null,
-      }, { errorMessage: err.response?.data?.error?.message || err.message });
+      }, { errorMessage: errMsg });
       lastErr = err;
-      if (is429Error(err) && remaining.length > 1) {
-        remaining = remaining.filter(p => p.api_key !== selected.api_key);
+      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
+        remaining = remaining.filter((item) => getEndpointIdentity(item) !== getEndpointIdentity(selected));
         console.log(`[Gemini 429] 端点 ${selected.id} 限流, 剩余 ${remaining.length} 个可用`);
         await debug.step(8, 'success', {
-          reason: 'rate_limit_retry_available',
+          reason: is429Error(err) ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
           failed_upstream_id: selected.id,
           remaining_candidates: remaining.length,
         });
@@ -486,14 +541,15 @@ router.post(/^\/models\/(.+)$/, async (req, res) => {
   await releasePendingGeminiCharge(req, modelConfig, billingContext, requestId, model, 'Gemini 请求失败，释放预留余额');
   await debug.step(7, 'error', { stream: isStream }, { errorMessage: errMsg });
   await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId);
-  res.status(lastErr?.response?.status || 502).json({
-    error: { code: lastErr?.response?.status || 502, message: errMsg, status: 'INTERNAL' }
+  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (lastErr?.response?.status || 502);
+  res.status(statusCode).json({
+    error: { code: statusCode, message: errMsg, status: statusCode === 503 ? 'UNAVAILABLE' : 'INTERNAL' }
   });
 });
 
 // ── 非流式处理 ──────────────────────────────────────────────────────────────
-async function handleNonStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext) {
-  const upstream = await axios.post(upstreamUrl, body, { headers, timeout: 120000 });
+async function handleNonStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta) {
+  const upstream = await axiosInstance.post(upstreamUrl, body, { headers, timeout: 120000 });
   const data = upstream.data;
 
   let geminiResp, promptTokens, completionTokens;
@@ -530,6 +586,11 @@ async function handleNonStream(req, res, upstreamUrl, body, headers, apiFormat, 
       completion_tokens: completionTokens,
       total_cost: cost,
     }, { errorMessage: 'Insufficient balance for this request' });
+    await recordUpstreamSuccess(selected, {
+      latencyMs: Date.now() - attemptMeta.startedAt,
+      statusCode: upstream.status,
+    });
+    await releaseEndpointLease(selected, attemptMeta.leaseToken);
     await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, billingContext.reservedAmount || 0, req.ip, 'insufficient_balance', '余额不足', requestId);
     return res.status(402).json({
       error: {
@@ -553,13 +614,18 @@ async function handleNonStream(req, res, upstreamUrl, body, headers, apiFormat, 
     total_cost: chargedAmount,
   });
   await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
+  await recordUpstreamSuccess(selected, {
+    latencyMs: Date.now() - attemptMeta.startedAt,
+    statusCode: upstream.status,
+  });
+  await releaseEndpointLease(selected, attemptMeta.leaseToken);
   await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, chargedAmount, req.ip, 'success', null, requestId);
   res.json(geminiResp);
 }
 
 // ── 流式处理 ─────────────────────────────────────────────────────────────────
-async function handleStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext) {
-  const upstream = await axios.post(upstreamUrl, body, { headers, responseType: 'stream', timeout: 120000 });
+async function handleStream(req, res, upstreamUrl, body, headers, apiFormat, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta) {
+  const upstream = await axiosInstance.post(upstreamUrl, body, { headers, responseType: 'stream', timeout: 120000 });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -642,6 +708,11 @@ async function handleStream(req, res, upstreamUrl, body, headers, apiFormat, mod
         completion_tokens: completionTokens,
         total_cost: cost,
       }, { errorMessage: 'Insufficient balance for this request' });
+      await recordUpstreamSuccess(selected, {
+        latencyMs: Date.now() - attemptMeta.startedAt,
+        statusCode: upstream.status,
+      });
+      await releaseEndpointLease(selected, attemptMeta.leaseToken);
       await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, billingContext.reservedAmount || 0, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId);
       return;
     }
@@ -657,11 +728,22 @@ async function handleStream(req, res, upstreamUrl, body, headers, apiFormat, mod
       total_cost: chargedAmount,
     });
     await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
+    await recordUpstreamSuccess(selected, {
+      latencyMs: Date.now() - attemptMeta.startedAt,
+      statusCode: upstream.status,
+    });
+    await releaseEndpointLease(selected, attemptMeta.leaseToken);
     await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, chargedAmount, req.ip, 'success', null, requestId);
   });
 
   upstream.data.on('error', async (err) => {
     await releasePendingGeminiCharge(req, modelConfig, billingContext, requestId, model, 'Gemini 流式上游错误，释放预留余额');
+    await recordUpstreamFailure(selected, {
+      latencyMs: Date.now() - attemptMeta.startedAt,
+      errorMessage: err.message,
+      statusCode: err.response?.status || 0,
+    });
+    await releaseEndpointLease(selected, attemptMeta.leaseToken);
     await debug.step(6, 'error', {
       stream: true,
       selected_upstream_id: selected?.id || null,

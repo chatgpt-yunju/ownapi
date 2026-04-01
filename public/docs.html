@@ -3,21 +3,182 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>API 文档 - OpenClaw API</title>
+  <title>开发者文档 - OpenClaw API Gateway</title>
   <link rel="stylesheet" href="/css/style.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="/js/theme.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     .docs-shell { display:flex; max-width:1280px; margin:0 auto; padding:2rem; gap:2rem; align-items:flex-start; }
-    .docs-hero { margin-bottom: 2rem; padding: 2rem; position: relative; overflow: hidden; }
+    .docs-hero { margin-bottom: 1.2rem; padding: 2rem; position: relative; overflow: hidden; }
     .docs-hero::before { content:''; position:absolute; inset:auto -6% -35% auto; width:220px; height:220px; border-radius:50%; background:radial-gradient(circle, rgba(255,95,207,0.18), rgba(255,95,207,0)); pointer-events:none; }
     .docs-hero h1 { font-family: var(--font-display); font-size: 2.1rem; margin-bottom: 0.75rem; }
     .docs-hero p { color: var(--text-secondary); max-width: 760px; }
+    .docs-kicker {
+      display:inline-flex;
+      align-items:center;
+      gap:0.45rem;
+      padding:0.35rem 0.72rem;
+      margin-bottom:0.9rem;
+      border-radius:999px;
+      border:1px solid rgba(130, 205, 255, 0.16);
+      background:rgba(8, 24, 41, 0.46);
+      color:var(--accent-light);
+      font-size:0.76rem;
+      letter-spacing:0.06em;
+      text-transform:uppercase;
+    }
+    .docs-kicker::before {
+      content:'';
+      width:7px;
+      height:7px;
+      border-radius:50%;
+      background:linear-gradient(135deg, #29d6b0, #74f5ff);
+    }
+    .docs-entry-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:1rem; margin-bottom:1.2rem; }
+    .docs-entry-card {
+      display:block;
+      padding:1.1rem;
+      border-radius:18px;
+      border:1px solid var(--border-color);
+      background:rgba(7, 21, 38, 0.76);
+      color:inherit;
+      text-decoration:none;
+      transition:transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+    .docs-entry-card:hover { transform:translateY(-2px); border-color:var(--border-strong); background:rgba(10, 26, 46, 0.88); }
+    .docs-entry-label { display:inline-flex; align-items:center; gap:0.4rem; padding:0.22rem 0.55rem; border-radius:999px; background:var(--accent-bg); color:var(--accent-light); font-size:0.72rem; margin-bottom:0.7rem; }
+    .docs-entry-card h3 { font-size:1rem; margin-bottom:0.45rem; color:var(--text-primary); }
+    .docs-entry-card p { margin:0 0 0.55rem; font-size:0.84rem; line-height:1.65; color:var(--text-secondary); }
+    .docs-entry-link { color:var(--accent-light); font-size:0.82rem; font-weight:600; }
+    .quickstart-shell {
+      display: grid;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .quickstart-topbar {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.1rem;
+      border-radius: 18px;
+      background: rgba(8, 24, 41, 0.5);
+      border: 1px solid rgba(130, 205, 255, 0.16);
+    }
+    .quickstart-topbar p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.88rem;
+      line-height: 1.7;
+    }
+    .quickstart-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+    }
+    .quickstart-card {
+      padding: 1.15rem;
+      border-radius: 18px;
+      border: 1px solid var(--border-color);
+      background: rgba(7, 21, 38, 0.76);
+    }
+    .quickstart-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.22rem 0.55rem;
+      border-radius: 999px;
+      background: var(--accent-bg);
+      color: var(--accent-light);
+      font-size: 0.72rem;
+      margin-bottom: 0.7rem;
+    }
+    .quickstart-card h3 {
+      font-size: 1rem;
+      margin-bottom: 0.45rem;
+      color: var(--text-primary);
+    }
+    .quickstart-card p {
+      margin: 0 0 0.8rem;
+      color: var(--text-secondary);
+      font-size: 0.84rem;
+      line-height: 1.7;
+    }
+    .quickstart-links {
+      display: flex;
+      gap: 0.7rem;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+    }
+    .quickstart-note {
+      padding: 1rem 1.1rem;
+      border-radius: 16px;
+      border: 1px solid rgba(130, 205, 255, 0.16);
+      background: rgba(0,199,255,0.08);
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      line-height: 1.75;
+    }
+    .docs-hero-actions { display:flex; gap:0.9rem; flex-wrap:wrap; margin-top:1rem; }
+    .docs-quickbar {
+      display:flex;
+      gap:0.75rem;
+      flex-wrap:wrap;
+      margin-top:1rem;
+      color:var(--text-muted);
+      font-size:0.84rem;
+    }
+    .docs-quickbar span {
+      padding:0.42rem 0.72rem;
+      border-radius:999px;
+      border:1px solid rgba(130, 205, 255, 0.14);
+      background:rgba(8, 24, 41, 0.48);
+    }
+    .docs-cta {
+      margin: 0 0 3rem;
+      padding: 1.4rem;
+      border-radius: 22px;
+      background: linear-gradient(135deg, rgba(10, 28, 48, 0.92), rgba(4, 16, 31, 0.9));
+      border: 1px solid rgba(130, 205, 255, 0.18);
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1rem;
+      align-items: center;
+    }
+    .docs-cta h2 { font-size: 1.35rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+    .docs-cta p { margin: 0; color: var(--text-secondary); line-height: 1.75; }
+    .docs-cta-actions { display: flex; gap: 0.8rem; flex-wrap: wrap; justify-content: flex-end; }
+    .docs-governance {
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      gap:1rem;
+      margin-top:1rem;
+    }
+    .docs-governance-item {
+      padding:1rem 1.05rem;
+      border-radius:18px;
+      border:1px solid rgba(130, 205, 255, 0.14);
+      background:rgba(8, 24, 41, 0.52);
+    }
+    .docs-governance-item strong {
+      display:block;
+      margin-bottom:0.35rem;
+      color:var(--text-primary);
+      font-size:0.92rem;
+    }
+    .docs-governance-item p {
+      margin:0;
+      color:var(--text-secondary);
+      font-size:0.82rem;
+      line-height:1.7;
+    }
     .doc-section { margin-bottom: 3rem; }
     .doc-section h2 { font-size: 1.5rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
     .doc-section h3 { font-size: 1.1rem; margin: 1.5rem 0 0.75rem; color: var(--accent-light); }
     .doc-method { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700; font-family: var(--font-mono); margin-right: 0.5rem; }
-    .doc-method.post { background: rgba(0,206,201,0.15); color: var(--success); }
-    .doc-method.get { background: rgba(84,160,255,0.15); color: var(--info); }
+    .doc-method.post { background: rgba(84,160,255,0.15); color: var(--info); }
+    .doc-method.get { background: rgba(0,206,201,0.15); color: var(--success); }
     .doc-endpoint { font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-primary); }
     .doc-param-table { width: 100%; margin: 0.75rem 0; font-size: 0.85rem; }
     .doc-param-table th { background: var(--bg-secondary); }
@@ -33,11 +194,18 @@
     .doc-main .copy-btn { top: 0.75rem; right: 0.75rem; }
     @media (max-width: 960px) {
       .docs-shell { flex-direction: column; padding: 1rem; }
+      .docs-entry-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+      .quickstart-grid { grid-template-columns: 1fr; }
+      .docs-cta { grid-template-columns:1fr; }
+      .docs-cta-actions { justify-content:flex-start; }
+      .docs-governance { grid-template-columns:1fr; }
       .doc-nav { position: static; width: 100%; }
     }
     @media (max-width: 560px) {
       .docs-hero { padding: 1.25rem; }
       .docs-hero h1 { font-size: 1.65rem; }
+      .docs-entry-grid { grid-template-columns:1fr; }
+      .docs-hero-actions a { width:100%; justify-content:center; }
       .doc-nav { padding: 0.8rem; }
       .doc-nav a { padding: 0.7rem 0.8rem; }
     }
@@ -52,6 +220,7 @@
     <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
     <div class="oc-nav-links">
       <a href="/">首页</a>
+      <a href="/pipeline.html">路由能力</a>
       <a href="/docs.html" class="active">文档</a>
       <a href="/console.html">控制台</a>
     </div>
@@ -79,6 +248,7 @@
       <a href="#claude-code">Claude Code CLI</a>
       <a href="#codex-cli">Codex CLI</a>
       <a href="#gemini-cli">Gemini CLI</a>
+      <a href="#openclaw-custom-provider">OpenClaw Custom Provider</a>
       <div class="oc-sidebar-section" style="margin-top:1rem;">GUI 客户端</div>
       <a href="#cherry-studio">Cherry Studio</a>
       <a href="#nextchat">NextChat</a>
@@ -96,55 +266,115 @@
     <!-- Content -->
     <main class="doc-main">
       <section class="oc-card docs-hero">
-        <h1>API 文档中心</h1>
-        <p>围绕 OpenAI、Anthropic、Gemini 三套协议做统一接入说明，保留工程视角下的快速上手、请求格式、流式输出与 CLI 集成能力。</p>
+        <div class="docs-kicker">Developer Portal</div>
+        <h1>开发者文档与接入规范</h1>
+        <p>本页用于说明 OpenClaw API Gateway 的统一接入方式，包括协议兼容、认证要求、示例请求、CLI / GUI 客户端配置与运行边界。文档提供接入指引；实际可用模型、价格、套餐权益、频率限制与运行状态，以控制台、模型目录和接口返回为准。</p>
+        <div class="docs-hero-actions">
+          <a href="/console.html" class="btn-accent">进入控制台创建 Key</a>
+          <a href="#quickstart" class="btn-outline">查看快速接入</a>
+        </div>
+        <div class="docs-quickbar">
+          <span>统一入口: https://api.yunjunet.cn</span>
+          <span>协议兼容: OpenAI / Anthropic / Gemini</span>
+          <span>权威口径: 控制台 / 模型目录 / 接口返回</span>
+          <span>适用对象: CLI / SDK / GUI / IDE</span>
+        </div>
         <div class="doc-meta-grid">
           <div class="oc-card doc-meta-card">
-            <div style="font-size:0.8rem;color:var(--text-muted);">协议兼容</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);">统一协议</div>
             <div style="font-family:var(--font-mono);margin-top:0.3rem;">OpenAI / Anthropic / Gemini</div>
           </div>
           <div class="oc-card doc-meta-card">
-            <div style="font-size:0.8rem;color:var(--text-muted);">推荐入口</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);">生产地址</div>
             <div style="font-family:var(--font-mono);margin-top:0.3rem;">https://api.yunjunet.cn</div>
           </div>
           <div class="oc-card doc-meta-card">
-            <div style="font-size:0.8rem;color:var(--text-muted);">输出能力</div>
-            <div style="font-family:var(--font-mono);margin-top:0.3rem;">JSON / SSE / CLI</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);">权威依据</div>
+            <div style="font-family:var(--font-mono);margin-top:0.3rem;">Console / /v1/models / runtime</div>
+          </div>
+        </div>
+        <div class="docs-governance">
+          <div class="docs-governance-item">
+            <strong>文档定位</strong>
+            <p>面向开发、测试、运维与集成方的统一接入指引，覆盖生产接入前常见的配置、鉴权与联调步骤。</p>
+          </div>
+          <div class="docs-governance-item">
+            <strong>兼容边界</strong>
+            <p>协议兼容表示请求与响应结构兼容，不代表所有模型在每个端点下都具备完全一致的原生能力。</p>
+          </div>
+          <div class="docs-governance-item">
+            <strong>运行口径</strong>
+            <p>若文档示例与运行时存在差异，请优先以控制台可用模型、套餐权益、错误码与接口返回结果为准。</p>
           </div>
         </div>
       </section>
+      <section class="docs-entry-grid" aria-label="快速接入方式">
+        <a class="docs-entry-card" href="#quickstart-openclaw-json">
+          <div class="docs-entry-label">Runtime</div>
+          <h3>openclaw.json</h3>
+          <p>适用于使用 OpenClaw 配置目录和本地运行层的场景，便于统一维护默认模型、凭证与扩展 provider。</p>
+          <span class="docs-entry-link">查看接法 →</span>
+        </a>
+        <a class="docs-entry-card" href="#claude-code">
+          <div class="docs-entry-label">CLI</div>
+          <h3>Claude Code</h3>
+          <p>适用于终端代理、代码生成与 Anthropic Messages 协议工作流，推荐给以命令行为主的研发团队。</p>
+          <span class="docs-entry-link">查看接法 →</span>
+        </a>
+        <a class="docs-entry-card" href="#codex-cli">
+          <div class="docs-entry-label">CLI</div>
+          <h3>Codex CLI</h3>
+          <p>通过 `~/.codex/config.toml` 接入 Responses API，适用于 OpenAI 风格的终端编排与评估流程。</p>
+          <span class="docs-entry-link">查看接法 →</span>
+        </a>
+        <a class="docs-entry-card" href="#quickstart">
+          <div class="docs-entry-label">SDK</div>
+          <h3>OpenAI / Anthropic SDK</h3>
+          <p>适用于服务端应用、Agent 后端与标准 SDK 集成，通常也是生产联调的第一条路径。</p>
+          <span class="docs-entry-link">查看接法 →</span>
+        </a>
+        <a class="docs-entry-card" href="#gemini-cli">
+          <div class="docs-entry-label">CLI / API</div>
+          <h3>Gemini CLI</h3>
+          <p>适用于 Gemini 兼容接口与多模态工作流，需要 Google 风格请求结构时可直接从此处接入。</p>
+          <span class="docs-entry-link">查看接法 →</span>
+        </a>
+      </section>
       <div class="doc-section" id="intro">
         <h2>简介</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 同时兼容 <strong>OpenAI Chat Completions / Responses</strong>、<strong>Anthropic Messages</strong> 和 <strong>Gemini</strong> 三种 API 格式，支持多种主流大语言模型。原生支持 <strong>Claude Code CLI</strong>、<strong>Codex CLI</strong>、<strong>Gemini CLI</strong> 以及 OpenAI / Anthropic SDK 直接接入。</p>
+        <p style="color:var(--text-secondary);">OpenClaw API Gateway 提供统一模型接入层，用于在同一账户体系下承载多协议调用、访问控制、计费记录、模型目录与平台级治理能力。平台负责认证、配额、计费与路由转换；具体模型能力、上下文限制、工具支持、稳定性与响应行为，由所选模型及其上游服务共同决定。</p>
         <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;">
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
-            <div style="font-size:0.8rem;color:var(--text-muted);">API 地址</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);">统一入口</div>
             <div style="font-family:var(--font-mono);margin-top:0.25rem;color:var(--accent-light);">https://api.yunjunet.cn</div>
           </div>
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
-            <div style="font-size:0.8rem;color:var(--text-muted);">兼容格式</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);">兼容协议</div>
             <div style="font-family:var(--font-mono);margin-top:0.25rem;">OpenAI + Anthropic + Gemini</div>
           </div>
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
-            <div style="font-size:0.8rem;color:var(--text-muted);">响应格式</div>
-            <div style="font-family:var(--font-mono);margin-top:0.25rem;">JSON / SSE</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);">权威信息源</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">Console / /v1/models / errors</div>
           </div>
+        </div>
+        <div class="quickstart-note" style="margin-top:1rem;">
+          <strong style="color:var(--accent-light);">接入原则：</strong>
+          建议先创建测试用 API Key，使用最小请求完成联调，再根据业务形态补充模型白名单、套餐、客户端配置与监控规则。文档示例仅用于说明结构，实际模型 ID、价格和限制请以控制台展示与运行时返回为准。
         </div>
       </div>
 
       <div class="doc-section" id="openclaw-guide">
         <h2>OpenClaw 正确接入</h2>
-        <p style="color:var(--text-secondary);">这里需要先区分两个不同概念：<strong>官方 OpenClaw</strong> 是独立的 CLI / Gateway 产品；<strong>本站 OpenClaw API</strong> 是 <code>https://api.yunjunet.cn</code> 提供的 OpenAI / Anthropic / Gemini 兼容网关。两者接入方式不同，不要混用。</p>
+        <p style="color:var(--text-secondary);">这一节用于区分两种常见用法：一是使用 OpenClaw 本体作为本地运行层和配置目录；二是绕过本地运行层，直接调用本站兼容网关。两种方案都可以使用同一平台账户体系，但凭证位置、Base URL 和配置方式不同。</p>
 
-        <h3>A. 官方 OpenClaw（openclaw.ai）当前推荐接法</h3>
-        <p style="color:var(--text-secondary);">根据 OpenClaw 官方文档，当前推荐流程是先安装 CLI，再运行 onboarding，随后通过 provider 登录并把默认模型设为 <code>provider/model</code> 格式。</p>
+        <h3>A. 使用 OpenClaw 配置目录接入本站网关</h3>
+        <p style="color:var(--text-secondary);">如果你已经采用 OpenClaw 运行层，建议把身份凭证写入 <code>auth-profiles.json</code>，再把默认模型与上游地址写入 <code>openclaw.json</code>。这种方式更便于后续切换模型、扩展 provider 和统一终端工作流。</p>
         <div style="background:rgba(0,199,255,0.08);border:1px solid rgba(0,199,255,0.22);border-radius:12px;padding:1rem;margin:0.9rem 0 1rem;">
           <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
-            <strong style="color:var(--accent-light);">官方文档：</strong>
-            <a href="https://docs.openclaw.ai/" target="_blank" rel="noopener" style="color:var(--accent-light);">首页</a> /
-            <a href="https://docs.openclaw.ai/providers/openai" target="_blank" rel="noopener" style="color:var(--accent-light);">OpenAI / Codex</a> /
-            <a href="https://docs.openclaw.ai/providers/anthropic" target="_blank" rel="noopener" style="color:var(--accent-light);">Anthropic / Claude</a><br>
-            <strong style="color:var(--accent-light);">最后核验：</strong> 2026-03-28
+            <strong style="color:var(--accent-light);">说明：</strong>
+            如需查看 OpenClaw 本体的 CLI 安装、Provider 机制与本地运行说明，可参考
+            <a href="https://docs.openclaw.ai/" target="_blank" rel="noopener" style="color:var(--accent-light);">官方文档</a>。
+            本页重点说明如何将本站网关接入 OpenClaw 配置目录。
           </p>
         </div>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># macOS / Linux / WSL
@@ -159,7 +389,7 @@ openclaw gateway status
 # 打开控制台
 openclaw dashboard</pre></div>
 
-        <p style="color:var(--text-secondary);margin-top:0.75rem;">按 CC Club 的 OpenClaw 配置方式，核心是配置目录 <code>~/.openclaw/</code> 下的两个文件：</p>
+        <p style="color:var(--text-secondary);margin-top:0.75rem;">采用 OpenClaw 配置目录接入时，核心是维护 <code>~/.openclaw/</code> 下的两个文件：</p>
         <div class="oc-code"><pre style="margin:0;">~/.openclaw/
 ├── openclaw.json
 └── agents/main/agent/auth-profiles.json</pre></div>
@@ -171,7 +401,7 @@ openclaw dashboard</pre></div>
     "anthropic:default": {
       "type": "api_key",
       "provider": "anthropic",
-      "key": "你的CC-Club-API-Key"
+      "key": "sk-your-api-key"
     }
   },
   "lastGood": {
@@ -192,7 +422,7 @@ openclaw dashboard</pre></div>
     "mode": "merge",
     "providers": {
       "anthropic": {
-        "baseUrl": "https://claude-code.club/api",
+        "baseUrl": "https://api.yunjunet.cn",
         "models": []
       }
     }
@@ -200,20 +430,21 @@ openclaw dashboard</pre></div>
 }</pre></div>
 
         <p style="color:var(--text-secondary);margin-top:0.75rem;">也可以通过命令行写入 API Key：</p>
-        <div class="oc-code"><pre style="margin:0;">openclaw onboard --auth-choice apiKey --anthropic-api-key 你的CC-Club-API-Key</pre></div>
+        <div class="oc-code"><pre style="margin:0;">openclaw onboard --auth-choice apiKey --anthropic-api-key sk-your-api-key</pre></div>
 
         <div style="background:rgba(255,95,95,0.08);border:1px solid rgba(255,95,95,0.24);border-radius:12px;padding:1rem;margin:1rem 0 1.5rem;">
           <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
             <strong style="color:#ff8b8b;">避免误配：</strong><br>
-            &#8226; CC Club 场景下，关键不是 <code>OPENCLAW_API_KEY + base_url</code> 这种单一环境变量写法，而是 <code>~/.openclaw/</code> 目录配置<br>
+            &#8226; 采用 OpenClaw 配置目录时，关键不是单一环境变量，而是 <code>~/.openclaw/</code> 下的结构化配置<br>
             &#8226; <code>auth-profiles.json</code> 负责保存 API Key，<code>openclaw.json</code> 负责配置模型和 <code>baseUrl</code><br>
             &#8226; <code>models.providers.anthropic.models</code> 必须写成空数组 <code>[]</code>，省略会触发配置校验错误<br>
+            &#8226; <code>baseUrl</code> 使用 <code>https://api.yunjunet.cn</code>，不要额外拼接 <code>/v1</code><br>
             &#8226; 默认模型要写成 <code>provider/model</code>，例如 <code>anthropic/claude-sonnet-4-6</code>
           </p>
         </div>
 
         <h3>B. 本站 OpenClaw API（api.yunjunet.cn）接入</h3>
-        <p style="color:var(--text-secondary);">如果你要接入的是本站 API 网关，而不是官方 OpenClaw CLI，可以参考 <a href="https://docs.openclaw.ai/" target="_blank" rel="noopener" style="color:var(--accent-light);">OpenClaw 官方文档</a> 的接入结构，但实际参数请以下面的本站网关地址与认证方式为准。</p>
+        <p style="color:var(--text-secondary);">如果你不使用 OpenClaw 配置目录，可直接在 SDK、CLI、第三方客户端或 IDE 插件中填写本站网关地址与 API Key。平台会在已启用模型与已开放协议范围内提供统一接入能力。</p>
 
         <h3>1. 获取 API Key</h3>
         <p style="color:var(--text-secondary);">到 <a href="/console.html" style="color:var(--accent-light);">控制台</a> 创建 API Key（以 <code>sk-</code> 开头），创建后仅显示一次，请妥善保管。</p>
@@ -250,15 +481,16 @@ API Key:      sk-your-api-key</pre></div>
           <p style="color:var(--text-secondary);font-size:0.86rem;margin:0;line-height:1.8;">
             <strong style="color:var(--accent-light);">关键说明：</strong><br>
             &#8226; OpenAI 格式 Base URL 含 <code>/v1</code>，Anthropic 格式不含<br>
-            &#8226; 平台上所有模型均支持全部三种协议格式，自动完成格式转换<br>
-            &#8226; 模型 ID 直接使用控制台中显示的 ID，如 <code>claude-sonnet-4-6</code>、<code>deepseek-chat</code>
+            &#8226; 同一 API Key 可在已开放的兼容端点中复用，但具体支持范围以当前已启用模型和运行时返回为准<br>
+            &#8226; 模型 ID 直接使用控制台或 <code>GET /v1/models</code> 返回的标识，例如 <code>claude-sonnet-4-6</code>、<code>deepseek-chat</code><br>
+            &#8226; 第三方模型的能力、稳定性和可用性由所选模型及其上游服务决定
           </p>
         </div>
       </div>
 
       <div class="doc-section" id="auth">
         <h2>认证方式</h2>
-        <p style="color:var(--text-secondary);">在<a href="/console.html">控制台</a>创建 API Key 后，支持三种认证头格式（使用同一个 Key）：</p>
+        <p style="color:var(--text-secondary);">在 <a href="/console.html">控制台</a> 创建 API Key 后，可按所选兼容协议使用对应认证头。生产环境请将密钥保存在服务端或受控密钥管理系统中，不建议在公开前端或不受控脚本中直接暴露生产 Key。</p>
         <div class="oc-code" style="margin-top:0.75rem;"><pre style="margin:0;"># OpenAI 格式（适用于 /v1/chat/completions）
 Authorization: Bearer sk-your-api-key
 
@@ -267,18 +499,84 @@ x-api-key: sk-your-api-key
 
 # Gemini 格式（适用于 /v1beta/models/*）
 x-goog-api-key: sk-your-api-key</pre></div>
-        <p style="color:var(--text-secondary);margin-top:0.75rem;font-size:0.85rem;">API Key 以 <code>sk-</code> 开头，创建后仅显示一次，请妥善保管。三种认证头均可用于对应端点。</p>
+        <p style="color:var(--text-secondary);margin-top:0.75rem;font-size:0.85rem;">API Key 以 <code>sk-</code> 开头，创建后仅显示一次，请妥善保管。若出现 401、403、限额或模型不可用等情况，请以接口返回和控制台状态为准进行排查。</p>
       </div>
 
       <div class="doc-section" id="quickstart">
         <h2>快速接入</h2>
-        <h3>Python</h3>
+        <div class="quickstart-shell">
+          <div class="quickstart-topbar">
+            <p>若目标是先完成一次联调，无需先通读完整文档。推荐顺序是：创建测试用 API Key，选择一条最短接入路径跑通请求，再根据业务需要补充模型白名单、套餐、客户端配置和监控策略。</p>
+            <a href="/console.html" class="btn-accent">创建测试 Key</a>
+          </div>
+
+          <div class="quickstart-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+            <div class="quickstart-card">
+              <div class="quickstart-badge">Runtime</div>
+              <h3>openclaw.json</h3>
+              <p>适用于使用 OpenClaw 配置目录的团队化场景，适合统一维护默认模型、凭证和 provider 扩展。</p>
+              <a href="#quickstart-openclaw-json" class="docs-entry-link">看 openclaw.json →</a>
+            </div>
+            <div class="quickstart-card">
+              <div class="quickstart-badge">SDK</div>
+              <h3>SDK 用户</h3>
+              <p>多数服务端应用优先通过 OpenAI 兼容格式联调，替换 <code>base_url</code> 与 <code>api_key</code> 即可开始。</p>
+              <a href="#quickstart-sdk" class="docs-entry-link">看 SDK 示例 →</a>
+            </div>
+            <div class="quickstart-card">
+              <div class="quickstart-badge">CLI</div>
+              <h3>Claude Code / Codex</h3>
+              <p>如果主要工作流发生在终端中，建议直接使用 CLI 章节，避免先走普通 SDK 再回切终端配置。</p>
+              <a href="#claude-code" class="docs-entry-link">看 Claude Code →</a>
+              <br>
+              <a href="#codex-cli" class="docs-entry-link">看 Codex CLI →</a>
+            </div>
+            <div class="quickstart-card">
+              <div class="quickstart-badge">Multimodal</div>
+              <h3>Gemini 路线</h3>
+              <p>需要 Gemini 兼容请求结构或多模态工作流时，可直接进入 Gemini CLI / API 章节。</p>
+              <a href="#gemini-cli" class="docs-entry-link">看 Gemini CLI →</a>
+            </div>
+          </div>
+
+          <div class="quickstart-note">
+            <strong style="color:var(--accent-light);">默认建议：</strong>
+            如已采用 OpenClaw 运行层，优先使用 <code>openclaw.json</code> 路线；如未采用本地运行层，先用 OpenAI 兼容格式跑通最小请求；CLI 使用者直接查看 Claude Code 或 Codex；多模态与 Gemini 兼容场景再进入 Gemini 章节。
+          </div>
+        </div>
+
+        <h3 id="quickstart-openclaw-json">OpenClaw.json</h3>
+        <p style="color:var(--text-secondary);">下面给出最小可用的 <code>~/.openclaw/openclaw.json</code> 结构，适用于把 OpenClaw 作为统一运行层来管理默认模型与路由入口的场景：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "anthropic/claude-sonnet-4-6"
+      }
+    }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "anthropic": {
+        "baseUrl": "https://api.yunjunet.cn",
+        "models": []
+      }
+    }
+  }
+}</pre></div>
+        <div class="quickstart-note" style="margin-top:0.85rem;">
+          <strong style="color:var(--accent-light);">主推说明：</strong>
+          这个示例仅展示必要字段；API Key 仍需放在 <code>auth-profiles.json</code> 中。若你并未采用 OpenClaw 配置目录，请直接跳到 SDK 或 CLI 章节，不需要额外维护本地运行层配置。
+        </div>
+
+        <h3 id="quickstart-sdk">Python</h3>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">pip install openai
 
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://api.yunjunet.cn",
+    base_url="https://api.yunjunet.cn/v1",
     api_key="sk-your-api-key"
 )
 
@@ -292,7 +590,7 @@ print(resp.choices[0].message.content)</pre></div>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">import OpenAI from 'openai';
 
 const client = new OpenAI({
-  baseURL: 'https://api.yunjunet.cn',
+  baseURL: 'https://api.yunjunet.cn/v1',
   apiKey: 'sk-your-api-key',
 });
 
@@ -310,6 +608,13 @@ console.log(completion.choices[0].message.content);</pre></div>
     "model": "gpt-4o-mini",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'</pre></div>
+
+        <div class="quickstart-links">
+          <a href="#auth" class="btn-outline">看认证方式</a>
+          <a href="#responses" class="btn-outline">看 Responses API</a>
+          <a href="#models" class="btn-outline">看模型列表</a>
+          <a href="#openclaw-custom-provider" class="btn-outline">看 Custom Provider</a>
+        </div>
       </div>
 
       <div class="doc-section" id="chat">
@@ -349,7 +654,7 @@ console.log(completion.choices[0].message.content);</pre></div>
       <div class="doc-section" id="messages">
         <h2>Messages API（Anthropic 兼容）</h2>
         <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1/messages</span></p>
-        <p style="color:var(--text-secondary);margin-top:0.5rem;">完全兼容 Anthropic Messages API 格式，支持 Claude Code CLI、Anthropic SDK 等原生客户端直接接入。所有模型（包括 OpenAI、DeepSeek、GPT 等非 Anthropic 模型）均可通过此端点调用，平台自动完成格式转换。</p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">用于承载 Anthropic Messages 兼容请求，适合 Claude Code CLI、Anthropic SDK 等原生客户端接入。平台会在当前已启用且可映射的模型范围内完成格式转换；具体能力、工具支持与可用性请以模型目录和运行时返回为准。</p>
 
         <h3>请求参数</h3>
         <table class="oc-table doc-param-table">
@@ -426,7 +731,7 @@ data: {"type":"message_stop"}</pre></div>
       <div class="doc-section" id="responses">
         <h2>Responses API（OpenAI 兼容）</h2>
         <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1/responses</span></p>
-        <p style="color:var(--text-secondary);margin-top:0.5rem;">兼容 OpenAI Responses API 格式，支持 Codex CLI 直接接入。平台上所有模型均可通过此端点调用。</p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">用于承载 OpenAI Responses 兼容请求，适合 Codex CLI 与 Responses 风格工作流。平台会在当前已启用且可映射的模型范围内完成协议适配；具体模型、价格与支持能力以控制台和接口返回为准。</p>
 
         <h3>请求参数</h3>
         <table class="oc-table doc-param-table">
@@ -505,7 +810,7 @@ data: {"type":"response.completed","response":{...usage...}}</pre></div>
         <h2>Gemini API（Google 兼容）</h2>
         <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1beta/models/{model}:generateContent</span></p>
         <p><span class="doc-method post">POST</span><span class="doc-endpoint">/v1beta/models/{model}:streamGenerateContent</span></p>
-        <p style="color:var(--text-secondary);margin-top:0.5rem;">完全兼容 Google Gemini API 格式，支持 Gemini CLI 等原生客户端直接接入。所有平台模型均可通过此端点调用，平台自动完成 Gemini ↔ OpenAI/Anthropic 格式转换。</p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">用于承载 Gemini 兼容请求，适合 Gemini CLI 与 Google 风格的多模态调用结构。平台会在当前已启用且可映射的模型范围内完成 Gemini 与其他协议之间的转换；具体可用范围以运行时返回为准。</p>
 
         <h3>请求参数</h3>
         <table class="oc-table doc-param-table">
@@ -595,7 +900,7 @@ echo 'export OPENCLAW_API_KEY=sk-your-api-key' >> ~/.bashrc && source ~/.bashrc
 echo 'export OPENCLAW_API_KEY=sk-your-api-key' >> ~/.zshrc && source ~/.zshrc</pre></div>
 
         <h3>支持的模型</h3>
-        <p style="color:var(--text-secondary);">Codex CLI 通过 <code>/v1/responses</code> 端点通信，平台上所有已启用的模型均可使用。</p>
+        <p style="color:var(--text-secondary);">Codex CLI 通过 <code>/v1/responses</code> 端点通信，当前已启用且支持映射的模型可按兼容方式使用。</p>
 
         <h3>重要说明</h3>
         <div style="background:rgba(255,200,0,0.08);border:1px solid rgba(255,200,0,0.25);border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
@@ -604,6 +909,7 @@ echo 'export OPENCLAW_API_KEY=sk-your-api-key' >> ~/.zshrc && source ~/.zshrc</p
             &#8226; <strong>wire_api</strong> 必须设为 <code>"responses"</code>（默认值，使用 Responses API）<br>
             &#8226; <strong>base_url</strong> 为 <code>https://api.yunjunet.cn/v1</code>（含 /v1）<br>
             &#8226; <strong>env_key</strong> 可自定义变量名，需在 Shell 中设置对应的环境变量<br>
+            &#8226; <strong>无需手动补 CLI Header</strong>：网关会透传 Codex / OpenAI SDK 常见客户端标识头到上游<br>
             &#8226; <strong>模型切换</strong>：修改 config.toml 中的 <code>model</code> 字段即可切换任意平台模型
           </p>
         </div>
@@ -611,7 +917,7 @@ echo 'export OPENCLAW_API_KEY=sk-your-api-key' >> ~/.zshrc && source ~/.zshrc</p
 
       <div class="doc-section" id="gemini-cli">
         <h2>Gemini CLI 接入</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 完全兼容 <a href="https://github.com/google-gemini/gemini-cli" style="color:var(--accent-light);">Gemini CLI</a>，您可以使用 OpenClaw 的 API Key 替代官方 Google API Key，接入平台上的所有模型。</p>
+        <p style="color:var(--text-secondary);">OpenClaw API 提供与 <a href="https://github.com/google-gemini/gemini-cli" style="color:var(--accent-light);">Gemini CLI</a> 的兼容接入能力，可使用平台 API Key 替代 Google API Key。实际可调用模型范围与多模态能力，以当前启用状态和接口返回为准。</p>
 
         <h3>环境变量配置</h3>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># 设置环境变量
@@ -633,7 +939,7 @@ echo 'export GEMINI_BASE_URL=https://api.yunjunet.cn/v1beta/' >> ~/.zshrc
 source ~/.zshrc</pre></div>
 
         <h3>支持的模型</h3>
-        <p style="color:var(--text-secondary);">Gemini CLI 通过 <code>/v1beta/models/{model}:generateContent</code> 端点通信，平台上所有已启用的模型均可使用：</p>
+        <p style="color:var(--text-secondary);">Gemini CLI 通过 <code>/v1beta/models/{model}:generateContent</code> 端点通信，当前已启用且支持映射的模型可按兼容方式使用：</p>
         <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
           <li><strong>Anthropic 模型</strong>：claude-opus-4-6、claude-sonnet-4-6 等（自动 Gemini→Anthropic 格式转换）</li>
           <li><strong>OpenAI 模型</strong>：gpt-4o、gpt-4o-mini 等（自动 Gemini→OpenAI 格式转换）</li>
@@ -651,9 +957,127 @@ source ~/.zshrc</pre></div>
         </div>
       </div>
 
+      <div class="doc-section" id="openclaw-custom-provider">
+        <h2>OpenClaw 自定义模型供应商（Custom Provider）</h2>
+        <p style="color:var(--text-secondary);">如果你不仅要接入本站默认网关，还希望把本地模型、公司内部推理服务或其他兼容 OpenAI / Anthropic 的模型服务接入 OpenClaw，可以通过 Custom Provider 扩展 OpenClaw 的模型库。</p>
+
+        <h3>适合什么场景</h3>
+        <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;">
+          <div class="oc-card" style="flex:1;min-width:220px;padding:1rem;">
+            <div style="font-size:0.8rem;color:var(--text-muted);">本地模型</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">LM Studio / Ollama / 本地推理服务</div>
+          </div>
+          <div class="oc-card" style="flex:1;min-width:220px;padding:1rem;">
+            <div style="font-size:0.8rem;color:var(--text-muted);">内部服务</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">公司内网 API / 私有模型网关</div>
+          </div>
+          <div class="oc-card" style="flex:1;min-width:220px;padding:1rem;">
+            <div style="font-size:0.8rem;color:var(--text-muted);">特殊云服务</div>
+            <div style="font-family:var(--font-mono);margin-top:0.25rem;">新兴平台 / 自定义兼容端点</div>
+          </div>
+        </div>
+
+        <h3>方式一：使用 `openclaw onboard` 向导</h3>
+        <p style="color:var(--text-secondary);">如果你想快速完成配置，优先使用 `openclaw onboard`。在交互式向导里选择 `Custom provider`，然后依次填写 Provider ID、Base URL、Model ID、API Key 和兼容格式即可。</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">openclaw onboard</pre></div>
+
+        <p style="color:var(--text-secondary);margin-top:0.75rem;">如果你要在脚本或自动化环境里一次性写入配置，可以使用非交互式命令：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">openclaw onboard \
+  --auth-choice custom-api-key \
+  --custom-provider-id my-local-model \
+  --custom-base-url http://localhost:8000/v1 \
+  --custom-model-id deepseek-coder-v2 \
+  --custom-api-key "your-api-key-if-needed" \
+  --custom-compatibility openai</pre></div>
+
+        <div class="quickstart-note" style="margin-top:0.85rem;">
+          <strong style="color:var(--accent-light);">填写建议：</strong>
+          `Provider ID` 用来标识供应商，例如 `my-local-model`；`Compatibility` 一般选择 `openai` 或 `anthropic`；如果你的服务不需要认证，API Key 可以先填占位值。
+        </div>
+
+        <h3>方式二：手动编辑 `openclaw.json`</h3>
+        <p style="color:var(--text-secondary);">如果你需要更细的控制，例如在同一个 Provider 下定义多个模型、设置上下文窗口、最大输出 Token、模型能力和成本字段，直接编辑 `~/.openclaw/openclaw.json` 会更灵活。</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">{
+  "models": {
+    "providers": {
+      "my-provider": {
+        "baseUrl": "https://api.example.com/v1",
+        "apiKey": "${MY_PROVIDER_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "model-a",
+            "name": "Model A"
+          }
+        ]
+      }
+    }
+  }
+}</pre></div>
+
+        <p style="color:var(--text-secondary);margin-top:0.75rem;">如果你希望顺便把默认模型切到这个 Provider 下，可以补上 `agents.defaults.model.primary`：</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">{
+  "models": {
+    "providers": {
+      "lmstudio": {
+        "baseUrl": "http://localhost:1234/v1",
+        "apiKey": "lmstudio-key",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "minimax-m2.5-gs32",
+            "name": "MiniMax M2.5 (Local)",
+            "contextWindow": 200000,
+            "maxTokens": 8192,
+            "reasoning": false,
+            "input": ["text"],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            }
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "lmstudio/minimax-m2.5-gs32"
+      }
+    }
+  }
+}</pre></div>
+
+        <h3>核心字段说明</h3>
+        <table class="oc-table doc-param-table" style="margin-top:0.5rem;">
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>baseUrl</code></td><td>模型服务的 API 基础地址，例如 <code>http://localhost:1234/v1</code></td></tr>
+            <tr><td><code>apiKey</code></td><td>访问服务的密钥，推荐使用 <code>${ENV_VAR}</code> 从环境变量读取</td></tr>
+            <tr><td><code>api</code></td><td>指定兼容规范，常见是 <code>openai-completions</code> 或 <code>anthropic-messages</code></td></tr>
+            <tr><td><code>models</code></td><td>定义该 Provider 下的一个或多个模型</td></tr>
+            <tr><td><code>providerAuthEnvVars</code></td><td>可选字段，用于声明依赖的环境变量</td></tr>
+            <tr><td><code>agents.defaults.model.primary</code></td><td>设置默认模型，格式通常是 <code>provider/model-id</code></td></tr>
+          </tbody>
+        </table>
+
+        <h3>配置完成后如何验证</h3>
+        <p style="color:var(--text-secondary);">写完配置后，建议先列出模型确认 OpenClaw 已识别到你的 Provider；如果识别正常，再把它设置成默认模型。</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">openclaw models list
+openclaw models set lmstudio/minimax-m2.5-gs32</pre></div>
+
+        <div class="quickstart-note" style="margin-top:0.85rem;">
+          <strong style="color:var(--accent-light);">补充说明：</strong>
+          如需在生产环境中引入自定义 Provider，建议先通过 <code>openclaw models list</code> 验证模型是否被正确识别，再将其加入默认工作流。
+        </div>
+      </div>
+
       <div class="doc-section" id="claude-code">
         <h2>Claude Code CLI 接入</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 完全兼容 <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent-light);">Claude Code CLI</a>，您可以直接使用 OpenClaw 的 API Key 替代官方 Anthropic Key。</p>
+        <p style="color:var(--text-secondary);">OpenClaw API 提供与 <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent-light);">Claude Code CLI</a> 的兼容接入能力，可使用平台 API Key 进行身份认证。实际可用模型范围与运行效果，请以当前控制台和运行时返回为准。</p>
 
         <h3>环境变量配置</h3>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># 在终端中设置环境变量（注意：不要加 /v1，CLI 会自动拼接）
@@ -677,7 +1101,7 @@ echo 'export ANTHROPIC_AUTH_TOKEN=sk-your-api-key' >> ~/.zshrc
 source ~/.zshrc</pre></div>
 
         <h3>支持的模型</h3>
-        <p style="color:var(--text-secondary);">Claude Code CLI 通过 <code>/v1/messages</code> 端点通信，平台上所有已启用的模型均可使用：</p>
+        <p style="color:var(--text-secondary);">Claude Code CLI 通过 <code>/v1/messages</code> 端点通信，当前已启用且支持映射的模型可按兼容方式使用：</p>
         <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
           <li><strong>Anthropic 模型</strong>：claude-opus-4-6、claude-haiku-4-5 等（直接透传，原生体验）</li>
           <li><strong>其他模型</strong>：deepseek-chat、GPT 系列、NVIDIA NIM 模型等（自动格式转换）</li>
@@ -714,7 +1138,7 @@ print(message.content[0].text)</pre></div>
       <div class="doc-section" id="models">
         <h2>模型列表</h2>
         <p><span class="doc-method get">GET</span><span class="doc-endpoint">/v1/models</span></p>
-        <p style="color:var(--text-secondary);margin-top:0.5rem;">返回当前可用的所有模型及其定价信息。无需认证。</p>
+        <p style="color:var(--text-secondary);margin-top:0.5rem;">返回当前对外可见的模型、价格与基础元信息。无需认证；实际可见范围仍可能受账户权限、套餐与模型发布状态影响。</p>
         <div id="models-table" style="margin-top:1rem;"></div>
       </div>
 
@@ -757,21 +1181,21 @@ for chunk in stream:
       <div class="doc-section" id="billing">
         <h2>计费说明</h2>
         <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
-          <li>按实际使用 token 数计费，精确到每次 API 调用</li>
-          <li>token 用量优先使用上游模型返回的真实数据，仅在上游未返回时使用估算</li>
-          <li>账户余额以美元 (USD) 计价，人民币定价模型自动按汇率折算</li>
-          <li>每次调用的 token 数和费用均记录在调用日志中，可在控制台查看</li>
-          <li>支持流式 (stream) 和非流式两种调用方式，计费规则一致</li>
+          <li>默认按实际使用量计费，结算粒度以单次 API 调用记录为准</li>
+          <li>Token 用量优先采用上游模型返回值；如上游未返回完整统计，平台可能使用兼容估算结果</li>
+          <li>账户余额与订单展示以控制台口径为准；若模型存在人民币定价，平台会按当前系统汇率完成折算</li>
+          <li>每次调用的 token 数、费用与状态均记录在调用日志中，可在控制台审计</li>
+          <li>流式与非流式请求均会按最终消耗结算，实际明细请以账单记录和接口返回为准</li>
         </ul>
       </div>
 
       <div class="doc-section" id="limits">
         <h2>限制说明</h2>
         <ul style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2;">
-          <li>单个用户最多创建 10 个 API Key</li>
-          <li>单次请求最大 10MB</li>
-          <li>流式响应无超时限制</li>
-          <li>余额为 0 时将无法发起新的 API 调用</li>
+          <li>API Key 数量、请求体大小、调用频率、并发和可用模型范围可能随账户等级、套餐与风控状态调整</li>
+          <li>余额、套餐额度或月度限制不足时，新请求可能被拒绝或进入限流状态</li>
+          <li>流式连接是否持续可用，除平台策略外还受上游模型与网络环境影响</li>
+          <li>遇到限制问题时，请优先参考控制台、套餐权益说明与接口错误返回</li>
         </ul>
       </div>
 
@@ -990,6 +1414,21 @@ Model:          claude-sonnet-4-6</pre></div>
       </div>
     </main>
   </div>
+
+  <section class="docs-shell" style="padding-top:0;">
+    <div class="doc-nav" style="visibility:hidden;padding:0;border:none;background:none;"></div>
+    <div class="docs-cta">
+      <div>
+        <h2>完成文档阅读后，可继续进入控制面与路由说明</h2>
+        <p>如已明确接入工具链，请前往控制台创建或管理 API Key；如需继续评估平台职责、协议边界与治理能力，请查看路由能力说明页。</p>
+      </div>
+      <div class="docs-cta-actions">
+        <a href="/console.html" class="btn-accent">进入控制台</a>
+        <a href="#quickstart" class="btn-outline">返回快速接入</a>
+        <a href="/pipeline.html" class="btn-outline">查看路由能力</a>
+      </div>
+    </div>
+  </section>
 
   <footer class="oc-footer">
     <p>&copy; 2024-2026 OpenClaw API &middot; Powered by yunjunet.cn</p>

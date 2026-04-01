@@ -46,6 +46,13 @@ module.exports = async function migrate() {
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
 
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_ccclub_keys (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    api_key VARCHAR(500) NOT NULL UNIQUE,
+    notes VARCHAR(255) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
   // CC Club key 冷却记录：记录每个 key 的重置时间，未到期自动禁用，到期自动启用
   await db.query(`CREATE TABLE IF NOT EXISTS openclaw_ccclub_key_resets (
     id INT AUTO_INCREMENT PRIMARY KEY,

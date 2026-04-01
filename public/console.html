@@ -5,27 +5,77 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>控制台 - OpenClaw API</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     body { visibility: hidden; }
     .console-head { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; }
     .console-title { font-family: var(--font-display); font-size: 2rem; letter-spacing: 0.03em; }
     .console-subtitle { color: var(--text-muted); margin-top: 0.35rem; }
-    .console-chip { display:inline-flex; align-items:center; gap:0.5rem; padding:0.5rem 0.85rem; border-radius:999px; border:1px solid rgba(116,245,255,0.18); background:rgba(8,24,41,0.7); color:var(--text-secondary); font-size:0.8rem; }
-    .console-chip::before { content:''; width:8px; height:8px; border-radius:50%; background:linear-gradient(135deg,#29d6b0,#74f5ff); box-shadow:0 0 10px rgba(116,245,255,0.6); }
+    .console-chip { display:inline-flex; align-items:center; gap:0.5rem; padding:0.5rem 0.85rem; border-radius:999px; border:1px solid var(--border-color); background:var(--surface-soft); color:var(--text-secondary); font-size:0.8rem; }
+    .console-chip::before { content:''; width:8px; height:8px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent-light)); box-shadow:0 0 10px var(--accent-glow); }
     .table-card { overflow:hidden; }
     .table-card .oc-table { min-width: 720px; }
+    .mobile-list { display:none; }
+    .mobile-card-list { display:grid; gap:0.85rem; }
+    .mobile-data-card { padding:1rem; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); box-shadow:var(--shadow-soft); }
+    .mobile-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; margin-bottom:0.85rem; }
+    .mobile-card-title { color:var(--text-primary); font-weight:600; line-height:1.4; word-break:break-word; }
+    .mobile-card-code { display:block; margin-top:0.45rem; font-size:0.78rem; line-height:1.5; word-break:break-all; }
+    .mobile-card-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.7rem; margin-bottom:0.9rem; }
+    .mobile-card-item { min-width:0; padding:0.7rem 0.75rem; border-radius:var(--radius-sm); background:rgba(255,255,255,0.03); }
+    .mobile-card-label { display:block; margin-bottom:0.35rem; color:var(--text-muted); font-size:0.72rem; }
+    .mobile-card-value { display:block; color:var(--text-secondary); font-size:0.82rem; line-height:1.45; word-break:break-word; }
+    .mobile-card-actions { display:flex; gap:0.65rem; flex-wrap:wrap; }
+    .mobile-card-actions .btn-outline,
+    .mobile-card-actions .btn-accent,
+    .mobile-card-actions .btn-sm { flex:1; min-width:120px; justify-content:center; }
     .surface-note { font-size:0.72rem; color:var(--text-muted); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); line-height:1.5; }
     .filter-bar { display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; }
-    .console-head + .oc-card { box-shadow: 0 18px 40px rgba(2,12,24,0.32); }
+    .console-head + .oc-card { box-shadow: var(--shadow-soft); }
+    .dashboard-panels { display:flex; gap:1rem; flex-wrap:wrap; margin-top:1.5rem; }
+    .dashboard-panel { flex:1; min-width:280px; padding:1.25rem; }
+    .dashboard-mini-grid { gap:0.75rem; margin-bottom:0.75rem; }
+    .chart-card canvas { display:block; width:100%; height:250px; }
+    .stats-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1.5rem; }
     @media (max-width: 768px) {
       .console-title { font-size: 1.5rem; }
       .filter-bar > * { width: 100% !important; }
       .filter-bar button { justify-content: center; }
+      .dashboard-panels { display:grid; grid-template-columns:1fr; }
+      .dashboard-panel { min-width:0; padding:1rem; }
+      .dashboard-mini-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+      .stats-toolbar { align-items:flex-start; flex-direction:column; }
+      #stats-grid,
+      #page-statistics .oc-grid.oc-grid-4 {
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+      }
+      #page-dashboard .oc-grid.oc-grid-2,
+      #page-statistics .oc-grid.oc-grid-2 {
+        grid-template-columns:1fr;
+      }
+      .chart-card canvas { height:220px; }
     }
     @media (max-width: 560px) {
       .console-title { font-size: 1.3rem; }
       .console-chip { width: 100%; justify-content: center; }
+      .desktop-table { display:none; }
+      .mobile-list { display:block; }
+      .mobile-card-grid { grid-template-columns:1fr; }
+      .mobile-card-actions { flex-direction:column; }
+      .mobile-card-actions .btn-outline,
+      .mobile-card-actions .btn-accent,
+      .mobile-card-actions .btn-sm { width:100%; min-width:0; }
+      #page-apikeys .console-head .btn-accent { width:100%; justify-content:center; }
+      #modal-create-key .oc-modal,
+      #modal-show-key .oc-modal,
+      #modal-set-password .oc-modal { min-width:0 !important; width:min(100%, calc(100vw - 24px)); }
+      #stats-grid,
+      #page-statistics .oc-grid.oc-grid-4,
+      .dashboard-mini-grid {
+        grid-template-columns:1fr;
+      }
+      .chart-card canvas { height:200px; }
     }
   </style>
   <script>setTimeout(function(){document.body.style.visibility='visible';},8000);</script>
@@ -40,6 +90,7 @@
       <a href="/console.html" class="active">控制台</a>
     </div>
     <div class="oc-nav-right">
+      <button class="btn-outline btn-sm" id="theme-toggle-btn" onclick="toggleTheme()">切换夜间模式</button>
       <span id="nav-username" style="font-size:0.85rem;color:var(--text-secondary);"></span>
       <button class="btn-outline btn-sm" onclick="logout()">退出</button>
     </div>
@@ -50,17 +101,17 @@
     <aside class="oc-sidebar" id="sidebar">
       <div class="oc-sidebar-close" onclick="toggleSidebar()" style="display:none;text-align:right;padding:1rem;font-size:1.5rem;cursor:pointer;color:var(--text-muted);">✕</div>
       <div class="oc-sidebar-section">概览</div>
-      <div class="oc-sidebar-item active" data-page="dashboard" onclick="switchPage('dashboard')">&#x1f4ca; 仪表盘</div>
+      <div class="oc-sidebar-item active" data-page="dashboard" onclick="switchPage('dashboard')">&#x1f9ed; 仪表盘</div>
       <div class="oc-sidebar-item" data-page="statistics" onclick="switchPage('statistics')">&#x1f4ca; 数据统计</div>
 
       <div class="oc-sidebar-section">套餐</div>
-      <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐商城</div>
+      <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐市场</div>
       <div class="oc-sidebar-item" data-page="booster" onclick="switchPage('booster')">&#x26a1; 加油包</div>
- <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f4dd; 我的订单</div>
+ <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f9fe; 我的订单</div>
 
       <div class="oc-sidebar-section">密钥管理</div>
       <div class="oc-sidebar-item" data-page="apikeys" onclick="switchPage('apikeys')">&#x1f511; API Keys</div>
-      <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f4dd; 调用日志</div>
+      <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f4cb; 调用日志</div>
 
       <div class="oc-sidebar-section">邀请奖励</div>
       <div class="oc-sidebar-item" data-page="invite" onclick="switchPage('invite')">&#x1f381; 邀请码</div>
@@ -69,11 +120,11 @@
       <div class="oc-sidebar-section">其他</div>
       <div class="oc-sidebar-item" data-page="notifications" onclick="switchPage('notifications')">&#x1f514; 消息通知</div>
       <div class="oc-sidebar-item" data-page="playground" onclick="switchPage('playground')">&#x1f9ea; API 调试</div>
-      <div class="oc-sidebar-item" data-page="account" onclick="switchPage('account')">&#x2699;&#xfe0f; 账户设置</div>
+      <div class="oc-sidebar-item" data-page="account" onclick="switchPage('account')">&#x1f464; 账户设置</div>
 
       <div id="admin-nav" style="display:none;">
         <div class="oc-sidebar-section">管理后台</div>
-        <div class="oc-sidebar-item" onclick="window.location.href='/admin.html'">&#x2699;&#xfe0f; 管理面板</div>
+        <div class="oc-sidebar-item" onclick="window.location.href='/admin.html'">&#x1f6e0;&#xfe0f; 管理面板</div>
       </div>
     </aside>
 
@@ -83,22 +134,22 @@
       <div id="page-dashboard" class="page-content">
         <div class="console-head">
           <div>
-            <div class="console-title">仪表盘</div>
-            <div class="console-subtitle">实时查看额度、调用量、费用与最近请求状态。</div>
+            <div class="console-title">运行总览</div>
+            <div class="console-subtitle">查看账户可用额度、当日请求、计费统计与最近请求状态。</div>
           </div>
-          <div class="console-chip">Live Telemetry</div>
+          <div class="console-chip">Operational View</div>
         </div>
         <div class="oc-grid oc-grid-4" id="stats-grid">
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-balance">-</div><div class="oc-stat-label">套餐余额</div></div>
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-calls">-</div><div class="oc-stat-label">今日调用</div></div>
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-tokens">-</div><div class="oc-stat-label">今日 Tokens</div></div>
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-cost">-</div><div class="oc-stat-label">今日费用</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-balance">-</div><div class="oc-stat-label">账户可用额度</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-calls">-</div><div class="oc-stat-label">当日请求次数</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-tokens">-</div><div class="oc-stat-label">当日 Tokens</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="stat-today-cost">-</div><div class="oc-stat-label">当日费用</div></div>
         </div>
 <!-- 三个独立卡片 -->
-<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1.5rem;">
+<div class="dashboard-panels">
 
 <!-- 周期配额使用 -->
-<div class="oc-card" style="flex:1;min-width:280px;padding:1.25rem;">
+<div class="oc-card dashboard-panel">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
 <span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">周期配额使用</span>
 <span id="dash-window-reset" style="font-size:0.7rem;color:var(--text-muted);"></span>
@@ -120,10 +171,10 @@
 <span id="dash-req-detail">0/0 次</span>
 </div>
 </div>
-<!-- 费用使用 -->
+<!-- 当前使用 -->
 <div style="margin-bottom:0.75rem;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-<span style="font-size:0.8rem;color:var(--text-secondary);">费用使用</span>
+<span style="font-size:0.8rem;color:var(--text-secondary);">当前使用</span>
 <span style="font-size:0.8rem;color:var(--text-secondary);"><span id="dash-cost-pct">0</span>%</span>
 </div>
 <div class="dash-progress-track">
@@ -133,13 +184,13 @@
 <span id="dash-cost-detail">$0.00 / $0.00</span>
 </div>
 </div>
-<div class="surface-note" style="background:rgba(0,199,255,0.08);">
-请求次数和费用限制为"或"的关系，任一达到限制即触发限流
+<div class="surface-note" style="background:var(--surface-soft);">
+请求次数与费用限制按任一阈值生效，达到任一上限后即可能触发限流或拒绝
 </div>
 </div>
 
 <!-- 每月用量限制 -->
-<div class="oc-card" style="flex:1;min-width:280px;padding:1.25rem;">
+<div class="oc-card dashboard-panel">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
 <span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">每月用量限制</span>
 <a href="#" onclick="switchPage('packages');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">提高用量</a>
@@ -160,17 +211,17 @@
 </div>
 </div>
 <div class="surface-note" style="background:rgba(84,160,255,0.08);">
-月限制为30天固定窗口，窗口期过自动重置。周期内超过限制后将无法继续使用（可以使用加油包），直到月限窗口重置。
+月度用量按当前套餐窗口规则结算；超过限制后需等待窗口重置，或通过加油包补充可用余额。
 </div>
 </div>
 
 <!-- 加油包余额 -->
-<div class="oc-card" style="flex:1;min-width:280px;padding:1.25rem;">
+<div class="oc-card dashboard-panel">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
 <span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">加油包余额</span>
 <a href="#" onclick="switchPage('booster');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">购买加油包</a>
 </div>
-<div class="oc-grid oc-grid-4" style="gap:0.75rem;margin-bottom:0.75rem;">
+<div class="oc-grid oc-grid-4 dashboard-mini-grid">
 <div style="text-align:center;">
 <div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);" id="dash-booster-balance">$0.00</div>
 <div style="font-size:0.7rem;color:var(--text-muted);">剩余额度</div>
@@ -189,19 +240,19 @@
 </div>
 </div>
 <div class="surface-note" style="background:rgba(254,202,87,0.08);">
-💡 购买加油包可获得独立额度，不受套餐限制影响
+加油包提供独立余额，具体到账与可用范围以订单结果和控制台记录为准
 </div>
 </div>
 
 </div>
 
         <div class="oc-grid oc-grid-2" style="margin-top:1.5rem;">
-          <div class="oc-card">
-            <div class="oc-card-header"><span class="oc-card-title">近7天调用量</span></div>
+          <div class="oc-card chart-card">
+            <div class="oc-card-header"><span class="oc-card-title">近 7 天请求趋势</span></div>
             <canvas id="chart-daily" height="200"></canvas>
           </div>
           <div class="oc-card">
-            <div class="oc-card-header"><span class="oc-card-title">最近调用</span></div>
+            <div class="oc-card-header"><span class="oc-card-title">最近请求</span></div>
             <div id="recent-logs" style="max-height:250px;overflow-y:auto;"></div>
           </div>
         </div>
@@ -212,16 +263,19 @@
         <div class="console-head">
           <div>
             <div class="console-title" style="font-size:1.55rem;">API Keys</div>
-            <div class="console-subtitle">管理访问密钥与使用状态。</div>
+            <div class="console-subtitle">管理访问密钥、启停状态与最近使用记录。</div>
           </div>
           <button class="btn-accent" onclick="showCreateKeyModal()">+ 创建 Key</button>
         </div>
         <div class="oc-card table-card">
-          <table class="oc-table" id="keys-table">
+          <table class="oc-table desktop-table" id="keys-table">
             <thead><tr><th>名称</th><th>Key</th><th>状态</th><th>创建时间</th><th>最后使用</th><th>操作</th></tr></thead>
             <tbody id="keys-tbody"></tbody>
           </table>
-          <div id="keys-empty" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);">还没有 API Key，点击上方按钮创建</div>
+          <div class="mobile-list">
+            <div id="keys-mobile-list" class="mobile-card-list"></div>
+          </div>
+          <div id="keys-empty" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);">当前还没有 API Key，可通过右上角按钮创建。</div>
         </div>
       </div>
 
@@ -230,7 +284,7 @@
         <div class="console-head">
           <div>
             <div class="console-title" style="font-size:1.55rem;">调用日志</div>
-            <div class="console-subtitle">按模型、状态与时间维度查看请求明细。</div>
+            <div class="console-subtitle">按模型、状态与时间维度审计请求明细。</div>
           </div>
         </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
@@ -241,10 +295,13 @@
           </div>
         </div>
         <div class="oc-card table-card">
-          <table class="oc-table">
+          <table class="oc-table desktop-table">
             <thead><tr><th>时间</th><th>模型</th><th>Tokens</th><th>费用</th><th>状态</th><th>IP</th></tr></thead>
             <tbody id="logs-tbody"></tbody>
           </table>
+          <div class="mobile-list">
+            <div id="logs-mobile-list" class="mobile-card-list"></div>
+          </div>
           <div class="oc-pagination" id="logs-pagination"></div>
         </div>
       </div>
@@ -253,13 +310,13 @@
       <div id="page-packages" class="page-content" style="display:none;">
         <div class="console-head">
           <div>
-            <div class="console-title" style="font-size:1.55rem;">套餐</div>
-            <div class="console-subtitle">查看当前可购套餐与生效中的订阅周期。</div>
+            <div class="console-title" style="font-size:1.55rem;">套餐与权益</div>
+            <div class="console-subtitle">查看当前可购套餐、权益说明与已生效的订阅周期。</div>
           </div>
         </div>
         <div class="oc-grid oc-grid-4" id="packages-grid"></div>
         <div style="margin-top:2rem;">
-          <h3 style="margin-bottom:1rem;">我的套餐</h3>
+          <h3 style="margin-bottom:1rem;">已生效套餐</h3>
           <div class="oc-card">
             <table class="oc-table">
               <thead><tr><th>套餐</th><th>开始时间</th><th>到期时间</th><th>状态</th></tr></thead>
@@ -271,10 +328,10 @@
 
       <!-- Statistics -->
       <div id="page-statistics" class="page-content" style="display:none;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+        <div class="stats-toolbar">
           <div>
-            <div class="console-title" style="font-size:1.55rem;">数据统计</div>
-            <div class="console-subtitle">从总量、趋势和模型分布维度观察使用情况。</div>
+            <div class="console-title" style="font-size:1.55rem;">使用统计</div>
+            <div class="console-subtitle">从总量、趋势和模型分布维度观察账户使用情况。</div>
           </div>
           <button class="btn-outline btn-sm" onclick="loadStatistics()">&#x1f504; 刷新</button>
         </div>
@@ -285,11 +342,11 @@
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="stats-avg-cost">-</div><div class="oc-stat-label">平均费用</div></div>
         </div>
         <div class="oc-grid oc-grid-2">
-          <div class="oc-card">
+          <div class="oc-card chart-card">
             <div class="oc-card-header"><span class="oc-card-title">模型使用分布</span></div>
             <canvas id="chart-models" height="250"></canvas>
           </div>
-          <div class="oc-card">
+          <div class="oc-card chart-card">
             <div class="oc-card-header"><span class="oc-card-title">近30天趋势</span></div>
             <canvas id="chart-trend" height="250"></canvas>
           </div>
@@ -299,30 +356,30 @@
       <!-- Booster Packages -->
       <div id="page-booster" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">加油包</h2>
-        <p style="color:var(--text-muted);margin-bottom:1.5rem;">购买加油包可以快速充值余额，享受更多 API 调用额度</p>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于补充独立余额，适合测试、突发调用或在套餐窗口外追加可用额度。实际到账与折扣以支付结果和订单记录为准。</p>
         <div class="oc-grid oc-grid-3" id="booster-grid">
           <div class="oc-card" style="text-align:center;padding:1.5rem;">
             <div style="font-size:2rem;margin-bottom:0.5rem;">&#x26a1;</div>
-            <h3 style="margin-bottom:0.5rem;">基础加油包</h3>
+            <h3 style="margin-bottom:0.5rem;">基础补充包</h3>
             <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥10</div>
             <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $10 API 额度</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合轻度使用，快速补充额度</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合测试环境或轻量调用快速补充额度</p>
             <button class="btn-accent" onclick="buyBooster(10)">立即购买</button>
           </div>
           <div class="oc-card" style="text-align:center;padding:1.5rem;border:2px solid var(--accent);">
             <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f525;</div>
-            <h3 style="margin-bottom:0.5rem;">标准加油包</h3>
+            <h3 style="margin-bottom:0.5rem;">标准补充包</h3>
             <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥20</div>
             <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $20 API 额度</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">最受欢迎的选择</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合日常开发与常规频次调用</p>
             <button class="btn-accent" onclick="buyBooster(20)">立即购买</button>
           </div>
           <div class="oc-card" style="text-align:center;padding:1.5rem;">
             <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f680;</div>
-            <h3 style="margin-bottom:0.5rem;">超值加油包</h3>
+            <h3 style="margin-bottom:0.5rem;">高配补充包</h3>
             <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥45</div>
             <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $50 API 额度</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">大容量补充，享受更多优惠</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合较高频调用或短期集中消耗场景</p>
             <button class="btn-accent" onclick="buyBooster(45)">立即购买</button>
           </div>
           <div class="oc-card" style="text-align:center;padding:1.5rem;">
@@ -341,7 +398,7 @@
  <!-- Orders -->
  <div id="page-orders" class="page-content" style="display:none;">
  <h2 style="margin-bottom:1.5rem;">我的订单</h2>
- <p style="color:var(--text-muted);margin-bottom:1.5rem;">查看您的订单记录，支付完成后可点击"验证支付"完成订单</p>
+ <p style="color:var(--text-muted);margin-bottom:1.5rem;">查看订单记录与支付状态。支付完成后，可使用“验证支付”同步订单结果。</p>
  <div class="oc-card">
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
  <h3 style="margin:0;">订单列表</h3>
@@ -362,13 +419,33 @@
       <!-- Invite -->
       <div id="page-invite" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">邀请码</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">通过专属邀请码或邀请链接扩展团队与社区成员，奖励发放与结算口径以当前活动规则和控制台记录为准。</p>
         <div class="oc-card" style="margin-bottom:1.5rem;">
           <h3 style="margin-bottom:1rem;">我的邀请码</h3>
           <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
             <div class="oc-code" style="flex:1;padding:1rem;font-size:1.2rem;text-align:center;" id="my-invite-code">加载中...</div>
             <button class="btn-accent" onclick="copyInviteCode()">复制</button>
           </div>
-          <p style="color:var(--text-muted);font-size:0.85rem;">分享你的邀请码，邀请好友注册即可获得奖励</p>
+          <div class="oc-code" id="invite-share-link" style="font-size:0.82rem;word-break:break-all;margin-bottom:1rem;">加载中...</div>
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <button class="btn-outline btn-sm" onclick="copyInviteLink()">复制邀请链接</button>
+            <button class="btn-accent btn-sm" onclick="copyInviteShareText()">一键复制邀请文案</button>
+          </div>
+          <p style="color:var(--text-muted);font-size:0.85rem;">分享邀请码或邀请链接，符合当前活动条件的注册与付费行为将进入奖励结算。</p>
+        </div>
+        <div class="oc-card" style="margin-bottom:1.5rem;">
+          <h3 style="margin-bottom:1rem;">邀请奖励规则</h3>
+          <div style="display:grid;gap:0.75rem;">
+            <div style="padding:0.9rem 1rem;border:1px solid var(--border-color);border-radius:10px;background:rgba(255,255,255,0.02);">
+              <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.35rem;">注册成功奖励</div>
+              <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.7;">被邀请人注册成功后，邀请人奖励 <strong>$1 加油包</strong>，被邀请人奖励 <strong>$1 加油包</strong>。</div>
+            </div>
+            <div style="padding:0.9rem 1rem;border:1px solid var(--border-color);border-radius:10px;background:rgba(255,255,255,0.02);">
+              <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.35rem;">首次付费奖励</div>
+              <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.7;">被邀请人首次充值加油包或首次购买套餐，且实付满 <strong>¥10</strong>，邀请人可获得该笔实付金额 <strong>10%</strong> 的返现奖励。</div>
+            </div>
+            <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.7;">邀请奖励会在财富中心展示；通过专属链接访问注册页时，系统会自动带入邀请码。</div>
+          </div>
         </div>
         <div class="oc-card">
           <h3 style="margin-bottom:1rem;">邀请统计</h3>
@@ -399,11 +476,12 @@
       <!-- Rewards -->
       <div id="page-rewards" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">财富中心</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于查看邀请奖励、钱包余额与发放状态。实际到账结果以系统结算与订单记录为准。</p>
         <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-wallet-balance">-</div><div class="oc-stat-label">钱包余额</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-total">¥0</div><div class="oc-stat-label">累计奖励</div></div>
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-received">¥0</div><div class="oc-stat-label">已领取</div></div>
-          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-pending">¥0</div><div class="oc-stat-label">待领取</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-received">¥0</div><div class="oc-stat-label">已发放</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="reward-pending">¥0</div><div class="oc-stat-label">待发放</div></div>
         </div>
         <div class="oc-card">
           <h3 style="margin-bottom:1rem;">奖励记录</h3>
@@ -431,10 +509,11 @@
 
       <!-- Playground -->
       <div id="page-playground" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">API 调试</h2>
+        <h2 style="margin-bottom:1.5rem;">API 调试台</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于验证请求结构、模型返回和流式输出。联调时请避免直接提交生产敏感数据。</p>
         <div class="oc-grid oc-grid-2">
           <div class="oc-card">
-            <div class="oc-card-header"><span class="oc-card-title">请求</span></div>
+            <div class="oc-card-header"><span class="oc-card-title">请求参数</span></div>
             <div class="form-group" style="margin-bottom:0.75rem;">
               <label style="display:block;font-size:0.8rem;color:var(--text-muted);margin-bottom:0.25rem;">API Key（留空则使用登录凭证）</label>
               <input class="oc-input" id="pg-apikey" placeholder="sk-..." style="font-family:monospace;font-size:0.85rem;">
@@ -458,7 +537,7 @@
             </div>
           </div>
           <div class="oc-card">
-            <div class="oc-card-header"><span class="oc-card-title">响应</span></div>
+            <div class="oc-card-header"><span class="oc-card-title">响应结果</span></div>
             <div id="pg-response" class="oc-code" style="min-height:200px;max-height:400px;overflow-y:auto;white-space:pre-wrap;font-size:0.8rem;"></div>
             <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-muted);" id="pg-stats"></div>
           </div>
@@ -468,6 +547,7 @@
       <!-- 账户设置 -->
       <div id="page-account" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">账户设置</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于维护账户基本信息、登录密码与绑定邮箱，相关变更会影响后续身份验证和安全通知。</p>
         <div style="max-width:480px;display:flex;flex-direction:column;gap:1.5rem;">
 
           <!-- 账户信息 -->
@@ -524,13 +604,13 @@
       <h3>创建 API Key</h3>
       <div class="form-group">
         <label>名称</label>
-        <input class="oc-input" id="new-key-name" placeholder="如：测试环境" maxlength="50">
+        <input class="oc-input" id="new-key-name" placeholder="例如：测试环境 / 生产环境" maxlength="50">
       </div>
       <div class="form-group" style="margin-top:0.75rem;">
         <label>邮箱验证码 <span style="color:var(--text-muted);font-size:0.75rem;">（身份验证）</span></label>
         <p id="create-key-email-hint" style="color:var(--text-muted);font-size:0.8rem;margin:0 0 0.5rem 0;"></p>
         <div style="display:flex;gap:0.5rem;">
-          <input class="oc-input" id="new-key-email-code" placeholder="6位验证码" maxlength="6" style="flex:1;">
+          <input class="oc-input" id="new-key-email-code" placeholder="请输入 6 位验证码" maxlength="6" style="flex:1;">
           <button class="btn-outline" id="btn-send-apikey-code" onclick="sendApiKeyCode()" style="white-space:nowrap;">发送验证码</button>
         </div>
       </div>
@@ -545,7 +625,7 @@
   <div class="oc-modal-overlay" id="modal-show-key">
     <div class="oc-modal" style="min-width:480px;">
       <h3>API Key 已创建</h3>
-      <p style="color:var(--danger);font-size:0.85rem;margin-bottom:0.75rem;">请立即复制保存，此 Key 仅显示一次！</p>
+      <p style="color:var(--danger);font-size:0.85rem;margin-bottom:0.75rem;">请立即复制并妥善保存，此 Key 仅展示一次。</p>
       <div class="oc-code" style="word-break:break-all;"><span id="new-key-value"></span></div>
       <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
         <button class="btn-accent" onclick="copyText(document.getElementById('new-key-value').textContent);showToast('已复制','success');">复制</button>
@@ -557,7 +637,7 @@
   <div class="oc-modal-overlay" id="modal-set-password">
     <div class="oc-modal" style="min-width:420px;">
       <h3>首次设置密码</h3>
-      <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.75rem;">您的账号通过 SSO 登录，尚未设置密码。创建 API Key 需要密码验证，请先设置密码。</p>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.75rem;">当前账户通过 SSO 登录且尚未设置本地密码。创建 API Key 前需先完成密码设置，以满足身份验证要求。</p>
       <div class="form-group">
         <label>新密码 <span style="color:var(--text-muted);font-size:0.75rem;">（至少8位，包含字母和数字）</span></label>
         <input class="oc-input" id="init-password" type="password" placeholder="请输入密码" autocomplete="new-password">
@@ -644,6 +724,57 @@
       sidebar.classList.toggle('show');
     }
 
+    const cnDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const cnDateFormatter = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const cnTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+
+    function getChinaDate(dateInput) {
+      if (!dateInput) return null;
+      const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function getChinaDateParts(dateInput) {
+      const date = getChinaDate(dateInput);
+      if (!date) return null;
+      return cnDateTimeFormatter.formatToParts(date).reduce((acc, part) => {
+        if (part.type !== 'literal') acc[part.type] = part.value;
+        return acc;
+      }, {});
+    }
+
+    function formatChinaDateTime(dateInput) {
+      const parts = getChinaDateParts(dateInput);
+      return parts ? `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}` : '-';
+    }
+
+    function formatChinaDateLabel(dateInput) {
+      const date = getChinaDate(dateInput);
+      return date ? cnDateFormatter.format(date).replace('/', '/') : '';
+    }
+
+    function formatChinaTime(dateInput) {
+      const date = getChinaDate(dateInput);
+      return date ? cnTimeFormatter.format(date) : '--:--';
+    }
+
     // Close sidebar when clicking outside on mobile
     document.addEventListener('click', (e) => {
       const sidebar = document.getElementById('sidebar');
@@ -675,9 +806,18 @@
       try {
         const [info, stats] = await Promise.all([api.getUserInfo(), api.getStats()]);
 
-      // 剩余额度
-      const quotaBalance = parseFloat(info.quota_balance ?? info.balance ?? 0);
-      document.getElementById('stat-balance').textContent = `$${quotaBalance.toFixed(4)}`;
+      // 总额度摘要（套餐 + 加油包）
+      const totalQuotaRemaining = info.total_quota_remaining != null
+        ? parseFloat(info.total_quota_remaining)
+        : parseFloat(info.quota_balance ?? info.balance ?? 0);
+      const totalQuota = info.total_quota != null
+        ? parseFloat(info.total_quota)
+        : null;
+      if (totalQuota != null) {
+        document.getElementById('stat-balance').textContent = `$${totalQuotaRemaining.toFixed(4)} / $${totalQuota.toFixed(2)}`;
+      } else {
+        document.getElementById('stat-balance').textContent = `$${totalQuotaRemaining.toFixed(4)} / 无限制`;
+      }
 
         // 今日调用：3 / 200次
         const todayCalls = stats.today?.calls || 0;
@@ -696,10 +836,7 @@
 
         // 时间窗口重置
         if (info.window_end) {
-          const we = new Date(info.window_end);
-          const h = String(we.getHours()).padStart(2, '0');
-          const m = String(we.getMinutes()).padStart(2, '0');
-          document.getElementById('dash-window-reset').textContent = `窗口将于 ${h}:${m} 重置`;
+          document.getElementById('dash-window-reset').textContent = `窗口将于 ${formatChinaTime(info.window_end)} 重置`;
         }
 
         // 请求次数进度（用今日调用上限 daily_limit，与"今日调用"一致）
@@ -718,17 +855,18 @@
           document.getElementById('dash-req-detail').textContent = `${formatNum(wCalls)} 次 / 无限制`;
         }
 
-        // 费用使用进度
+        // 当前使用进度
         const wCost = info.month_cost || 0;
         const wCostLimit = info.monthly_quota;
         if (wCostLimit) {
           const costPct = Math.min(Math.round(wCost / wCostLimit * 100), 100);
+          const displayWCost = Math.min(wCost, wCostLimit);
           document.getElementById('dash-cost-pct').textContent = costPct;
           const costBar = document.getElementById('dash-cost-bar');
           costBar.style.width = Math.min(costPct, 100) + '%';
           if (costPct >= 90) costBar.classList.add('dash-progress-bar-danger');
           else if (costPct >= 70) costBar.classList.add('dash-progress-bar-warning');
-          document.getElementById('dash-cost-detail').textContent = `$${wCost.toFixed(4)} / $${wCostLimit.toFixed(2)}`;
+          document.getElementById('dash-cost-detail').textContent = `$${displayWCost.toFixed(4)} / $${wCostLimit.toFixed(2)}`;
         } else {
           document.getElementById('dash-cost-pct').textContent = '0';
           document.getElementById('dash-cost-detail').textContent = `$${wCost.toFixed(4)} / 无限制`;
@@ -736,22 +874,20 @@
 
         // 每月用量周期
         if (info.month_start && info.month_end) {
-          const ms = new Date(info.month_start);
-          const me = new Date(info.month_end);
-          const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-          document.getElementById('dash-week-period').textContent = `${fmt(ms)} - ${fmt(me)}`;
+          document.getElementById('dash-week-period').textContent = `${formatChinaDateTime(info.month_start)} - ${formatChinaDateTime(info.month_end)}`;
         }
         // 每月用量（month_cost / monthly_quota），全部从数据读取
         const mCost = info.month_cost || 0;
         const mQuota = info.monthly_quota;
         if (mQuota) {
           const mPct = Math.min(Math.round(mCost / mQuota * 100), 100);
+          const displayMCost = Math.min(mCost, mQuota);
           document.getElementById('dash-week-pct').textContent = mPct;
           const mBar = document.getElementById('dash-week-bar');
           mBar.style.width = Math.min(mPct, 100) + '%';
           if (mPct >= 90) mBar.classList.add('dash-progress-bar-danger');
           else if (mPct >= 70) mBar.classList.add('dash-progress-bar-warning');
-          document.getElementById('dash-week-detail').textContent = `$${mCost.toFixed(4)} / $${mQuota.toFixed(2)}`;
+          document.getElementById('dash-week-detail').textContent = `$${displayMCost.toFixed(4)} / $${mQuota.toFixed(2)}`;
         } else {
           document.getElementById('dash-week-pct').textContent = '0';
           document.getElementById('dash-week-detail').textContent = `$${mCost.toFixed(4)} / 无限制`;
@@ -762,7 +898,7 @@
         const rateEl = document.getElementById('dash-rate-limit');
         if (rateEl) {
           if (!info.package_type || info.package_type === 'free') {
-            rateEl.textContent = '速率: 10 次/分钟';
+            rateEl.textContent = '速率: 30 次/分钟';
           } else {
             rateEl.textContent = '速率: 不限';
             rateEl.style.color = 'var(--success)';
@@ -798,13 +934,16 @@
     function drawChart(daily) {
       const canvas = document.getElementById('chart-daily');
       const ctx = canvas.getContext('2d');
+      const isMobile = window.innerWidth <= 768;
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
       ctx.scale(dpr, dpr);
       const w = rect.width, h = rect.height;
-      const pad = { top: 20, right: 20, bottom: 30, left: 50 };
+      const pad = isMobile
+        ? { top: 16, right: 10, bottom: 24, left: 34 }
+        : { top: 20, right: 20, bottom: 30, left: 50 };
       const plotW = w - pad.left - pad.right;
       const plotH = h - pad.top - pad.bottom;
 
@@ -822,7 +961,7 @@
       }
 
       // Bars
-      const barW = Math.min(plotW / vals.length * 0.6, 40);
+      const barW = Math.min(plotW / vals.length * (isMobile ? 0.72 : 0.6), isMobile ? 28 : 40);
       const gap = plotW / vals.length;
       vals.forEach((v, i) => {
         const x = pad.left + gap * i + (gap - barW) / 2;
@@ -838,11 +977,14 @@
 
       // Labels
       ctx.fillStyle = '#606080';
-      ctx.font = '11px Inter, sans-serif';
+      ctx.font = `${isMobile ? 10 : 11}px Inter, sans-serif`;
       ctx.textAlign = 'center';
+      const labelStep = isMobile ? Math.max(1, Math.ceil(daily.length / 4)) : 1;
       daily.forEach((d, i) => {
+        if (!isMobile || i % labelStep === 0 || i === daily.length - 1) {
         const x = pad.left + gap * i + gap / 2;
-        ctx.fillText(d.date?.slice(5) || '', x, h - 8);
+        ctx.fillText(formatChinaDateLabel(d.date), x, h - 8);
+        }
       });
 
       // Y axis
@@ -859,9 +1001,11 @@
         const data = await api.getApiKeys();
         const keys = data.keys || data;
         const tbody = document.getElementById('keys-tbody');
+        const mobileList = document.getElementById('keys-mobile-list');
         const empty = document.getElementById('keys-empty');
         if (keys.length === 0) {
           tbody.innerHTML = '';
+          mobileList.innerHTML = '';
           empty.style.display = 'block';
           return;
         }
@@ -877,6 +1021,29 @@
             <button class="btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteKey(${k.id})">删除</button>
           </td>
         </tr>`).join('');
+        mobileList.innerHTML = keys.map(k => `<div class="mobile-data-card">
+          <div class="mobile-card-head">
+            <div>
+              <div class="mobile-card-title">${k.name || '-'}</div>
+              <code class="mobile-card-code">${k.key_display}</code>
+            </div>
+            <div>${k.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}</div>
+          </div>
+          <div class="mobile-card-grid">
+            <div class="mobile-card-item">
+              <span class="mobile-card-label">创建时间</span>
+              <span class="mobile-card-value">${formatDate(k.created_at)}</span>
+            </div>
+            <div class="mobile-card-item">
+              <span class="mobile-card-label">最后使用</span>
+              <span class="mobile-card-value">${k.last_used_at ? formatDate(k.last_used_at) : '-'}</span>
+            </div>
+          </div>
+          <div class="mobile-card-actions">
+            <button class="btn-outline btn-sm" onclick="toggleKey(${k.id})">${k.status === 'active' ? '禁用' : '启用'}</button>
+            <button class="btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteKey(${k.id})">删除</button>
+          </div>
+        </div>`).join('');
       } catch(e) { showToast(e.message, 'error'); }
     }
 
@@ -939,6 +1106,7 @@
         const res = await api.getLogs(params);
         const logs = res.logs || [];
         const tbody = document.getElementById('logs-tbody');
+        const mobileList = document.getElementById('logs-mobile-list');
         tbody.innerHTML = logs.length ? logs.map(l => `<tr>
           <td>${formatDate(l.created_at)}</td>
           <td><span class="badge-model">${l.model}</span></td>
@@ -947,6 +1115,30 @@
           <td>${l.status === 'success' ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">失败</span>'}</td>
           <td style="font-size:0.75rem;color:var(--text-muted);">${l.ip || '-'}</td>
         </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">暂无记录</td></tr>';
+        mobileList.innerHTML = logs.length ? logs.map(l => `<div class="mobile-data-card">
+          <div class="mobile-card-head">
+            <div class="mobile-card-title"><span class="badge-model">${l.model}</span></div>
+            <div>${l.status === 'success' ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">失败</span>'}</div>
+          </div>
+          <div class="mobile-card-grid">
+            <div class="mobile-card-item">
+              <span class="mobile-card-label">时间</span>
+              <span class="mobile-card-value">${formatDate(l.created_at)}</span>
+            </div>
+            <div class="mobile-card-item">
+              <span class="mobile-card-label">Tokens</span>
+              <span class="mobile-card-value" style="font-family:var(--font-mono);">${l.prompt_tokens} / ${l.completion_tokens}</span>
+            </div>
+            <div class="mobile-card-item">
+              <span class="mobile-card-label">费用</span>
+              <span class="mobile-card-value" style="font-family:var(--font-mono);">$${parseFloat(l.total_cost).toFixed(6)}</span>
+            </div>
+            <div class="mobile-card-item">
+              <span class="mobile-card-label">IP</span>
+              <span class="mobile-card-value">${l.ip || '-'}</span>
+            </div>
+          </div>
+        </div>`).join('') : '<div style="text-align:center;color:var(--text-muted);padding:1.5rem 0;">暂无记录</div>';
 
         // Pagination
         const total = res.total || 0;
@@ -1100,8 +1292,13 @@
         if (!groups[category]) groups[category] = [];
         groups[category].push(model);
       });
+      const sortByDisplayName = (a, b) => {
+        const left = String(a.display_name || a.model_id || '').toLowerCase();
+        const right = String(b.display_name || b.model_id || '').toLowerCase();
+        return left.localeCompare(right, 'en', { sensitivity: 'base', numeric: true });
+      };
       sel.innerHTML = Object.entries(categoryLabel).map(([category, label]) => {
-        const models = groups[category] || [];
+        const models = (groups[category] || []).slice().sort(sortByDisplayName);
         if (!models.length) return '';
         return `<optgroup label="${label}">${models.map(m => `<option value="${m.model_id}">${m.display_name || m.model_id}</option>`).join('')}</optgroup>`;
       }).join('');
@@ -1157,6 +1354,11 @@
     function shouldUseResponsesPlayground(modelId) {
       const model = String(modelId || '').toLowerCase();
       return /^gpt-5(?:$|[-.])/.test(model) || model.includes('codex') || /^o[1-9](?:$|[-.])/.test(model);
+    }
+
+    function shouldUseAnthropicMessagesPlayground(modelId) {
+      const model = String(modelId || '').toLowerCase();
+      return model.includes('claude');
     }
 
     function isEmbeddingsPlaygroundModel(modelMeta) {
@@ -1230,6 +1432,27 @@
           body
         };
       }
+      if (shouldUseAnthropicMessagesPlayground(model)) {
+        if (imageUrl) {
+          return { unsupported: 'Claude 网页调试当前仅支持文本消息，请先清空图片 URL。' };
+        }
+        return {
+          mode: 'anthropic',
+          endpoint: '/v1/messages',
+          streamForcedOn: true,
+          headers: {
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+            'x-anthropic-billing-header': 'cc_version=2.1.63.a43; cc_entrypoint=sdk-cli; cch=00000;'
+          },
+          body: {
+            model,
+            messages: [{ role: 'user', content: message }],
+            max_tokens: 4096,
+            stream: true
+          }
+        };
+      }
       if (category === 'vision') {
         return {
           mode: 'chat',
@@ -1281,6 +1504,14 @@
       return data.output
         .flatMap(item => Array.isArray(item.content) ? item.content : [])
         .filter(part => part.type === 'output_text' || part.type === 'text')
+        .map(part => part.text || '')
+        .join('');
+    }
+
+    function extractAnthropicOutputText(data) {
+      if (!data || !Array.isArray(data.content)) return '';
+      return data.content
+        .filter(part => part?.type === 'text')
         .map(part => part.text || '')
         .join('');
     }
@@ -1360,13 +1591,19 @@
       }
 
       respDiv.textContent = '';
-      statsDiv.textContent = `路由: ${requestConfig.endpoint} | 请求中...`;
+      statsDiv.textContent = requestConfig.streamForcedOn
+        ? `路由: ${requestConfig.endpoint} | Claude 调试固定走流式 | 请求中...`
+        : `路由: ${requestConfig.endpoint} | 请求中...`;
       const startTime = Date.now();
 
       try {
         const res = await fetch(requestConfig.endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+            ...(requestConfig.headers || {})
+          },
           body: JSON.stringify(requestConfig.body)
         });
 
@@ -1385,6 +1622,25 @@
 
           const applyPayload = (payload) => {
             if (!payload) return;
+
+            if (requestConfig.mode === 'anthropic') {
+              if (payload.type === 'content_block_delta' && payload.delta?.type === 'text_delta' && payload.delta.text) {
+                text += payload.delta.text;
+                respDiv.textContent = text;
+              }
+
+              if (payload.type === 'message_start' && payload.message?.usage) {
+                usagePayload = { usage: { ...payload.message.usage } };
+              } else if (payload.type === 'message_delta' && payload.usage) {
+                usagePayload = {
+                  usage: {
+                    ...(usagePayload?.usage || {}),
+                    ...payload.usage
+                  }
+                };
+              }
+              return;
+            }
 
             if (requestConfig.mode === 'responses') {
               if (payload.type === 'response.output_text.delta' && payload.delta) {
@@ -1427,6 +1683,8 @@
           const data = await res.json();
           if (requestConfig.mode === 'responses') {
             respDiv.textContent = extractResponsesOutputText(data) || JSON.stringify(data, null, 2);
+          } else if (requestConfig.mode === 'anthropic') {
+            respDiv.textContent = extractAnthropicOutputText(data) || JSON.stringify(data, null, 2);
           } else if (requestConfig.mode === 'embeddings') {
             respDiv.textContent = JSON.stringify(data, null, 2);
           } else {
@@ -1466,6 +1724,7 @@
     function drawModelsChart(models) {
       const canvas = document.getElementById('chart-models');
       const ctx = canvas.getContext('2d');
+      const isMobile = window.innerWidth <= 768;
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * dpr;
@@ -1482,13 +1741,15 @@
       // 绘制饼图
       const centerX = w / 2;
       const centerY = h / 2;
-      const radius = Math.min(w, h) / 3;
+      const radius = Math.min(w, h) / (isMobile ? 4.1 : 3);
+      const visibleModels = isMobile ? models.slice(0, 4) : models;
+      const visibleTotal = visibleModels.reduce((sum, m) => sum + m.calls, 0);
 
       const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4'];
       let startAngle = -Math.PI / 2;
 
-      models.forEach((model, i) => {
-        const sliceAngle = (model.calls / total) * 2 * Math.PI;
+      visibleModels.forEach((model, i) => {
+        const sliceAngle = (model.calls / visibleTotal) * 2 * Math.PI;
         const endAngle = startAngle + sliceAngle;
 
         // 绘制扇形
@@ -1501,14 +1762,17 @@
 
         // 绘制标签
         const labelAngle = startAngle + sliceAngle / 2;
-        const labelX = centerX + Math.cos(labelAngle) * (radius + 30);
-        const labelY = centerY + Math.sin(labelAngle) * (radius + 30);
+        const labelX = centerX + Math.cos(labelAngle) * (radius + (isMobile ? 18 : 30));
+        const labelY = centerY + Math.sin(labelAngle) * (radius + (isMobile ? 18 : 30));
         const percentage = ((model.calls / total) * 100).toFixed(1);
+        const label = isMobile
+          ? `${String(model.model || '').slice(0, 10)} ${percentage}%`
+          : `${model.model} (${percentage}%)`;
 
         ctx.fillStyle = '#e2e8f0';
-        ctx.font = '11px Inter';
+        ctx.font = `${isMobile ? 10 : 11}px Inter`;
         ctx.textAlign = labelX > centerX ? 'left' : 'right';
-        ctx.fillText(`${model.model} (${percentage}%)`, labelX, labelY);
+        ctx.fillText(label, labelX, labelY);
 
         startAngle = endAngle;
       });
@@ -1517,13 +1781,16 @@
     function drawTrendChart(trend) {
       const canvas = document.getElementById('chart-trend');
       const ctx = canvas.getContext('2d');
+      const isMobile = window.innerWidth <= 768;
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
       ctx.scale(dpr, dpr);
       const w = rect.width, h = rect.height;
-      const pad = { top: 20, right: 20, bottom: 30, left: 50 };
+      const pad = isMobile
+        ? { top: 16, right: 10, bottom: 26, left: 34 }
+        : { top: 20, right: 20, bottom: 30, left: 50 };
       const plotW = w - pad.left - pad.right;
       const plotH = h - pad.top - pad.bottom;
 
@@ -1545,7 +1812,7 @@
 
       // 绘制折线
       ctx.strokeStyle = '#6366f1';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = isMobile ? 1.5 : 2;
       ctx.beginPath();
       vals.forEach((v, i) => {
         const x = pad.left + (plotW / (vals.length - 1)) * i;
@@ -1561,21 +1828,19 @@
         const x = pad.left + (plotW / (vals.length - 1)) * i;
         const y = pad.top + plotH - (v / max) * plotH;
         ctx.beginPath();
-        ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.arc(x, y, isMobile ? 2.5 : 3, 0, 2 * Math.PI);
         ctx.fill();
       });
 
       // 绘制日期标签（每隔几天显示一次）
       ctx.fillStyle = '#94a3b8';
-      ctx.font = '10px Inter';
+      ctx.font = `${isMobile ? 9 : 10}px Inter`;
       ctx.textAlign = 'center';
-      const step = Math.ceil(trend.length / 6);
+      const step = Math.ceil(trend.length / (isMobile ? 4 : 6));
       trend.forEach((d, i) => {
         if (i % step === 0 || i === trend.length - 1) {
           const x = pad.left + (plotW / (vals.length - 1)) * i;
-          const date = new Date(d.date);
-          const label = `${date.getMonth() + 1}/${date.getDate()}`;
-          ctx.fillText(label, x, h - 10);
+          ctx.fillText(formatChinaDateLabel(d.date), x, h - 10);
         }
       });
     }
@@ -1706,7 +1971,10 @@
     async function loadInvite() {
       try {
         const data = await api.getInviteInfo();
+        const inviteCode = data.invite_code || '';
+        const inviteLink = inviteCode ? `${window.location.origin}/register.html?invite_code=${encodeURIComponent(inviteCode)}` : '';
         document.getElementById('my-invite-code').textContent = data.invite_code || '暂无邀请码';
+        document.getElementById('invite-share-link').textContent = inviteLink || '暂无邀请链接';
         document.getElementById('invite-count').textContent = data.invite_count || 0;
         document.getElementById('invite-rewards').textContent = '¥' + Number(data.total_rewards || 0).toFixed(2);
         document.getElementById('invite-pending').textContent = '¥' + Number(data.pending_rewards || 0).toFixed(2);
@@ -1717,7 +1985,7 @@
             <td>${inv.username}</td>
             <td>${formatDate(inv.created_at)}</td>
             <td><span class="badge-${inv.status === 'active' ? 'success' : 'warning'}">${inv.status === 'active' ? '已激活' : '待激活'}</span></td>
-            <td>¥${inv.reward || 0}</td>
+            <td>¥${Number(inv.reward || 0).toFixed(2)}</td>
           </tr>`).join('');
         } else {
           tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无邀请记录</td></tr>';
@@ -1736,12 +2004,31 @@
       }
     }
 
+    function copyInviteLink() {
+      const link = document.getElementById('invite-share-link').textContent;
+      if (link && link !== '暂无邀请链接' && link !== '加载中...') {
+        copyText(link);
+      } else {
+        showToast('邀请链接无效', 'error');
+      }
+    }
+
+    function copyInviteShareText() {
+      const code = document.getElementById('my-invite-code').textContent;
+      const link = document.getElementById('invite-share-link').textContent;
+      if (!code || code === '暂无邀请码' || !link || link === '暂无邀请链接') {
+        return showToast('邀请信息未准备好', 'error');
+      }
+      const text = `邀请你一起使用 OpenClaw API，注册成功即可获得邀请奖励。\n\n奖励规则：邀请人 $1 加油包，被邀请人 $1 加油包\n\n注册链接：${link}\n邀请码：${code}`;
+      copyText(text);
+    }
+
     // Rewards
     async function loadRewards() {
       try {
         const [data, info] = await Promise.all([api.getRewards(), api.getUserInfo()]);
         const walletBalance = parseFloat(info.wallet_balance ?? 0);
-        document.getElementById('reward-wallet-balance').textContent = `$${walletBalance.toFixed(4)}`;
+        document.getElementById('reward-wallet-balance').textContent = `¥${walletBalance.toFixed(4)}`;
         document.getElementById('reward-total').textContent = '¥' + Number(data.total || 0).toFixed(2);
         document.getElementById('reward-received').textContent = '¥' + Number(data.received || 0).toFixed(2);
         document.getElementById('reward-pending').textContent = '¥' + Number(data.pending || 0).toFixed(2);
@@ -1751,9 +2038,9 @@
           tbody.innerHTML = data.rewards.map(r => `<tr>
             <td>${formatDate(r.created_at)}</td>
             <td>${r.type}</td>
-            <td style="color:var(--success);">+¥${r.amount}</td>
+            <td style="color:var(--success);">+¥${Number(r.amount || 0).toFixed(2)}</td>
             <td>${r.description}</td>
-            <td><span class="badge-${r.status === 'received' ? 'success' : 'warning'}">${r.status === 'received' ? '已领取' : '待领取'}</span></td>
+            <td><span class="badge-${r.status === 'received' ? 'success' : 'warning'}">${r.status === 'received' ? '已发放' : '待发放'}</span></td>
           </tr>`).join('');
         } else {
           tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">暂无奖励记录</td></tr>';
@@ -1846,6 +2133,7 @@
       }
     }
 
+    refreshThemeControls();
     init();
   </script>
 </body>

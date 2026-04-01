@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../../../config/db');
 const { generateApiKey, hashApiKey, maskApiKey } = require('../utils/crypto');
 const { adjustBalance } = require('../utils/billing');
+const { getChinaDateString } = require('../../../utils/chinaTime');
 
 // 获取套餐列表
 router.get('/list', async (req, res) => {
@@ -61,7 +62,7 @@ router.post('/buy', async (req, res) => {
         const keyHash = hashApiKey(key);
         const keyDisplay = maskApiKey(key);
         const keyPrefix = key.slice(0, 7);
-        const keyName = `${pkg.name} - ${new Date().toISOString().split('T')[0]}`;
+        const keyName = `${pkg.name} - ${getChinaDateString()}`;
 
         await conn.query(
           'INSERT INTO openclaw_api_keys (user_id, package_id, key_prefix, key_hash, key_display, name) VALUES (?, ?, ?, ?, ?, ?)',
@@ -139,7 +140,7 @@ router.post('/buy', async (req, res) => {
       const keyHash = hashApiKey(key);
       const keyDisplay = maskApiKey(key);
       const keyPrefix = key.slice(0, 7);
-      const keyName = `${pkg.name} - ${new Date().toISOString().split('T')[0]}`;
+      const keyName = `${pkg.name} - ${getChinaDateString()}`;
 
       await conn.query(
         'INSERT INTO openclaw_api_keys (user_id, package_id, key_prefix, key_hash, key_display, name) VALUES (?, ?, ?, ?, ?, ?)',

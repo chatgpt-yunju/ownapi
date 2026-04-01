@@ -5,6 +5,7 @@
  */
 const db = require('../config/db');
 const crypto = require('crypto');
+const { trackApiKeyLastUsed } = require('../plugins/ai-gateway/utils/lastUsedTracker');
 
 function hashApiKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
@@ -30,8 +31,7 @@ async function apiKeyGuest(req, res, next) {
     req.apiKeyGuest = true;
     req.apiKeyId = row.key_id;
 
-    // Update last_used_at
-    db.query('UPDATE openclaw_api_keys SET last_used_at = NOW() WHERE id = ?', [row.key_id]).catch(() => {});
+    trackApiKeyLastUsed(row.key_id).catch(() => {});
   } catch (err) {
     console.error('[apiKeyGuest] validation error:', err.message);
   }

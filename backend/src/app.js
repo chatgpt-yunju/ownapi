@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const http = require('http');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
@@ -36,7 +37,26 @@ app.use(cors({
 app.set('trust proxy', 1);
 
 // Global rate limit
-app.use(rateLimit({ windowMs: 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false }));
+function isAiGatewayPath(pathname = '') {
+  return (
+    pathname.startsWith('/v1/') ||
+    pathname === '/v1' ||
+    pathname.startsWith('/v1beta/') ||
+    pathname === '/v1beta' ||
+    pathname === '/api/models' ||
+    pathname === '/api/health' ||
+    pathname === '/api/package/list' ||
+    pathname === '/api/internal/metrics'
+  );
+}
+
+app.use(rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => isAiGatewayPath(req.path || ''),
+}));
 
 // 服务端请求超时保护：非流式请求 130s 后自动返回 503，防止僵尸连接耗尽连接池
 // 流式请求（SSE）通过检测 Accept 头跳过，不受超时影响
@@ -139,7 +159,8 @@ try {
       p.startsWith('/api/admin') ||
       p === '/api/models' ||
       p === '/api/health' ||
-      p === '/api/package/list'
+      p === '/api/package/list' ||
+      p === '/api/internal/metrics'
     ) {
       return aiGatewayRouter(req, res, next);
     }
@@ -163,4 +184,8 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const server = http.createServer(app);
+server.keepAliveTimeout = Math.max(65000, parseInt(process.env.KEEP_ALIVE_TIMEOUT_MS, 10) || 65000);
+server.headersTimeout = Math.max(server.keepAliveTimeout + 1000, parseInt(process.env.HEADERS_TIMEOUT_MS, 10) || 66000);
+server.requestTimeout = parseInt(process.env.SERVER_REQUEST_TIMEOUT_MS, 10) || 0;
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

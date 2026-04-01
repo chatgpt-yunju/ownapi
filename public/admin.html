@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>管理后台 - OpenClaw API</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <style>
     .admin-head { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.5rem; }
     .admin-title { font-family: var(--font-display); font-size: 2rem; letter-spacing: 0.03em; }
@@ -31,6 +33,57 @@
     .health-err { color: #f87171; font-weight: 600; }
     .health-pending { color: var(--text-muted); }
     .ss-module-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.05); }
+
+    /* 时间段统计 */
+    .range-bar { display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; }
+    .range-bar input[type="datetime-local"] { flex:1; min-width:160px; }
+    .range-presets { display:flex; gap:0.4rem; flex-wrap:wrap; }
+    .range-preset { padding:0.28rem 0.7rem; border-radius:6px; border:1px solid rgba(255,255,255,0.12); background:transparent; color:var(--text-secondary); font-size:0.8rem; cursor:pointer; }
+    .range-preset:hover { border-color:var(--accent); color:var(--accent); }
+    .range-result-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+    .range-result-table th { text-align:left; padding:0.5rem 0.75rem; color:var(--text-muted); font-weight:500; border-bottom:1px solid rgba(255,255,255,0.07); white-space:nowrap; }
+    .range-result-table td { padding:0.5rem 0.75rem; border-bottom:1px solid rgba(255,255,255,0.04); font-family:var(--font-mono); font-size:0.82rem; }
+    .range-result-table tr:last-child td { border-bottom:none; }
+    .range-total-row td { color:var(--accent-light); font-weight:600; border-top:1px solid rgba(255,255,255,0.12) !important; }
+    .range-summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:0.75rem; margin-bottom:1rem; }
+    .range-summary-card { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:0.75rem 1rem; }
+    .range-summary-card .val { font-size:1.3rem; font-weight:700; font-family:var(--font-mono); color:var(--text-primary); }
+    .range-summary-card .lbl { font-size:0.75rem; color:var(--text-muted); margin-top:0.2rem; }
+    .table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+      .oc-grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
+      .oc-grid-3 { grid-template-columns: repeat(2, 1fr) !important; }
+      .range-summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .admin-table-card .oc-table { min-width: 540px; }
+      .range-bar { flex-direction: column; align-items: stretch; }
+      .range-bar input[type="datetime-local"] { width: 100%; }
+      .range-bar .btn-accent { width: 100%; }
+    }
+    @media (max-width: 480px) {
+      .oc-grid-4 { grid-template-columns: repeat(2, 1fr) !important; }
+      .range-summary-grid { grid-template-columns: repeat(2, 1fr); }
+      .oc-modal { min-width: unset !important; width: 96vw !important; }
+    }
+
+    /* 图表区 */
+    .chart-grid { display:grid; grid-template-columns:2fr 1fr; gap:1rem; margin-bottom:1.5rem; }
+    .chart-box { background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; padding:1.25rem; }
+    .chart-box h4 { margin-bottom:0.75rem; color:var(--text-primary); font-size:0.95rem; }
+    .chart-canvas { width:100%; height:220px; }
+    .chart-days-bar { display:flex; gap:0.4rem; margin-bottom:0.75rem; }
+    .chart-day-btn { padding:0.2rem 0.6rem; border-radius:6px; border:1px solid rgba(255,255,255,0.12); background:transparent; color:var(--text-muted); font-size:0.78rem; cursor:pointer; }
+    .chart-day-btn.active { border-color:var(--accent); color:var(--accent); }
+    @media (max-width: 768px) { .chart-grid { grid-template-columns:1fr; } }
+
+    /* 卡密页面 */
+    .ck-key-cell { font-family:var(--font-mono); font-size:0.85rem; letter-spacing:0.05em; }
+    .ck-copy-btn { background:none; border:none; color:var(--accent-light); cursor:pointer; font-size:0.8rem; padding:2px 6px; border-radius:4px; }
+    .ck-copy-btn:hover { background:rgba(116,245,255,0.1); }
+    .badge-banned { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.75rem; font-weight:600; background:rgba(248,113,113,0.15); color:#f87171; border:1px solid rgba(248,113,113,0.3); }
+    .badge-active-user { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.75rem; font-weight:600; background:rgba(74,222,128,0.15); color:#4ade80; border:1px solid rgba(74,222,128,0.3); }
+    .app-market-url { font-family:var(--font-mono); font-size:0.78rem; color:var(--accent-light); word-break:break-all; }
   </style>
 </head>
 <body>
@@ -59,6 +112,9 @@
       <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f50d; 请求日志</div>
       <div class="oc-sidebar-item" data-page="debug-center" onclick="switchPage('debug-center')">&#x1f9ea; 调试中心</div>
       <div class="oc-sidebar-item" data-page="ccclub" onclick="switchPage('ccclub')">&#x1f4e8; CC Club 消息</div>
+      <div class="oc-sidebar-item" data-page="bulk-email" onclick="switchPage('bulk-email')">&#x1f4e7; 群发邮件</div>
+      <div class="oc-sidebar-item" data-page="cardkeys" onclick="switchPage('cardkeys')">&#x1f511; 卡密管理</div>
+      <div class="oc-sidebar-item" data-page="app-market" onclick="switchPage('app-market')">&#x1f6d2; 应用市场</div>
       <div class="oc-sidebar-item" data-page="site-settings" onclick="switchPage('site-settings')">&#x2699;&#xfe0f; 站点设置</div>
       <div class="oc-sidebar-section">快捷</div>
       <div class="oc-sidebar-item" onclick="location.href='/console.html'">&#x2190; 返回控制台</div>
@@ -70,10 +126,14 @@
       <div id="page-overview" class="page-content">
         <div class="admin-head">
           <div>
-            <div class="admin-title">系统总览</div>
-            <div class="admin-subtitle">监控用户规模、调用量、费用和关键运营指标。</div>
+            <div class="admin-title">平台运营总览</div>
+            <div class="admin-subtitle">监控用户规模、请求量、费用、并发与关键运营指标。</div>
           </div>
-          <div class="admin-chip">Admin Control</div>
+          <div class="admin-chip">Operations Control</div>
+        </div>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1.1rem 1.25rem;">
+          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.45rem;">运营说明</div>
+          <div style="color:var(--text-secondary);font-size:0.84rem;line-height:1.75;">本页用于查看平台运行态、队列压力、请求趋势与审计信息。告警判断请结合模型状态、队列数据、请求日志与控制台配置综合分析。</div>
         </div>
         <div class="oc-grid oc-grid-4" style="margin-bottom:1rem;">
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-users">-</div><div class="oc-stat-label">总用户数</div></div>
@@ -81,18 +141,82 @@
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-tokens">-</div><div class="oc-stat-label">总 Tokens</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-total-cost">-</div><div class="oc-stat-label">总费用 (元)</div></div>
         </div>
-        <div class="oc-grid oc-grid-4" style="margin-bottom:1.5rem;">
+        <div class="oc-grid oc-grid-4" style="margin-bottom:1rem;">
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-calls">-</div><div class="oc-stat-label">今日调用</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-tokens">-</div><div class="oc-stat-label">今日 Tokens</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-today-cost">-</div><div class="oc-stat-label">今日费用 (元)</div></div>
           <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-active-keys">-</div><div class="oc-stat-label">活跃 API Keys</div></div>
         </div>
+        <div class="oc-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:1.5rem;">
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-queue-active-now">-</div><div class="oc-stat-label">当前并发</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-queue-waiting-now">-</div><div class="oc-stat-label">当前排队</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-queue-peak-waiting">-</div><div class="oc-stat-label">今日峰值排队</div></div>
+          <div class="oc-card oc-stat"><div class="oc-stat-value" id="a-queue-max-concurrent">-</div><div class="oc-stat-label">并发上限</div></div>
+        </div>
+        <!-- 数据趋势图表 -->
+        <div class="chart-grid">
+          <div class="chart-box">
+            <h4>请求趋势</h4>
+            <div class="chart-days-bar">
+              <button class="chart-day-btn active" data-chart="trends" data-days="7" onclick="setChartDays('trends',7,this)">7天</button>
+              <button class="chart-day-btn" data-chart="trends" data-days="14" onclick="setChartDays('trends',14,this)">14天</button>
+              <button class="chart-day-btn" data-chart="trends" data-days="30" onclick="setChartDays('trends',30,this)">30天</button>
+            </div>
+            <div id="chart-trends" class="chart-canvas"></div>
+          </div>
+          <div class="chart-box">
+            <h4>模型请求分布</h4>
+            <div class="chart-days-bar">
+              <button class="chart-day-btn active" data-chart="dist" data-days="7" onclick="setChartDays('dist',7,this)">7天</button>
+              <button class="chart-day-btn" data-chart="dist" data-days="30" onclick="setChartDays('dist',30,this)">30天</button>
+            </div>
+            <div id="chart-dist" class="chart-canvas"></div>
+          </div>
+        </div>
+
+        <!-- 自定义时间段统计 -->
+        <div class="oc-card" style="margin-bottom:1.5rem;padding:1.25rem;">
+          <h4 style="margin-bottom:1rem;color:var(--text-primary);">自定义时间段统计</h4>
+          <div class="range-presets" style="margin-bottom:0.75rem;">
+            <button class="range-preset" onclick="setRangePreset('1h')">最近1小时</button>
+            <button class="range-preset" onclick="setRangePreset('today')">今日</button>
+            <button class="range-preset" onclick="setRangePreset('yesterday')">昨日</button>
+            <button class="range-preset" onclick="setRangePreset('7d')">最近7天</button>
+            <button class="range-preset" onclick="setRangePreset('30d')">最近30天</button>
+          </div>
+          <div class="range-bar">
+            <input class="oc-input" type="datetime-local" id="range-start" style="flex:1;min-width:160px;">
+            <span style="color:var(--text-muted);flex-shrink:0;">至</span>
+            <input class="oc-input" type="datetime-local" id="range-end" style="flex:1;min-width:160px;">
+            <input class="oc-input" id="range-model" list="range-model-list" placeholder="输入模型，如 glm5" style="min-width:170px;">
+            <datalist id="range-model-list"></datalist>
+            <select class="oc-select" id="range-user" style="min-width:170px;">
+              <option value="">全部用户</option>
+            </select>
+            <select class="oc-select" id="range-apikey" style="min-width:220px;">
+              <option value="">全部 API Key</option>
+            </select>
+            <button class="btn-accent btn-sm" onclick="loadRangeStats()" style="flex-shrink:0;">查询</button>
+          </div>
+          <div id="range-result" style="margin-top:1rem;display:none;">
+            <div class="range-summary-grid" id="range-summary"></div>
+            <div class="table-scroll">
+              <table class="range-result-table">
+                <thead><tr><th>用户</th><th>调用次数</th><th>输入 Tokens</th><th>输出 Tokens</th><th>总 Tokens</th><th>费用 (USD)</th><th>费用 (¥)</th></tr></thead>
+                <tbody id="range-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <div class="oc-card admin-table-card">
           <h4 style="margin-bottom:1rem;color:var(--text-primary);">最近调用记录</h4>
+          <div class="table-scroll">
           <table class="oc-table">
             <thead><tr><th>时间</th><th>用户</th><th>模型</th><th>输入</th><th>输出</th><th>费用</th><th>状态</th></tr></thead>
             <tbody id="recent-logs-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
           </table>
+          </div>
         </div>
       </div>
 
@@ -101,7 +225,7 @@
         <div class="admin-head">
           <div>
             <div class="admin-title" style="font-size:1.55rem;">用户管理</div>
-            <div class="admin-subtitle">搜索、审查与维护用户账户状态。</div>
+            <div class="admin-subtitle">搜索、审查、调整并维护用户账户状态。</div>
           </div>
         </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
@@ -112,7 +236,7 @@
         </div>
         <div class="oc-card admin-table-card">
           <table class="oc-table">
-            <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>套餐余额</th><th>钱包余额</th><th>活跃 Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>状态</th><th>套餐余额</th><th>钱包余额</th><th>活跃 Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
             <tbody id="users-tbody"></tbody>
           </table>
           <div class="oc-pagination" id="users-pagination"></div>
@@ -124,7 +248,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
           <div>
             <div class="admin-title" style="font-size:1.55rem;">模型管理</div>
-            <div class="admin-subtitle">统一维护模型路由、定价、排序与启用状态。</div>
+            <div class="admin-subtitle">统一维护模型路由、定价、排序、状态与展示策略。</div>
           </div>
           <button class="btn-accent" onclick="showAddModelModal()">+ 添加模型</button>
         </div>
@@ -154,7 +278,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
           <div>
             <div class="admin-title" style="font-size:1.55rem;">供应商管理</div>
-            <div class="admin-subtitle">配置上游供应商与端点结构。</div>
+            <div class="admin-subtitle">配置上游供应商、端点结构与启用策略。</div>
           </div>
           <button class="btn-accent" onclick="showAddProviderModal()">+ 添加供应商</button>
         </div>
@@ -171,7 +295,7 @@
         <div class="admin-head">
           <div>
             <div class="admin-title" style="font-size:1.55rem;">订单管理</div>
-            <div class="admin-subtitle">查看交易状态、套餐购买与用户明细。</div>
+            <div class="admin-subtitle">查看交易状态、套餐购买、加油包订单与用户明细。</div>
           </div>
         </div>
         <!-- 全部订单 -->
@@ -276,6 +400,7 @@
       <!-- Logs -->
       <div id="page-logs" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">请求日志</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">按用户、模型、状态与日期检索请求记录，用于问题排查、计费核对与审计追踪。</p>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
           <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
             <input class="oc-input" id="log-filter-user" placeholder="用户ID..." style="width:100px;" type="number">
@@ -306,14 +431,15 @@
       <!-- Debug Center -->
       <div id="page-debug-center" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">模型调试中心</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于诊断模型健康状态、复现实例请求与追踪链路步骤。调试结果应结合请求日志和模型配置综合判断。</p>
 
         <!-- 模型健康检查 -->
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem 1.25rem;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
             <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;">模型健康检查</div>
-            <button class="btn-accent btn-sm" id="health-check-btn" onclick="runHealthCheck()">一键诊断所有模型</button>
+            <button class="btn-accent btn-sm" id="health-check-btn" onclick="runHealthCheck()">执行全量诊断</button>
           </div>
-          <div id="health-check-summary" style="margin-bottom:0.5rem;font-size:0.82rem;color:var(--text-secondary);">点击"一键诊断"测试所有已启用模型的连通性和响应速度。</div>
+          <div id="health-check-summary" style="margin-bottom:0.5rem;font-size:0.82rem;color:var(--text-secondary);">用于测试已启用模型的连通性、基础延迟与返回状态，结果仅代表当前诊断时刻。</div>
           <div id="health-check-results" style="display:none;">
             <table class="oc-table" style="font-size:0.82rem;">
               <thead><tr><th>模型</th><th>供应商</th><th>状态</th><th>延迟</th><th>回复/错误</th></tr></thead>
@@ -323,7 +449,7 @@
         </div>
 
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem 1.25rem;">
-          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">手动触发 8 步调试</div>
+          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">手动调试流程</div>
           <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;">
             <input class="oc-input" id="debug-run-model" placeholder="模型 ID，如 claude-sonnet-4-6" style="width:260px;">
             <select class="oc-select" id="debug-run-route" style="width:150px;">
@@ -382,8 +508,9 @@
       <!-- CC Club Messages -->
       <div id="page-ccclub" class="page-content" style="display:none;">
         <h2 style="margin-bottom:1.5rem;">CC Club 请求消息</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于查看 CC Club 相关请求样本、关键词与测试链路，便于做专项审计和问题定位。</p>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
-          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">CC Club 直连 vs 中转测速</div>
+          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">CC Club 直连与中转链路对比</div>
           <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
             <select class="oc-select" id="ccclub-test-model" style="width:260px;">
               <option value="">请选择模型ID</option>
@@ -397,6 +524,31 @@
             <button class="btn-accent btn-sm" onclick="runCcclubLatencyTest()">开始测试</button>
           </div>
           <div id="ccclub-test-result" style="margin-top:0.8rem;color:var(--text-secondary);font-size:0.82rem;">未开始测试</div>
+        </div>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">CC Club 密钥管理</div>
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;">
+            <span style="font-size:0.82rem;color:var(--text-muted);white-space:nowrap;">cr_</span>
+            <input class="oc-input" id="ccclub-key-input" placeholder="密钥内容（无需填写cr_前缀）" style="width:340px;font-family:monospace;">
+            <input class="oc-input" id="ccclub-key-notes" placeholder="备注，如：ccclub-1号密钥" style="width:200px;">
+            <button class="btn-accent btn-sm" onclick="addCcclubKey()">添加密钥</button>
+          </div>
+          <div id="ccclub-keys-table-wrap">
+            <table class="oc-table">
+              <thead><tr><th>ID</th><th>密钥预览</th><th>备注</th><th>状态</th><th>关联上游数</th><th>添加时间</th><th>操作</th></tr></thead>
+              <tbody id="ccclub-keys-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+            <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;">CC Club 密钥冷却状态</div>
+            <div style="display:flex;gap:0.5rem;">
+              <button class="btn-accent btn-sm" onclick="loadCcclubKeyResets()">一键查询重置时间</button>
+              <button class="btn-outline btn-sm" id="ccclub-key-resets-email-btn" onclick="sendCcclubKeyResetsEmail()" style="display:none;">发送到邮箱</button>
+            </div>
+          </div>
+          <div id="ccclub-key-resets-result" style="color:var(--text-muted);font-size:0.82rem;">点击按钮查询</div>
         </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
           <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
@@ -429,12 +581,122 @@
         </div>
       </div>
 
+      <div id="page-bulk-email" class="page-content" style="display:none;">
+        <div class="admin-head">
+          <div>
+            <div class="admin-title" style="font-size:1.55rem;">群发邮件</div>
+            <div class="admin-subtitle">面向已绑定邮箱用户发送运营通知，或向指定用户 ID 批量发送邮件。</div>
+          </div>
+        </div>
+        <div class="oc-card" style="padding:1rem;max-width:920px;">
+          <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;">
+            <div style="grid-column:1 / -1;">
+              <label style="display:block;margin-bottom:0.45rem;color:var(--text-secondary);font-size:0.88rem;">发送范围</label>
+              <select class="oc-select" id="bulk-email-target" onchange="toggleBulkEmailTarget()" style="width:260px;">
+                <option value="all">全部已绑定邮箱用户</option>
+                <option value="users">指定用户ID</option>
+              </select>
+            </div>
+            <div id="bulk-email-user-ids-wrap" style="grid-column:1 / -1;display:none;">
+              <label style="display:block;margin-bottom:0.45rem;color:var(--text-secondary);font-size:0.88rem;">用户ID列表</label>
+              <input class="oc-input" id="bulk-email-user-ids" placeholder="例如：12,15,18" />
+              <div style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-muted);">使用英文逗号分隔，最多 500 个用户ID。</div>
+            </div>
+            <div style="grid-column:1 / -1;">
+              <label style="display:block;margin-bottom:0.45rem;color:var(--text-secondary);font-size:0.88rem;">邮件主题</label>
+              <input class="oc-input" id="bulk-email-subject" placeholder="请输入邮件主题" />
+            </div>
+            <div style="grid-column:1 / -1;">
+              <label style="display:block;margin-bottom:0.45rem;color:var(--text-secondary);font-size:0.88rem;">邮件正文</label>
+              <textarea class="oc-input" id="bulk-email-content" placeholder="请输入邮件正文，支持换行，发送时会自动保留段落。" style="min-height:260px;resize:vertical;"></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:1rem;">
+            <button class="btn-accent" id="bulk-email-send-btn" onclick="sendBulkEmail()">发送邮件</button>
+            <span id="bulk-email-result" style="font-size:0.85rem;color:var(--text-muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card Keys -->
+      <div id="page-cardkeys" class="page-content" style="display:none;">
+        <div class="admin-head">
+          <div>
+            <div class="admin-title" style="font-size:1.55rem;">卡密管理</div>
+            <div class="admin-subtitle">批量生成、发放、审计并管理充值卡密。</div>
+          </div>
+        </div>
+        <!-- 生成卡密 -->
+        <div class="oc-card" style="margin-bottom:1rem;padding:1.25rem;">
+          <h4 style="margin-bottom:1rem;color:var(--text-primary);">批量生成卡密</h4>
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:flex-end;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:0.8rem;color:var(--text-muted);">积分额度 ($)</label>
+              <input class="oc-input" id="ck-quota" type="number" step="0.01" min="0.01" placeholder="如 5.00" style="width:120px;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:0.8rem;color:var(--text-muted);">生成数量 (最多100)</label>
+              <input class="oc-input" id="ck-count" type="number" min="1" max="100" value="1" style="width:120px;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <label style="font-size:0.8rem;color:var(--text-muted);">VIP天数 (0=不赠送)</label>
+              <input class="oc-input" id="ck-vip-days" type="number" min="0" value="0" style="width:120px;">
+            </div>
+            <button class="btn-accent" onclick="generateCardKeys()">生成卡密</button>
+          </div>
+          <div id="ck-generated" style="display:none;margin-top:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+              <span style="font-size:0.85rem;color:var(--text-secondary);">生成结果：</span>
+              <button class="btn-outline btn-sm" onclick="copyAllCardKeys()">复制全部</button>
+            </div>
+            <div id="ck-generated-list" style="background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:8px;padding:0.75rem;font-family:var(--font-mono);font-size:0.85rem;line-height:1.9;max-height:200px;overflow-y:auto;"></div>
+          </div>
+        </div>
+        <!-- 卡密列表 -->
+        <div class="oc-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+            <h4 style="color:var(--text-primary);">卡密列表</h4>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <select class="oc-select" id="ck-filter" style="width:120px;" onchange="loadCardKeys()">
+                <option value="">全部</option>
+                <option value="unused">未使用</option>
+                <option value="used">已使用</option>
+              </select>
+              <button class="btn-outline btn-sm" onclick="loadCardKeys()">刷新</button>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="oc-table">
+              <thead><tr><th>ID</th><th>卡密</th><th>积分额度</th><th>VIP天数</th><th>状态</th><th>使用者</th><th>使用时间</th><th>创建时间</th><th>操作</th></tr></thead>
+              <tbody id="ck-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- App Market -->
+      <div id="page-app-market" class="page-content" style="display:none;">
+        <div class="admin-head">
+          <div>
+            <div class="admin-title">应用市场</div>
+            <div class="admin-subtitle">维护用户控制台和公开页面展示的应用名称、描述与跳转链接。</div>
+          </div>
+          <button class="btn-accent" onclick="showAppMarketModal()">+ 添加应用</button>
+        </div>
+        <div class="oc-card admin-table-card">
+          <table class="oc-table">
+            <thead><tr><th>ID</th><th>名称</th><th>描述</th><th>URL</th><th>更新时间</th><th>操作</th></tr></thead>
+            <tbody id="app-market-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Site Settings -->
       <div id="page-site-settings" class="page-content" style="display:none;">
         <div class="admin-head">
           <div>
             <div class="admin-title">站点设置</div>
-            <div class="admin-subtitle">管理所有站点配置，包括品牌、费用、VIP、AI模型、安全等。</div>
+            <div class="admin-subtitle">管理品牌、计费、队列、安全、SSO、邮件与系统参数。</div>
           </div>
           <div style="display:flex;gap:0.5rem;">
             <button class="btn-accent" onclick="saveSiteSettings()">保存所有设置</button>
@@ -971,6 +1233,29 @@
     </div>
   </div>
 
+  <!-- Role Change Modal -->
+  <div class="oc-modal-overlay" id="modal-role">
+    <div class="oc-modal" style="min-width:340px;">
+      <h3>修改用户角色</h3>
+      <input type="hidden" id="role-user-id">
+      <div class="form-group">
+        <label>用户: <strong id="role-username"></strong></label>
+      </div>
+      <div class="form-group">
+        <label>角色</label>
+        <select class="oc-select" id="role-select" style="width:100%;">
+          <option value="user">普通用户 (user)</option>
+          <option value="reviewer">审核员 (reviewer)</option>
+          <option value="admin">管理员 (admin)</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-role')">取消</button>
+        <button class="btn-accent" onclick="doChangeRole()">确认</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Edit Model Modal -->
   <div class="oc-modal-overlay" id="modal-model">
     <div class="oc-modal" style="min-width:600px;max-width:90vw;">
@@ -1098,6 +1383,48 @@
     </div>
   </div>
 
+  <div class="oc-modal-overlay" id="modal-ccclub-key">
+    <div class="oc-modal" style="min-width:380px;max-width:90vw;">
+      <h3>编辑 CC Club 密钥备注</h3>
+      <input type="hidden" id="ccclub-edit-api-key">
+      <div class="form-group">
+        <label>密钥预览</label>
+        <div id="ccclub-edit-key-preview" style="font-family:monospace;color:var(--text-secondary);word-break:break-all;"></div>
+      </div>
+      <div class="form-group">
+        <label>备注</label>
+        <input class="oc-input" id="ccclub-edit-notes" maxlength="255" placeholder="如：ccclub-1号密钥">
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-ccclub-key')">取消</button>
+        <button class="btn-accent" onclick="saveCcclubKeyNotes()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="oc-modal-overlay" id="modal-app-market">
+    <div class="oc-modal" style="min-width:520px;max-width:90vw;">
+      <h3 id="app-market-modal-title">添加应用</h3>
+      <input type="hidden" id="app-market-id">
+      <div class="form-group">
+        <label>应用名称</label>
+        <input class="oc-input" id="app-market-name" placeholder="例如：Open WebUI">
+      </div>
+      <div class="form-group" style="margin-top:0.75rem;">
+        <label>应用描述</label>
+        <textarea class="oc-input" id="app-market-description" rows="4" placeholder="简要描述应用用途和适用场景"></textarea>
+      </div>
+      <div class="form-group" style="margin-top:0.75rem;">
+        <label>跳转 URL</label>
+        <input class="oc-input" id="app-market-url" placeholder="https://example.com/app">
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-app-market')">取消</button>
+        <button class="btn-accent" onclick="saveAppMarketApp()">保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Log Detail Modal -->
   <div class="oc-modal-overlay" id="modal-log">
     <div class="oc-modal" style="min-width:680px;max-width:90vw;">
@@ -1129,6 +1456,8 @@
 
     let currentPage = 'overview';
     let usersPage = 1;
+    let rangeFilterOptionsLoaded = false;
+    let appMarketList = [];
 
     function switchPage(page) {
       currentPage = page;
@@ -1143,7 +1472,10 @@
       else if (page === 'orders') { ordersPage = 1; loadAllOrders(); }
       else if (page === 'logs') { logsPage = 1; loadLogs(); }
       else if (page === 'debug-center') { debugPage = 1; loadDebugTraces(); }
-      else if (page === 'ccclub') { ccClubPage = 1; loadCcclubModelOptions(); loadCcclubMessages(); }
+      else if (page === 'ccclub') { ccClubPage = 1; loadCcclubModelOptions(); loadCcclubMessages(); loadCcclubKeys(); }
+      else if (page === 'bulk-email') toggleBulkEmailTarget();
+      else if (page === 'cardkeys') loadCardKeys();
+      else if (page === 'app-market') loadAppMarketAdmin();
       else if (page === 'site-settings') loadSiteSettings();
       // 关闭移动端侧边栏
       document.getElementById('sidebar').classList.remove('show');
@@ -1161,12 +1493,17 @@
           setTimeout(() => location.href = '/console.html', 1500);
           return;
         }
+        setRangePreset('today');
+        loadRangeFilterOptions();
         loadOverview();
       } catch(e) { showToast(e.message, 'error'); }
     }
 
     // === 总览 ===
+    let chartTrends = null, chartDist = null;
+
     async function loadOverview() {
+      loadCharts(7);
       try {
         const data = await api.adminOverview();
         document.getElementById('a-total-users').textContent = formatNum(data.total_users || 0);
@@ -1177,6 +1514,14 @@
         document.getElementById('a-today-tokens').textContent = formatNum(data.today_tokens || 0);
         document.getElementById('a-today-cost').textContent = '¥' + parseFloat(data.today_cost || 0).toFixed(4);
         document.getElementById('a-active-keys').textContent = formatNum(data.active_keys || 0);
+
+        const q = data.queue || {};
+        document.getElementById('a-queue-active-now').textContent    = q.active_now  ?? '-';
+        document.getElementById('a-queue-waiting-now').textContent   = q.waiting_now ?? '-';
+        document.getElementById('a-queue-peak-waiting').textContent  = q.peak_waiting_today ?? '-';
+        document.getElementById('a-queue-max-concurrent').textContent = q.max_concurrent ?? '-';
+        document.getElementById('a-queue-waiting-now').closest('.oc-stat').style.borderColor =
+          (q.waiting_now > 0) ? 'rgba(248,113,113,0.5)' : '';
 
         const logs = data.recent_logs || [];
         document.getElementById('recent-logs-tbody').innerHTML = logs.length
@@ -1193,6 +1538,105 @@
       } catch(e) { showToast(e.message, 'error'); }
     }
 
+    // === 自定义时间段统计 ===
+    function toLocalDatetimeInput(d) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function setRangePreset(p) {
+      const now = new Date();
+      let start;
+      if (p === '1h') {
+        start = new Date(now - 60*60*1000);
+      } else if (p === 'today') {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      } else if (p === 'yesterday') {
+        const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        start = y;
+        const yEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        document.getElementById('range-end').value = toLocalDatetimeInput(yEnd);
+        document.getElementById('range-start').value = toLocalDatetimeInput(y);
+        return;
+      } else if (p === '7d') {
+        start = new Date(now - 7*24*60*60*1000);
+      } else if (p === '30d') {
+        start = new Date(now - 30*24*60*60*1000);
+      }
+      document.getElementById('range-start').value = toLocalDatetimeInput(start);
+      document.getElementById('range-end').value   = toLocalDatetimeInput(now);
+    }
+
+    async function loadRangeFilterOptions() {
+      if (rangeFilterOptionsLoaded) return;
+      try {
+        const data = await api.adminStatsRangeOptions();
+        const modelInput = document.getElementById('range-model');
+        const modelList = document.getElementById('range-model-list');
+        const userSelect = document.getElementById('range-user');
+        const keySelect = document.getElementById('range-apikey');
+
+        modelInput.value = modelInput.value || '';
+        modelList.innerHTML = (data.models || []).map(item =>
+          `<option value="${escapeHtmlText(item.value)}"></option>`
+        ).join('');
+        userSelect.innerHTML = '<option value="">全部用户</option>' + (data.users || []).map(item =>
+          `<option value="${item.id}">${escapeHtmlText(item.username || ('用户 ' + item.id))} (#${item.id})</option>`
+        ).join('');
+        keySelect.innerHTML = '<option value="">全部 API Key</option>' + (data.api_keys || []).map(item => {
+          const keyLabel = item.key_display || ('Key #' + item.id);
+          const userLabel = item.username || ('用户 ' + item.user_id);
+          return `<option value="${item.id}">${escapeHtmlText(keyLabel)} · ${escapeHtmlText(userLabel)}</option>`;
+        }).join('');
+        rangeFilterOptionsLoaded = true;
+      } catch (e) {
+        showToast('加载统计筛选项失败', 'error');
+        console.error('loadRangeFilterOptions:', e);
+      }
+    }
+
+    async function loadRangeStats() {
+      const start = document.getElementById('range-start').value;
+      const end   = document.getElementById('range-end').value;
+      if (!start || !end) { showToast('请选择开始和结束时间', 'error'); return; }
+      try {
+        const filters = {
+          model: document.getElementById('range-model').value.trim(),
+          user_id: document.getElementById('range-user').value,
+          api_key_id: document.getElementById('range-apikey').value,
+        };
+        const data = await api.adminStatsRange(new Date(start).toISOString(), new Date(end).toISOString(), filters);
+        const CNY_RATE = 7.3;
+        const t = data.total || { calls: 0, input_tokens: 0, output_tokens: 0, total_tokens: 0, cost_usd: 0 };
+        document.getElementById('range-summary').innerHTML = `
+          <div class="range-summary-card"><div class="val">${formatNum(t.calls)}</div><div class="lbl">调用次数</div></div>
+          <div class="range-summary-card"><div class="val">${formatNum(t.total_tokens)}</div><div class="lbl">总 Tokens</div></div>
+          <div class="range-summary-card"><div class="val">$${parseFloat(t.cost_usd).toFixed(4)}</div><div class="lbl">费用 (USD)</div></div>
+          <div class="range-summary-card"><div class="val">¥${(parseFloat(t.cost_usd)*CNY_RATE).toFixed(2)}</div><div class="lbl">费用 (元)</div></div>`;
+        const rows = data.users || [];
+        document.getElementById('range-tbody').innerHTML = rows.length
+          ? rows.map(r => `<tr>
+              <td style="color:var(--text-primary);font-family:inherit;">${r.username || '未知'}</td>
+              <td>${formatNum(r.calls)}</td>
+              <td>${formatNum(r.input_tokens)}</td>
+              <td>${formatNum(r.output_tokens)}</td>
+              <td>${formatNum(r.total_tokens)}</td>
+              <td>$${parseFloat(r.cost_usd).toFixed(6)}</td>
+              <td>¥${(parseFloat(r.cost_usd)*CNY_RATE).toFixed(4)}</td>
+            </tr>`).join('')
+            + `<tr class="range-total-row">
+              <td>合计</td>
+              <td>${formatNum(t.calls)}</td>
+              <td>${formatNum(t.input_tokens)}</td>
+              <td>${formatNum(t.output_tokens)}</td>
+              <td>${formatNum(t.total_tokens)}</td>
+              <td>$${parseFloat(t.cost_usd).toFixed(6)}</td>
+              <td>¥${(parseFloat(t.cost_usd)*CNY_RATE).toFixed(4)}</td>
+            </tr>`
+          : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">该时间段无数据</td></tr>';
+        document.getElementById('range-result').style.display = 'block';
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
     // === 用户管理 ===
     async function loadUsers() {
       try {
@@ -1202,21 +1646,31 @@
         const data = await api.adminUsers(params);
         const users = data.users || [];
         document.getElementById('users-tbody').innerHTML = users.length
-          ? users.map(u => `<tr>
+          ? users.map(u => {
+              const isBanned = u.status === 'banned';
+              const safeUsername = (u.username||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+              return `<tr>
               <td>${u.user_id}</td>
               <td style="color:var(--text-primary)">${u.username || '-'}</td>
-              <td><span class="badge-${u.role === 'admin' ? 'active' : 'disabled'}">${u.role || 'user'}</span></td>
+              <td>
+                <span class="badge-${u.role === 'admin' ? 'active' : 'disabled'}" style="cursor:pointer;" title="点击修改角色" onclick="showRoleModal(${u.user_id},'${safeUsername}','${u.role||'user'}')">${u.role || 'user'}</span>
+              </td>
+              <td>
+                <span class="${isBanned ? 'badge-banned' : 'badge-active-user'}">${isBanned ? '封禁' : '正常'}</span>
+              </td>
               <td style="font-family:var(--font-mono);">$${parseFloat(u.quota_balance || 0).toFixed(4)}</td>
               <td style="font-family:var(--font-mono);">$${parseFloat(u.wallet_balance || 0).toFixed(4)}</td>
               <td>${u.key_count || 0}</td>
               <td>${formatNum(u.total_calls || 0)}</td>
               <td style="font-family:var(--font-mono);">¥${parseFloat(u.total_cost || 0).toFixed(4)}</td>
-              <td>
-                <button class="btn-outline btn-sm" onclick="showChargeModal(${u.user_id},'${(u.username||'').replace(/'/g,"\\'")}')">充值/扣费</button>
+              <td style="white-space:nowrap;">
+                <button class="btn-outline btn-sm" onclick="showChargeModal(${u.user_id},'${safeUsername}')">充值/扣费</button>
+                <button class="btn-outline btn-sm" onclick="toggleUserBan(${u.user_id},'${u.status||'active'}','${safeUsername}')" style="margin-left:4px;${isBanned ? 'color:#4ade80;' : 'color:#f87171;'}">${isBanned ? '解禁' : '封禁'}</button>
                 <button class="btn-outline btn-sm" onclick="viewUserDetail(${u.user_id})" style="margin-left:4px;">详情</button>
               </td>
-            </tr>`).join('')
-          : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
+            </tr>`;
+            }).join('')
+          : '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
 
         const total = data.total || 0;
         const totalPages = Math.ceil(total / 20);
@@ -1762,6 +2216,13 @@
         .replace(/'/g, '&#39;');
     }
 
+    function makeCcclubKeyPreview(apiKey) {
+      const value = String(apiKey || '');
+      if (!value) return '—';
+      if (value.length <= 18) return value;
+      return `${value.slice(0, 10)}…${value.slice(-6)}`;
+    }
+
     function renderDebugSteps(steps) {
       const container = document.getElementById('log-detail-trace');
       if (!steps || !steps.length) {
@@ -2014,10 +2475,289 @@
       }
     }
 
+    // === CC Club 密钥管理 ===
+    let ccclubKeysCache = [];
+
+    async function loadCcclubKeys() {
+      const tbody = document.getElementById('ccclub-keys-tbody');
+      try {
+        const data = await api.get('/admin/ccclub/keys');
+        const keys = data.keys || [];
+        ccclubKeysCache = keys;
+        populateCcclubRelayKeyOptions(keys);
+        ccClubRelayKeysLoaded = true;
+        if (!keys.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">暂无密钥</td></tr>'; return; }
+        tbody.innerHTML = keys.map((k, idx) => {
+          const preview = makeCcclubKeyPreview(k.api_key);
+          const safePreview = escapeHtmlText(preview);
+          const safeTitle = escapeHtmlText(k.api_key || '');
+          const t = k.created_at ? new Date(k.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }).replace(/\//g, '-') : '—';
+          const isDisabled = k.status === 'disabled';
+          const statusBadge = isDisabled
+            ? `<span style="background:#f44;color:#fff;border-radius:3px;padding:1px 7px;font-size:0.75rem;">已禁用</span>`
+            : `<span style="background:#2a7;color:#fff;border-radius:3px;padding:1px 7px;font-size:0.75rem;">启用</span>`;
+          const toggleLabel = isDisabled ? '启用' : '禁用';
+          const toggleStyle = isDisabled
+            ? 'background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;padding:2px 10px;'
+            : 'background:#f90;color:#fff;border:none;border-radius:4px;cursor:pointer;padding:2px 10px;';
+          return `<tr>
+            <td>${k.id}</td>
+            <td style="font-family:monospace;font-size:0.8rem;" title="${safeTitle}">${safePreview}</td>
+            <td>${escapeHtmlText(k.notes || '—')}</td>
+            <td>${statusBadge}</td>
+            <td>${k.upstream_count}</td>
+            <td>${t}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn-outline btn-sm" onclick="showEditCcclubKeyModalByIndex(${idx})">编辑</button>
+              <button class="btn-sm" style="${toggleStyle}" onclick="toggleCcclubKeyStatusByIndex(${idx})">${toggleLabel}</button>
+              <button class="btn-sm" style="background:var(--danger);color:#fff;border:none;border-radius:4px;cursor:pointer;padding:2px 10px;" onclick="deleteCcclubKeyByIndex(${idx})">删除</button>
+            </td>
+          </tr>`;
+        }).join('');
+      } catch (e) {
+        ccClubRelayKeysLoaded = false;
+        tbody.innerHTML = `<tr><td colspan="7" style="color:var(--danger);">加载失败：${e.message}</td></tr>`;
+      }
+    }
+
+    async function addCcclubKey() {
+      const raw = document.getElementById('ccclub-key-input').value.trim();
+      const notes = document.getElementById('ccclub-key-notes').value.trim();
+      if (!raw) { showToast('请输入密钥内容', 'error'); return; }
+      try {
+        const data = await api.post('/admin/ccclub/keys', { key_raw: raw, notes });
+        showToast(`密钥已添加，关联 ${data.upstream_rows} 个上游`, 'success');
+        document.getElementById('ccclub-key-input').value = '';
+        document.getElementById('ccclub-key-notes').value = '';
+        loadCcclubKeys();
+      } catch (e) {
+        showToast(e.message || '添加失败', 'error');
+      }
+    }
+
+    async function deleteCcclubKey(apiKey) {
+      if (!confirm('确认删除该密钥及其所有上游配置？')) return;
+      try {
+        await api.request('/admin/ccclub/keys', { method: 'DELETE', body: JSON.stringify({ api_key: apiKey }) });
+        showToast('已删除', 'success');
+        loadCcclubKeys();
+      } catch (e) {
+        showToast(e.message || '删除失败', 'error');
+      }
+    }
+
+    function showEditCcclubKeyModalByIndex(idx) {
+      const row = ccclubKeysCache[idx];
+      if (!row) {
+        showToast('未找到密钥数据，请刷新后重试', 'error');
+        return;
+      }
+      showEditCcclubKeyModal(row.api_key || '', row.notes || '');
+    }
+
+    function deleteCcclubKeyByIndex(idx) {
+      const row = ccclubKeysCache[idx];
+      if (!row) {
+        showToast('未找到密钥数据，请刷新后重试', 'error');
+        return;
+      }
+      deleteCcclubKey(row.api_key || '');
+    }
+
+    async function toggleCcclubKeyStatusByIndex(idx) {
+      const row = ccclubKeysCache[idx];
+      if (!row) { showToast('未找到密钥数据，请刷新后重试', 'error'); return; }
+      const newStatus = row.status === 'disabled' ? 'active' : 'disabled';
+      const label = newStatus === 'disabled' ? '禁用' : '启用';
+      if (!confirm(`确认${label}该密钥？${newStatus === 'disabled' ? '禁用后所有关联上游将停止转发。' : '启用后将恢复所有关联上游。'}`)) return;
+      try {
+        await api.put('/admin/ccclub/keys/status', { api_key: row.api_key, status: newStatus });
+        showToast(`密钥已${label}`, 'success');
+        loadCcclubKeys();
+      } catch (e) {
+        showToast(e.message || `${label}失败`, 'error');
+      }
+    }
+
+    function showEditCcclubKeyModal(apiKey, notes) {
+      document.getElementById('ccclub-edit-api-key').value = apiKey || '';
+      document.getElementById('ccclub-edit-key-preview').textContent = makeCcclubKeyPreview(apiKey);
+      document.getElementById('ccclub-edit-key-preview').title = apiKey || '';
+      document.getElementById('ccclub-edit-notes').value = notes || '';
+      showModal('modal-ccclub-key');
+    }
+
+    async function saveCcclubKeyNotes() {
+      const apiKey = document.getElementById('ccclub-edit-api-key').value.trim();
+      const notes = document.getElementById('ccclub-edit-notes').value.trim();
+      if (!apiKey) {
+        showToast('缺少密钥标识', 'error');
+        return;
+      }
+      try {
+        await api.put('/admin/ccclub/keys', { api_key: apiKey, notes });
+        hideModal('modal-ccclub-key');
+        showToast('备注已更新', 'success');
+        loadCcclubKeys();
+      } catch (e) {
+        showToast(e.message || '更新失败', 'error');
+      }
+    }
+
+    // === CC Club 密钥冷却状态 ===
+    let ccclubKeyResetRows = [];
+    const ccclubKeyResetBox = document.getElementById('ccclub-key-resets-result');
+
+    ccclubKeyResetBox.addEventListener('click', (event) => {
+      const recoverBtn = event.target.closest('[data-ccclub-recover-key]');
+      if (!recoverBtn) return;
+      const apiKey = String(recoverBtn.getAttribute('data-ccclub-recover-key') || '').trim();
+      if (!apiKey) return;
+      recoverCcclubKeyReset(apiKey, recoverBtn);
+    });
+
+    async function loadCcclubKeyResets() {
+      const el = document.getElementById('ccclub-key-resets-result');
+      el.innerHTML = '<span style="color:var(--text-muted);">查询中...</span>';
+      try {
+        const data = await api.get('/admin/ccclub/key-resets');
+        const rows = data.rows || [];
+        ccclubKeyResetRows = rows;
+        if (!rows.length) { el.innerHTML = '<span style="color:var(--text-muted);">暂无记录</span>'; return; }
+        const now = Date.now();
+        const fmtDate = s => {
+          if (!s) return '—';
+          const d = new Date(s);
+          return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+                  .replace(/\//g, '-');
+        };
+        const diffLabel = s => {
+          if (!s) return '';
+          const ms = new Date(s).getTime() - now;
+          if (ms <= 0) return '<span style="color:var(--success);">已可用</span>';
+          const h = Math.floor(ms / 3600000);
+          const m = Math.floor((ms % 3600000) / 60000);
+          return `<span style="color:var(--warning);">还需 ${h}h ${m}m</span>`;
+        };
+        const tbody = rows.map((r) => {
+          const safeKey = escapeHtmlText(r.api_key || '');
+          const keyPreview = String(r.api_key || '').slice(0, 12) + '…' + String(r.api_key || '').slice(-6);
+          const safeNotes = escapeHtmlText(r.notes || '—');
+          const safeError = escapeHtmlText((r.last_error_message || '').slice(0, 40) || '—');
+          const safeErrorTitle = escapeHtmlText(r.last_error_message || '');
+          const manualDisabledBadge = r.key_status === 'disabled'
+            ? '<span style="color:#fff;background:#777;padding:2px 7px;border-radius:4px;font-size:0.75rem;margin-left:4px;">已禁用</span>'
+            : '';
+          const statusBadge = (r.status === 'cooldown'
+            ? '<span style="color:#fff;background:var(--danger);padding:2px 7px;border-radius:4px;font-size:0.75rem;">冷却中</span>'
+            : '<span style="color:#fff;background:var(--success);padding:2px 7px;border-radius:4px;font-size:0.75rem;">可用</span>')
+            + manualDisabledBadge;
+          const actionBtn = r.key_status === 'disabled'
+            ? '<span style="color:var(--text-muted);font-size:0.78rem;">手动禁用</span>'
+            : r.status === 'cooldown'
+              ? `<button class="btn-outline btn-sm" style="color:var(--success);" data-ccclub-recover-key="${safeKey}">恢复可用</button>`
+              : '—';
+          return `<tr>
+            <td style="font-weight:600;">${r.reg_id}</td>
+            <td style="font-size:0.78rem;font-family:monospace;" title="${safeKey}">${escapeHtmlText(keyPreview)}</td>
+            <td>${safeNotes}</td>
+            <td>${statusBadge}</td>
+            <td>${fmtDate(r.reset_at)} ${diffLabel(r.reset_at)}</td>
+            <td>${r.last_status_code || '—'}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${safeErrorTitle}">${safeError}</td>
+            <td>${actionBtn}</td>
+          </tr>`;
+        }).join('');
+        el.innerHTML = `<table class="oc-table" style="margin-top:0.5rem;">
+          <thead><tr>
+            <th>ID</th><th>密钥</th><th>备注</th><th>状态</th><th>重置时间</th><th>HTTP码</th><th>最近错误</th><th>操作</th>
+          </tr></thead>
+          <tbody>${tbody}</tbody>
+        </table>`;
+        document.getElementById('ccclub-key-resets-email-btn').style.display = '';
+      } catch (e) {
+        ccclubKeyResetRows = [];
+        el.innerHTML = `<span style="color:var(--danger);">查询失败：${e.message}</span>`;
+      }
+    }
+
+    async function recoverCcclubKeyReset(apiKey, btnEl) {
+      const key = String(apiKey || '').trim();
+      if (!key) {
+        showToast('缺少密钥参数', 'error');
+        return;
+      }
+      const ok = confirm('确认将该 CC Club 密钥手动恢复为可用？');
+      if (!ok) return;
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = '恢复中...';
+      }
+      try {
+        await api.post('/admin/ccclub/key-resets/recover', { api_key: key });
+        showToast('已恢复为可用', 'success');
+        loadCcclubKeyResets();
+      } catch (e) {
+        showToast(e.message || '恢复失败', 'error');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = '恢复可用';
+        }
+      }
+    }
+
+    async function sendCcclubKeyResetsEmail() {
+      const btn = document.getElementById('ccclub-key-resets-email-btn');
+      btn.disabled = true;
+      btn.textContent = '发送中...';
+      try {
+        const data = await api.post('/admin/ccclub/key-resets/send-email', {});
+        showToast(`已发送到 ${data.to}，共 ${data.count} 条记录`, 'success');
+      } catch (e) {
+        showToast('发送失败：' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '发送到邮箱';
+      }
+    }
+
     // === CC Club 请求消息 ===
     let ccClubPage = 1;
     let ccClubSelectedRequestIds = new Set();
     let ccClubModelsLoaded = false;
+    let ccClubRelayKeysLoaded = false;
+
+    function populateCcclubRelayKeyOptions(keys) {
+      const select = document.getElementById('ccclub-test-relay-key');
+      if (!select) return;
+      const prev = select.value;
+      const rows = Array.isArray(keys) ? keys : [];
+      select.innerHTML = '<option value="">请选择中转测试 API Key</option>' +
+        rows.map(k => {
+          const apiKey = String(k.api_key || '').trim();
+          const preview = makeCcclubKeyPreview(apiKey);
+          const notes = String(k.notes || '').trim();
+          const label = notes ? `${notes} (${preview})` : preview;
+          return `<option value="${escapeHtmlText(apiKey)}">${escapeHtmlText(label)}</option>`;
+        }).join('');
+      if (prev && rows.some(k => String(k.api_key || '').trim() === prev)) {
+        select.value = prev;
+      }
+    }
+
+    async function loadCcclubRelayKeyOptions(force = false) {
+      if (ccClubRelayKeysLoaded && !force) return;
+      try {
+        const data = await api.get('/admin/ccclub/keys');
+        const keys = data.keys || [];
+        ccclubKeysCache = keys;
+        populateCcclubRelayKeyOptions(keys);
+        ccClubRelayKeysLoaded = true;
+      } catch (e) {
+        ccClubRelayKeysLoaded = false;
+        console.error('加载 CC Club 中转测试密钥失败:', e);
+      }
+    }
 
     async function loadCcclubModelOptions() {
       try {
@@ -2148,6 +2888,58 @@
       }
     }
 
+    function toggleBulkEmailTarget() {
+      const target = document.getElementById('bulk-email-target')?.value || 'all';
+      const wrap = document.getElementById('bulk-email-user-ids-wrap');
+      if (wrap) wrap.style.display = target === 'users' ? 'block' : 'none';
+      const result = document.getElementById('bulk-email-result');
+      if (result && !result.dataset.locked) result.textContent = target === 'users'
+        ? '将只发送给填写的用户ID且已绑定邮箱的用户。'
+        : '将发送给全部已绑定邮箱的用户。';
+    }
+
+    async function sendBulkEmail() {
+      const target = document.getElementById('bulk-email-target').value;
+      const subject = document.getElementById('bulk-email-subject').value.trim();
+      const content = document.getElementById('bulk-email-content').value.trim();
+      const rawUserIds = document.getElementById('bulk-email-user-ids').value.trim();
+      const resultEl = document.getElementById('bulk-email-result');
+      const btn = document.getElementById('bulk-email-send-btn');
+
+      if (!subject) return showToast('请输入邮件主题', 'error');
+      if (!content) return showToast('请输入邮件正文', 'error');
+
+      let user_ids = [];
+      if (target === 'users') {
+        user_ids = Array.from(new Set(
+          rawUserIds
+            .split(',')
+            .map(v => Number(String(v).trim()))
+            .filter(v => Number.isInteger(v) && v > 0)
+        ));
+        if (!user_ids.length) return showToast('请填写有效的用户ID', 'error');
+      }
+
+      if (!confirm(target === 'users'
+        ? `确认向 ${user_ids.length} 个指定用户批量发送邮件？`
+        : '确认向全部已绑定邮箱用户群发邮件？')) return;
+
+      btn.disabled = true;
+      resultEl.dataset.locked = '1';
+      resultEl.textContent = '发送中...';
+      try {
+        const ret = await api.adminSendBulkEmail({ target, user_ids, subject, content });
+        resultEl.textContent = ret.message || '发送成功';
+        showToast(ret.message || '发送成功', 'success');
+      } catch (e) {
+        resultEl.textContent = e.message || '发送失败';
+        showToast(e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        delete resultEl.dataset.locked;
+      }
+    }
+
     function fmtCcclubTestBlock(title, item) {
       const okLabel = item?.ok ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">失败</span>';
       const status = item?.status ?? '-';
@@ -2164,6 +2956,7 @@
 
     async function runCcclubLatencyTest() {
       if (!ccClubModelsLoaded) await loadCcclubModelOptions();
+      if (!ccClubRelayKeysLoaded) await loadCcclubRelayKeyOptions();
       const model_id = document.getElementById('ccclub-test-model').value.trim();
       const prompt = document.getElementById('ccclub-test-prompt').value.trim() || '请回复：pong';
       const relay_api_key = document.getElementById('ccclub-test-relay-key').value.trim();
@@ -2407,6 +3200,246 @@
       } catch (e) {
         msgEl.textContent = '保存失败：' + e.message;
         msgEl.style.color = 'var(--danger)';
+      }
+    }
+
+    // === 数据图表 ===
+    async function loadCharts(days) {
+      try {
+        const [trendsData, distData] = await Promise.all([
+          api.adminStatsTrends(days),
+          api.adminStatsModelDistribution(days),
+        ]);
+        renderTrendsChart(trendsData.data || []);
+        renderDistChart(distData.data || []);
+      } catch(e) { console.error('charts error:', e); }
+    }
+
+    function setChartDays(type, days, btn) {
+      const bar = btn.closest('.chart-days-bar');
+      bar.querySelectorAll('.chart-day-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (type === 'trends') loadTrendsChart(days);
+      else loadDistChart(days);
+    }
+
+    async function loadTrendsChart(days) {
+      try {
+        const d = await api.adminStatsTrends(days);
+        renderTrendsChart(d.data || []);
+      } catch(e) {}
+    }
+
+    async function loadDistChart(days) {
+      try {
+        const d = await api.adminStatsModelDistribution(days);
+        renderDistChart(d.data || []);
+      } catch(e) {}
+    }
+
+    function renderTrendsChart(rows) {
+      const el = document.getElementById('chart-trends');
+      if (!el || typeof echarts === 'undefined') return;
+      if (!chartTrends) chartTrends = echarts.init(el, 'dark');
+      chartTrends.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+        legend: { data: ['调用次数', '费用(¥)'], textStyle: { color: '#aaa', fontSize: 11 }, bottom: 0 },
+        grid: { top: 10, left: 40, right: 50, bottom: 30 },
+        xAxis: { type: 'category', data: rows.map(r => String(r.date).slice(5)), axisLabel: { color: '#888', fontSize: 10 } },
+        yAxis: [
+          { type: 'value', name: '调用', nameTextStyle: { color: '#888', fontSize: 10 }, axisLabel: { color: '#888', fontSize: 10 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.07)' } } },
+          { type: 'value', name: '¥费用', nameTextStyle: { color: '#888', fontSize: 10 }, axisLabel: { color: '#888', fontSize: 10, formatter: v => '¥'+v.toFixed(2) }, splitLine: { show: false } }
+        ],
+        series: [
+          { name: '调用次数', type: 'line', smooth: true, data: rows.map(r => Number(r.calls)), itemStyle: { color: '#74f5ff' }, areaStyle: { color: 'rgba(116,245,255,0.08)' }, lineStyle: { width: 2 } },
+          { name: '费用(¥)', type: 'line', smooth: true, yAxisIndex: 1, data: rows.map(r => (Number(r.cost)*7.2).toFixed(4)), itemStyle: { color: '#ff5fcf' }, areaStyle: { color: 'rgba(255,95,207,0.07)' }, lineStyle: { width: 2 } },
+        ]
+      });
+    }
+
+    function renderDistChart(rows) {
+      const el = document.getElementById('chart-dist');
+      if (!el || typeof echarts === 'undefined') return;
+      if (!chartDist) chartDist = echarts.init(el, 'dark');
+      const total = rows.reduce((s, r) => s + Number(r.calls), 0);
+      chartDist.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'item', formatter: p => `${p.name}<br/>调用: ${p.value} (${p.percent}%)` },
+        legend: { show: false },
+        series: [{
+          type: 'pie', radius: ['40%', '70%'], center: ['50%', '50%'],
+          data: rows.map(r => ({ name: r.model, value: Number(r.calls) })),
+          label: { show: true, fontSize: 10, formatter: p => p.name.length > 16 ? p.name.slice(0,14)+'…' : p.name },
+          labelLine: { length: 8, length2: 6 },
+          itemStyle: { borderRadius: 4 },
+          emphasis: { itemStyle: { shadowBlur: 10 } }
+        }]
+      });
+    }
+
+    // === 用户封禁/角色管理 ===
+    async function toggleUserBan(userId, currentStatus, username) {
+      const newStatus = currentStatus === 'banned' ? 'active' : 'banned';
+      const action = newStatus === 'banned' ? '封禁' : '解禁';
+      if (!confirm(`确认${action}用户 "${username}"？`)) return;
+      try {
+        await api.adminSetUserStatus(userId, newStatus);
+        showToast(`已${action}用户 ${username}`, 'success');
+        loadUsers();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function showRoleModal(userId, username, currentRole) {
+      document.getElementById('role-user-id').value = userId;
+      document.getElementById('role-username').textContent = username;
+      document.getElementById('role-select').value = currentRole;
+      showModal('modal-role');
+    }
+
+    async function doChangeRole() {
+      const userId = document.getElementById('role-user-id').value;
+      const role = document.getElementById('role-select').value;
+      try {
+        await api.adminSetUserRole(userId, role);
+        hideModal('modal-role');
+        showToast('角色已更新', 'success');
+        loadUsers();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // === 卡密管理 ===
+    let generatedKeys = [];
+
+    async function loadCardKeys() {
+      const filter = document.getElementById('ck-filter')?.value || '';
+      try {
+        const rows = await api.adminGetCardKeys();
+        const filtered = filter ? rows.filter(r => r.status === filter) : rows;
+        const tbody = document.getElementById('ck-tbody');
+        tbody.innerHTML = filtered.length
+          ? filtered.map(r => `<tr>
+              <td>${r.id}</td>
+              <td class="ck-key-cell">
+                ${r.key}
+                <button class="ck-copy-btn" onclick="copyText('${r.key}')" title="复制">⧉</button>
+              </td>
+              <td style="font-family:var(--font-mono);">$${parseFloat(r.quota||0).toFixed(2)}</td>
+              <td>${r.vip_days > 0 ? r.vip_days + '天' : '-'}</td>
+              <td><span class="${r.status === 'unused' ? 'badge-active-user' : 'badge-disabled'}">${r.status === 'unused' ? '未使用' : '已使用'}</span></td>
+              <td style="font-size:0.8rem;">${r.used_by || '-'}</td>
+              <td style="font-size:0.75rem;">${r.used_at ? formatDate(r.used_at) : '-'}</td>
+              <td style="font-size:0.75rem;">${formatDate(r.created_at)}</td>
+              <td>${r.status === 'unused' ? `<button class="btn-outline btn-sm" style="color:#f87171;" onclick="deleteCardKey(${r.id})">删除</button>` : ''}</td>
+            </tr>`).join('')
+          : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">暂无卡密</td></tr>';
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    async function generateCardKeys() {
+      const quota = parseFloat(document.getElementById('ck-quota').value);
+      const count = parseInt(document.getElementById('ck-count').value) || 1;
+      const vip_days = parseInt(document.getElementById('ck-vip-days').value) || 0;
+      if (!quota || quota <= 0) return showToast('请输入有效积分额度', 'error');
+      if (count < 1 || count > 100) return showToast('数量须在 1-100 之间', 'error');
+      try {
+        const data = await api.adminGenerateCardKeys(quota, count, vip_days);
+        generatedKeys = data.keys || [];
+        const listEl = document.getElementById('ck-generated-list');
+        listEl.innerHTML = generatedKeys.map(k => `<div style="display:flex;justify-content:space-between;align-items:center;">${k} <button class="ck-copy-btn" onclick="copyText('${k}')">⧉</button></div>`).join('');
+        document.getElementById('ck-generated').style.display = 'block';
+        showToast(`成功生成 ${generatedKeys.length} 张卡密`, 'success');
+        loadCardKeys();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    function copyAllCardKeys() {
+      if (!generatedKeys.length) return;
+      copyText(generatedKeys.join('\n'));
+    }
+
+    async function deleteCardKey(id) {
+      if (!confirm('确认删除该未使用卡密？')) return;
+      try {
+        await api.adminDeleteCardKey(id);
+        showToast('已删除', 'success');
+        loadCardKeys();
+      } catch(e) { showToast(e.message, 'error'); }
+    }
+
+    // === 应用市场 ===
+    function showAppMarketModal(app = null) {
+      document.getElementById('app-market-id').value = app?.id || '';
+      document.getElementById('app-market-name').value = app?.name || '';
+      document.getElementById('app-market-description').value = app?.description || '';
+      document.getElementById('app-market-url').value = app?.url || '';
+      document.getElementById('app-market-modal-title').textContent = app ? '编辑应用' : '添加应用';
+      showModal('modal-app-market');
+    }
+
+    async function loadAppMarketAdmin() {
+      try {
+        const data = await api.adminGetAppMarket();
+        appMarketList = data.apps || [];
+        document.getElementById('app-market-tbody').innerHTML = appMarketList.length
+          ? appMarketList.map(app => `
+              <tr>
+                <td>${app.id}</td>
+                <td style="color:var(--text-primary);font-weight:600;">${escapeHtmlText(app.name)}</td>
+                <td style="max-width:320px;white-space:pre-wrap;word-break:break-word;">${escapeHtmlText(app.description)}</td>
+                <td><a class="app-market-url" href="${escapeHtmlText(app.url)}" target="_blank" rel="noopener noreferrer">${escapeHtmlText(app.url)}</a></td>
+                <td style="font-size:0.78rem;">${formatDate(app.updated_at || app.created_at)}</td>
+                <td>
+                  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    <button class="btn-outline btn-sm" onclick="editAppMarketApp(${app.id})">编辑</button>
+                    <button class="btn-outline btn-sm" style="color:var(--danger);" onclick="deleteAppMarketApp(${app.id})">删除</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')
+          : '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">暂无应用，请先添加。</td></tr>';
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    function editAppMarketApp(id) {
+      const app = appMarketList.find(item => item.id === id);
+      if (!app) return showToast('应用不存在', 'error');
+      showAppMarketModal(app);
+    }
+
+    async function saveAppMarketApp() {
+      const id = document.getElementById('app-market-id').value;
+      const payload = {
+        name: document.getElementById('app-market-name').value.trim(),
+        description: document.getElementById('app-market-description').value.trim(),
+        url: document.getElementById('app-market-url').value.trim(),
+      };
+      if (!payload.name || !payload.description || !payload.url) {
+        return showToast('请填写名称、描述和 URL', 'error');
+      }
+      try {
+        if (id) await api.adminUpdateAppMarketApp(id, payload);
+        else await api.adminCreateAppMarketApp(payload);
+        hideModal('modal-app-market');
+        showToast(id ? '应用已更新' : '应用已添加', 'success');
+        loadAppMarketAdmin();
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function deleteAppMarketApp(id) {
+      const app = appMarketList.find(item => item.id === id);
+      if (!app) return showToast('应用不存在', 'error');
+      if (!confirm(`确认删除应用“${app.name}”？`)) return;
+      try {
+        await api.adminDeleteAppMarketApp(id);
+        showToast('应用已删除', 'success');
+        loadAppMarketAdmin();
+      } catch (e) {
+        showToast(e.message, 'error');
       }
     }
 

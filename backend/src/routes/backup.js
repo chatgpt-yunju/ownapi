@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { auth, requireAdmin } = require('../middleware/auth');
+const { getChinaDate } = require('../utils/chinaTime');
 const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -28,7 +29,7 @@ router.post('/', auth, requireAdmin, (req, res) => {
   const dbHost = process.env.DB_HOST || 'localhost';
   const dbPort = process.env.DB_PORT || '3306';
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const timestamp = getChinaDate().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename = `backup-${timestamp}.sql`;
   const filepath = path.join(BACKUP_DIR, filename);
 

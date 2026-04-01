@@ -1,10 +1,12 @@
 const router = require('express').Router();
 const db = require('../config/db');
 const bcrypt = require('bcryptjs');
+const { getChinaDateString } = require('../utils/chinaTime');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { auth, requireAdmin } = require('../middleware/auth');
 const { getSettingCached } = require('./quota');
+const { validateSilentToken } = require('../services/ssoAuth');
 require('dotenv').config();
 
 // Runtime migrations
@@ -206,7 +208,7 @@ router.post('/quota/deduct', async (req, res) => {
     return res.status(403).json({ message: 'app_secret 错误' });
   }
   if (app.daily_deduct_limit > 0) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getChinaDateString();
     const [[{ total }]] = await db.query(
       'SELECT COALESCE(SUM(amount),0) as total FROM oauth_deduct_logs WHERE app_id=? AND user_id=? AND DATE(created_at)=?',
       [app_id, user_id, today]
@@ -254,14 +256,10 @@ router.post('/token-authorize', async (req, res) => {
 // GET /api/sso/silent — 子站静默登录验证（验证主站JWT并返回用户信息）
 router.get('/silent', async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ message: '未提供token' });
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const [[user]] = await db.query('SELECT id, username, role FROM users WHERE id=?', [payload.id]);
-    if (!user) return res.status(404).json({ message: '用户不存在' });
-    const [[quota]] = await db.query('SELECT extra_quota, vip_expires_at, balance FROM user_quota WHERE user_id=?', [payload.id]);
-    const vip = !!(quota?.vip_expires_at && new Date(quota.vip_expires_at) > new Date());
-    res.json({ ...user, extra_quota: quota?.extra_quota ?? 0, vip, vip_expires_at: quota?.vip_expires_at ?? null, balance: quota?.balance ?? 0 });
+    const result = await validateSilentToken(token);
+    if (!result.ok) return res.status(result.status).json({ message: result.message });
+    res.json(result.user);
   } catch {
     res.status(401).json({ message: 'token无效或已过期' });
   }

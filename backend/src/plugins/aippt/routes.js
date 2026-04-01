@@ -8,6 +8,8 @@ const { v4: uuid } = require('uuid')
 const https = require('https')
 
 
+const { getChinaDateString } = require('../../utils/chinaTime')
+
 const router = express.Router()
 
 const UPLOAD_DIR = path.resolve('/home/ubuntu/aippt_yunjunet_cn/backend/uploads')
@@ -47,7 +49,7 @@ function getDeviceKey(req) {
 }
 
 function checkDailyLimit(key) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getChinaDateString()
   const record = uploadLimits.get(key)
   if (!record || record.date !== today) {
     return { allowed: true, remaining: DAILY_LIMIT }
@@ -56,7 +58,7 @@ function checkDailyLimit(key) {
 }
 
 function recordUpload(key) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getChinaDateString()
   const record = uploadLimits.get(key)
   if (!record || record.date !== today) {
     uploadLimits.set(key, { date: today, count: 1 })

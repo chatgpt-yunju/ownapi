@@ -1,7 +1,4 @@
 const router = require('express').Router();
-const axios = require('axios');
-const http = require('http');
-const https = require('https');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../../../config/db');
 const PROVIDERS = require('../config/models');
@@ -17,23 +14,76 @@ const cache = require('../utils/cache');
 const { noteCcClubRateLimit } = require('../utils/ccClubKeyGuard');
 const { createDebugRecorder } = require('../utils/requestDebug');
 const { extractUpstreamErrorMessage } = require('../utils/upstreamError');
-
-// ── HTTP Keep-Alive：复用 TCP 连接，降低上游请求延迟 ──────────────────────
-const axiosInstance = axios.create({
-  httpAgent: new http.Agent({ keepAlive: true, maxSockets: 200, maxFreeSockets: 50 }),
-  httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 200, maxFreeSockets: 50 }),
-});
+const { enqueueRequestDetail } = require('../utils/requestDetailLogger');
+const { recordMessagesStageTiming } = require('../utils/metrics');
+const { applyStreamIdleTimeout, axiosInstance, getUpstreamTimeouts } = require('../utils/upstreamHttp');
+const {
+  acquireBestEndpoint,
+  getEndpointIdentity,
+  isRetryableUpstreamError,
+  recordUpstreamFailure,
+  recordUpstreamSuccess,
+  releaseEndpointLease,
+} = require('../utils/upstreamScheduler');
 
 const MODEL_CACHE_TTL = 10 * 60 * 1000;          // 模型配置缓存 10 分钟
 const UPSTREAM_CACHE_TTL = 10 * 60 * 1000;       // 上游配置缓存 10 分钟
-const MONTHLY_QUOTA_CACHE_TTL = 5 * 60 * 1000;  // 月度限额缓存 5 分钟
+const MONTHLY_QUOTA_CACHE_TTL = 10 * 60 * 1000;  // 月度限额缓存 5 分钟
 const PKG_LIMITS_CACHE_TTL = 10 * 60 * 1000;    // 套餐限额字段缓存 10 分钟
 const PRE_RESERVE = 0.01;
+const MAX_RETRIES = 2;
+const SETTINGS_REFRESH_TTL_MS = 60 * 1000;
+
+const DEFAULT_GLM5_FAST_START_CONFIG = Object.freeze({
+  enabled: false,
+  pingIntervalMs: 1000,
+  pingTimeoutMs: 4000,
+});
+
+let settingsCacheLoadedAt = 0;
+let settingsCache = { ...DEFAULT_GLM5_FAST_START_CONFIG };
+let getSettingCachedFn = null;
 
 function hasQuotaCoverageAfterMonthlyLimit(billingContext) {
   const balanceAfter = Number(billingContext?.balanceAfter || 0);
   const reservedAmount = Number(billingContext?.reservedAmount || 0);
   return roundAmount(balanceAfter + reservedAmount) > 0;
+}
+
+function getSettingFn() {
+  if (!getSettingCachedFn) {
+    try {
+      getSettingCachedFn = require('../../../routes/quota').getSettingCached;
+    } catch {
+      getSettingCachedFn = async (_key, def) => def;
+    }
+  }
+  return getSettingCachedFn;
+}
+
+async function getGlm5FastStartConfig() {
+  const now = Date.now();
+  if ((now - settingsCacheLoadedAt) < SETTINGS_REFRESH_TTL_MS) return settingsCache;
+
+  try {
+    const getSettingCached = getSettingFn();
+    const [enabledRaw, pingIntervalRaw, pingTimeoutRaw] = await Promise.all([
+      getSettingCached('gateway_glm5_fast_start_enabled', String(DEFAULT_GLM5_FAST_START_CONFIG.enabled)),
+      getSettingCached('gateway_glm5_fast_start_ping_interval_ms', String(DEFAULT_GLM5_FAST_START_CONFIG.pingIntervalMs)),
+      getSettingCached('gateway_glm5_fast_start_ping_timeout_ms', String(DEFAULT_GLM5_FAST_START_CONFIG.pingTimeoutMs)),
+    ]);
+
+    settingsCache = {
+      enabled: String(enabledRaw).trim().toLowerCase() === 'true',
+      pingIntervalMs: Math.max(250, parseInt(pingIntervalRaw, 10) || DEFAULT_GLM5_FAST_START_CONFIG.pingIntervalMs),
+      pingTimeoutMs: Math.max(500, parseInt(pingTimeoutRaw, 10) || DEFAULT_GLM5_FAST_START_CONFIG.pingTimeoutMs),
+    };
+  } catch {
+    settingsCache = { ...DEFAULT_GLM5_FAST_START_CONFIG };
+  }
+
+  settingsCacheLoadedAt = now;
+  return settingsCache;
 }
 
 // ========== 模型 & 上游缓存查询 ==========
@@ -115,10 +165,90 @@ async function getUserPackageLimits(userId) {
   return result;
 }
 
+async function getMonthlyUsageStats(userId, monthStart) {
+  const monthKey = new Date(monthStart).toISOString().slice(0, 7);
+  const cacheKey = `monthly:${userId}:${monthKey}`;
+  const cached = await cache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const [[row]] = await db.query(
+    `SELECT COUNT(*) AS cnt, COALESCE(SUM(total_cost), 0) AS cost
+     FROM openclaw_call_logs
+     WHERE user_id = ? AND created_at >= ? AND status = 'success'`,
+    [userId, monthStart]
+  );
+  const result = { cnt: Number(row.cnt), cost: Number(row.cost) };
+  await cache.set(cacheKey, result, MONTHLY_QUOTA_CACHE_TTL);
+  return result;
+}
+
 async function getAvailableUpstreams(modelConfig) {
   const providerEndpoints = await getProviderEndpoints(modelConfig);
   if (providerEndpoints.length > 0) return providerEndpoints;
   return getModelUpstreams(modelConfig.id);
+}
+
+function buildFallbackEndpoint(modelConfig) {
+  const provider = PROVIDERS.getProviderConfig
+    ? PROVIDERS.getProviderConfig(modelConfig.provider)
+    : (PROVIDERS[modelConfig.provider] || {});
+  const baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
+  const apiKey = modelConfig.upstream_key || provider.apiKey;
+  if (!baseUrl || !apiKey) return null;
+  return {
+    id: null,
+    provider_name: provider.name || modelConfig.provider || null,
+    base_url: baseUrl,
+    api_key: apiKey,
+    upstream_model_id: modelConfig.upstream_model_id || null,
+    weight: 1,
+  };
+}
+
+async function getAllUpstreamEndpoints(modelConfig) {
+  const upstreams = await getAvailableUpstreams(modelConfig);
+  if (upstreams.length > 0) return upstreams;
+  const fallback = buildFallbackEndpoint(modelConfig);
+  return fallback ? [fallback] : [];
+}
+
+function createUpstreamSaturatedError() {
+  return Object.assign(new Error('当前所有上游端点并发已满，请稍后重试'), {
+    code: 'UPSTREAM_SATURATED',
+    response: { status: 503, data: { error: { message: '当前所有上游端点并发已满，请稍后重试' } } },
+  });
+}
+
+function removeEndpointCandidate(candidates, selected) {
+  const selectedKey = getEndpointIdentity(selected);
+  return (candidates || []).filter((item) => getEndpointIdentity(item) !== selectedKey);
+}
+
+function getUpstreamFailureKey(endpointOrId) {
+  if (endpointOrId && typeof endpointOrId === 'object') return getEndpointIdentity(endpointOrId);
+  if (endpointOrId === undefined || endpointOrId === null || endpointOrId === '') return 'unknown';
+  return String(endpointOrId);
+}
+
+async function markEndpointSuccess(selected, attemptMeta, statusCode = 200) {
+  await recordUpstreamSuccess(selected, {
+    latencyMs: Date.now() - attemptMeta.startedAt,
+    statusCode,
+  });
+  await releaseEndpointLease(selected, attemptMeta.leaseToken);
+  if (selected?.id) recordSuccess(selected);
+}
+
+async function markEndpointFailure(selected, attemptMeta, err, fallbackMessage = 'Upstream request failed') {
+  const errMsg = await extractUpstreamErrorMessage(err, fallbackMessage);
+  await recordUpstreamFailure(selected, {
+    latencyMs: Date.now() - attemptMeta.startedAt,
+    statusCode: err?.response?.status || 0,
+    errorMessage: errMsg,
+  });
+  await releaseEndpointLease(selected, attemptMeta.leaseToken);
+  if (selected?.id) recordFail(selected);
+  return errMsg;
 }
 
 // ========== Upstream 失败计数器（内存） ==========
@@ -128,7 +258,7 @@ const upstreamFailures = new Map();
 const DECAY_INTERVAL = 10 * 60 * 1000; // 10分钟
 
 function getFailCount(upstreamId) {
-  const rec = upstreamFailures.get(upstreamId);
+  const rec = upstreamFailures.get(getUpstreamFailureKey(upstreamId));
   if (!rec) return 0;
   const elapsed = Date.now() - rec.lastFail;
   const decayFactor = Math.pow(0.5, elapsed / DECAY_INTERVAL);
@@ -136,17 +266,20 @@ function getFailCount(upstreamId) {
 }
 
 function recordFail(upstreamId) {
-  const rec = upstreamFailures.get(upstreamId) || { fails: 0, lastFail: Date.now() };
+  const key = getUpstreamFailureKey(upstreamId);
+  const rec = upstreamFailures.get(key) || { fails: 0, lastFail: Date.now() };
   rec.fails = getFailCount(upstreamId) + 1;
   rec.lastFail = Date.now();
-  upstreamFailures.set(upstreamId, rec);
+  upstreamFailures.set(key, rec);
 }
 
 function recordSuccess(upstreamId) {
-  const rec = upstreamFailures.get(upstreamId);
+  const key = getUpstreamFailureKey(upstreamId);
+  const rec = upstreamFailures.get(key);
   if (rec) {
     rec.fails = Math.max(0, getFailCount(upstreamId) - 0.5);
     rec.lastFail = Date.now();
+    upstreamFailures.set(key, rec);
   }
 }
 
@@ -165,6 +298,13 @@ const CLAUDE_RELAY_RETRY_CONFIG = Object.freeze({
   baseDelayMs: 1500,
   backoffFactor: 2,
   maxDelayMs: 8000,
+});
+
+const GLM5_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
+  maxRetries: 2,
+  baseDelayMs: 250,
+  backoffFactor: 1,
+  maxDelayMs: 350,
 });
 
 function getRelayRetryConfig({ model } = {}) {
@@ -221,6 +361,176 @@ async function withRelayRetry(fn, { model, debug, logger, retryConfig } = {}) {
     }
   }
   throw lastErr;
+}
+
+function isGlm5Model(model) {
+  const normalizedModel = String(model || '').toLowerCase();
+  return normalizedModel.includes('glm-5') || normalizedModel.includes('glm5');
+}
+
+function getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic } = {}) {
+  if (stream && isGlm5Model(model) && !isUpstreamAnthropic) {
+    return GLM5_STREAM_RELAY_RETRY_CONFIG;
+  }
+  return getRelayRetryConfig({ model });
+}
+
+function getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic } = {}) {
+  if (stream && isGlm5Model(model) && !isUpstreamAnthropic) {
+    return getUpstreamTimeouts({
+      stream: true,
+      connectTimeoutMs: 10000,
+      idleTimeoutMs: 30000,
+      requestTimeoutMs: 20000,
+    });
+  }
+  return getUpstreamTimeouts({ stream });
+}
+
+function createMessagesLatencyTracker(req, model) {
+  return {
+    model,
+    routeStartedAt: Date.now(),
+    queueWaitMs: Math.max(0, Number(req.aiGatewayQueueWaitMs) || 0),
+    dispatchFinishedAt: 0,
+    headersFlushedAt: 0,
+    firstCommentPingAt: 0,
+    upstreamStartedAt: 0,
+    upstreamConnectedAt: 0,
+    firstRealEventAt: 0,
+    firstChunkAt: 0,
+    fastStartEnabled: false,
+    fastStartCommentSent: false,
+  };
+}
+
+function markMessagesDispatchComplete(tracker) {
+  if (tracker && !tracker.dispatchFinishedAt) tracker.dispatchFinishedAt = Date.now();
+}
+
+function markMessagesUpstreamStart(tracker) {
+  if (!tracker) return;
+  tracker.upstreamStartedAt = Date.now();
+  tracker.upstreamConnectedAt = 0;
+  tracker.firstChunkAt = 0;
+}
+
+function markMessagesUpstreamConnected(tracker) {
+  if (tracker && !tracker.upstreamConnectedAt) tracker.upstreamConnectedAt = Date.now();
+}
+
+function markMessagesHeadersFlushed(tracker) {
+  if (tracker && !tracker.headersFlushedAt) tracker.headersFlushedAt = Date.now();
+}
+
+function markMessagesCommentPing(tracker) {
+  if (!tracker) return;
+  tracker.fastStartCommentSent = true;
+  if (!tracker.firstCommentPingAt) tracker.firstCommentPingAt = Date.now();
+}
+
+function markMessagesFirstRealEvent(tracker) {
+  if (tracker && !tracker.firstRealEventAt) tracker.firstRealEventAt = Date.now();
+}
+
+function markMessagesFirstChunk(tracker) {
+  if (tracker && !tracker.firstChunkAt) tracker.firstChunkAt = Date.now();
+}
+
+function buildMessagesLatencyPayload(tracker, endedAt = Date.now()) {
+  if (!tracker) {
+    return {
+      queueWaitMs: 0,
+      dispatchMs: 0,
+      headersFlushedMs: 0,
+      firstCommentPingMs: 0,
+      upstreamConnectMs: 0,
+      firstRealEventMs: 0,
+      firstChunkMs: 0,
+      totalStreamMs: 0,
+      fastStartEnabled: false,
+      fastStartCommentSent: false,
+    };
+  }
+  const routeStartedAt = tracker.routeStartedAt || endedAt;
+  const dispatchMs = tracker.dispatchFinishedAt ? Math.max(0, tracker.dispatchFinishedAt - routeStartedAt) : 0;
+  const headersFlushedMs = tracker.headersFlushedAt ? Math.max(0, tracker.headersFlushedAt - routeStartedAt) : 0;
+  const firstCommentPingMs = tracker.firstCommentPingAt ? Math.max(0, tracker.firstCommentPingAt - routeStartedAt) : 0;
+  const upstreamConnectMs = (tracker.upstreamStartedAt && tracker.upstreamConnectedAt)
+    ? Math.max(0, tracker.upstreamConnectedAt - tracker.upstreamStartedAt)
+    : 0;
+  const firstRealEventMs = tracker.firstRealEventAt ? Math.max(0, tracker.firstRealEventAt - routeStartedAt) : 0;
+  const firstChunkMs = tracker.firstChunkAt ? Math.max(0, tracker.firstChunkAt - routeStartedAt) : 0;
+  return {
+    queueWaitMs: Math.max(0, Number(tracker.queueWaitMs) || 0),
+    dispatchMs,
+    headersFlushedMs,
+    firstCommentPingMs,
+    upstreamConnectMs,
+    firstRealEventMs,
+    firstChunkMs,
+    totalStreamMs: Math.max(0, endedAt - routeStartedAt),
+    fastStartEnabled: Boolean(tracker.fastStartEnabled),
+    fastStartCommentSent: Boolean(tracker.fastStartCommentSent),
+  };
+}
+
+function recordMessagesLatency(tracker, endedAt = Date.now()) {
+  const payload = buildMessagesLatencyPayload(tracker, endedAt);
+  recordMessagesStageTiming({
+    model: tracker?.model,
+    ...payload,
+  });
+  return payload;
+}
+
+function flushMessagesStreamHeaders(res, requestId, tracker, { fastStartEnabled = false } = {}) {
+  if (!res || res.headersSent) return;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Request-Id', requestId);
+  if (fastStartEnabled) {
+    res.setHeader('X-Accel-Buffering', 'no');
+  }
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+  markMessagesHeadersFlushed(tracker);
+}
+
+function startGlm5FastStartPing({ res, tracker, config }) {
+  if (!res || !tracker || !config?.enabled) return { stop: () => {} };
+
+  let stopped = false;
+  let intervalHandle = null;
+  let timeoutHandle = null;
+
+  const sendCommentPing = () => {
+    if (stopped || tracker.firstRealEventAt || res.writableEnded || res.destroyed) return;
+    try {
+      res.write(': keepalive\n\n');
+      markMessagesCommentPing(tracker);
+    } catch {
+      stop();
+    }
+  };
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (intervalHandle) clearInterval(intervalHandle);
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    intervalHandle = null;
+    timeoutHandle = null;
+  };
+
+  timeoutHandle = setTimeout(stop, Math.max(config.pingTimeoutMs, config.pingIntervalMs)).unref?.() || timeoutHandle;
+  intervalHandle = setInterval(sendCommentPing, config.pingIntervalMs);
+  intervalHandle.unref?.();
+  sendCommentPing();
+
+  return { stop };
 }
 
 function setHeaderIfPresent(headers, name, value) {
@@ -299,7 +609,7 @@ const CIRCUIT_OPEN_THRESHOLD = 5;
 const CIRCUIT_RESET_MS = 60 * 1000;
 
 function isCircuitOpen(upstreamId) {
-  const rec = upstreamFailures.get(upstreamId);
+  const rec = upstreamFailures.get(getUpstreamFailureKey(upstreamId));
   if (!rec) return false;
   const decayedFails = getFailCount(upstreamId);
   if (decayedFails >= CIRCUIT_OPEN_THRESHOLD) {
@@ -314,11 +624,11 @@ function selectUpstream(upstreams) {
   if (upstreams.length === 1) return upstreams[0];
 
   // 过滤掉熔断中的上游（全部熔断时降级使用全部，避免 503）
-  const available = upstreams.filter(u => !isCircuitOpen(u.id));
+  const available = upstreams.filter(u => !isCircuitOpen(u));
   const pool = available.length > 0 ? available : upstreams;
 
   // 按失败次数排序（少→多）
-  const scored = pool.map(u => ({ ...u, failScore: getFailCount(u.id) }));
+  const scored = pool.map(u => ({ ...u, failScore: getFailCount(u) }));
   scored.sort((a, b) => a.failScore - b.failScore);
   // 取失败最少的一组（failScore 差距 < 0.5 视为同组）
   const minFail = scored[0].failScore;
@@ -516,12 +826,13 @@ function createRouteRecorder(req, requestId, model) {
 
 function describeUpstreams(upstreams) {
   return (upstreams || []).slice(0, 10).map((item) => ({
-    id: item.id,
+    id: item.id || null,
+    endpoint_key: getEndpointIdentity(item),
     provider: item.provider_name || null,
     base_url: item.base_url,
     weight: item.weight || 1,
-    fail_score: Number(getFailCount(item.id).toFixed(2)),
-    circuit_open: isCircuitOpen(item.id),
+    fail_score: Number(getFailCount(item).toFixed(2)),
+    circuit_open: isCircuitOpen(item),
     upstream_model_id: item.upstream_model_id || null,
   }));
 }
@@ -682,26 +993,24 @@ router.post('/embeddings', async (req, res) => {
     );
     if (userPkg) {
       const monthStart = userPkg.started_at || new Date(Date.now() - 30 * 24 * 3600000);
-      if (userPkg.daily_limit) {
+      const needCallLimit = !!userPkg.daily_limit;
+      const needCostLimit = !!(userPkg.monthly_quota && billingMeta.billingMode === 'token');
+      let monthlyStats = null;
+      if (needCallLimit || needCostLimit) {
+        monthlyStats = await getMonthlyUsageStats(req.apiUserId, monthStart);
+      }
+      if (needCallLimit) {
         const monthlyCallLimit = userPkg.daily_limit * 30;
-        const [[callCount]] = await db.query(
-          'SELECT COUNT(*) as cnt FROM openclaw_call_logs WHERE user_id = ? AND created_at >= ? AND status = "success"',
-          [req.apiUserId, monthStart]
-        );
-        if (callCount.cnt >= monthlyCallLimit) {
-          await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: callCount.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
+        if (monthlyStats.cnt >= monthlyCallLimit) {
+          await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: monthlyStats.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
           await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 调用次数超限，释放预留余额');
           await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0));
-          return res.status(429).json({ error: { message: `月度调用次数已达上限（${callCount.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以继续使用。`, type: 'rate_limit_error' } });
+          return res.status(429).json({ error: { message: `月度调用次数已达上限（${monthlyStats.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以继续使用。`, type: 'rate_limit_error' } });
         }
       }
-      if (userPkg.monthly_quota && billingMeta.billingMode === 'token') {
-        const [[monthCost]] = await db.query(
-          'SELECT COALESCE(SUM(total_cost), 0) as cost FROM openclaw_call_logs WHERE user_id = ? AND created_at >= ? AND status = "success"',
-          [req.apiUserId, monthStart]
-        );
+      if (needCostLimit) {
         const quota = Number(userPkg.monthly_quota);
-        const used = Number(monthCost.cost);
+        const used = monthlyStats.cost;
         if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext)) {
           await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
           await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 月度配额超限，释放预留余额');
@@ -714,133 +1023,202 @@ router.post('/embeddings', async (req, res) => {
     console.error('[Embeddings Limit Check Error]:', err);
   }
 
-  let baseUrl;
-  let apiKey;
-  let allProviders = [];
-  let selectedProviderName = null;
-
-  const upstreams = await getAvailableUpstreams(modelConfig);
-  let selectedBindingUpstreamModelId = null;
-  let selectedUpstreamId = null;
-  if (upstreams.length > 0) {
-    allProviders = [...upstreams];
-    const selected = selectUpstream(upstreams);
-    baseUrl = selected.base_url;
-    apiKey = selected.api_key;
-    selectedProviderName = selected.provider_name || null;
-    selectedBindingUpstreamModelId = selected.upstream_model_id || null;
-    selectedUpstreamId = selected.id;
-  } else {
-    const provider = PROVIDERS.getProviderConfig
-      ? PROVIDERS.getProviderConfig(modelConfig.provider)
-      : (PROVIDERS[modelConfig.provider] || {});
-    baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
-    apiKey = modelConfig.upstream_key || provider.apiKey;
-  }
-
-  if (!baseUrl || !apiKey) {
+  const allEndpoints = await getAllUpstreamEndpoints(modelConfig);
+  if (allEndpoints.length === 0) {
     await debug.step(5, 'error', { reason: 'provider_not_configured' }, { errorMessage: 'Model provider not configured' });
     await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 未配置上游，释放预留余额');
     return res.status(503).json({ error: { message: 'Model provider not configured', type: 'server_error' } });
   }
 
-  const upstreamModel = selectedBindingUpstreamModelId || modelConfig.upstream_model_id || model;
-  const upstreamUrl = buildOpenAIUpstreamUrl(baseUrl, 'embeddings');
-  const upstreamBody = { model: upstreamModel, input };
-  if (encoding_format !== undefined) upstreamBody.encoding_format = encoding_format;
-  if (dimensions !== undefined) upstreamBody.dimensions = dimensions;
-  if (input_type !== undefined) upstreamBody.input_type = input_type;
-  if (truncate !== undefined) upstreamBody.truncate = truncate;
-  if (modality !== undefined) upstreamBody.modality = modality;
+  let remaining = [...allEndpoints];
+  let lastErr = null;
 
-  await debug.step(5, 'success', {
-    selected_upstream_id: selectedUpstreamId,
-    selected_provider: selectedProviderName,
-    selected_base_url: baseUrl,
-    selected_upstream_model_id: upstreamModel,
-    upstream_count: upstreams.length,
-    upstream_candidates: describeUpstreams(allProviders.length ? allProviders : upstreams),
-    api_format: 'openai_compatible',
-    upstream_url: upstreamUrl,
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
+    const leaseToken = `${requestId}:${attempt + 1}`;
+    const picked = await acquireBestEndpoint(remaining, leaseToken);
+    const selected = picked.endpoint;
+    if (!selected) {
+      lastErr = createUpstreamSaturatedError();
+      break;
+    }
 
-  try {
-    await debug.step(6, 'pending', {
-      stream: false,
-      upstream_id: selectedUpstreamId,
+    const attemptMeta = {
+      leaseToken,
+      startedAt: Date.now(),
+    };
+    const baseUrl = selected.base_url;
+    const apiKey = selected.api_key;
+    const selectedUpstreamId = selected.id || null;
+    const selectedProviderName = selected.provider_name || modelConfig.provider || null;
+    const upstreamModel = selected.upstream_model_id || modelConfig.upstream_model_id || model;
+    const upstreamUrl = buildOpenAIUpstreamUrl(baseUrl, 'embeddings');
+    const upstreamBody = { model: upstreamModel, input };
+    if (encoding_format !== undefined) upstreamBody.encoding_format = encoding_format;
+    if (dimensions !== undefined) upstreamBody.dimensions = dimensions;
+    if (input_type !== undefined) upstreamBody.input_type = input_type;
+    if (truncate !== undefined) upstreamBody.truncate = truncate;
+    if (modality !== undefined) upstreamBody.modality = modality;
+
+    await debug.step(5, 'success', {
+      attempt: attempt + 1,
+      selected_upstream_id: selectedUpstreamId,
+      selected_provider: selectedProviderName,
+      selected_base_url: baseUrl,
+      selected_upstream_model_id: upstreamModel,
+      upstream_count: remaining.length,
+      upstream_candidates: describeUpstreams(allEndpoints),
+      endpoint_health_score: selected.scheduler?.score ?? null,
+      endpoint_inflight: selected.scheduler?.inflight ?? null,
+      api_format: 'openai_compatible',
       upstream_url: upstreamUrl,
-      provider: selectedProviderName,
     });
 
-    const upstreamRes = await axiosInstance.post(upstreamUrl, upstreamBody, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      timeout: 120000
-    });
+    try {
+      if (attempt > 0) {
+        await debug.step(8, 'success', {
+          reason: 'retry_switch_endpoint',
+          attempt: attempt + 1,
+          selected_upstream_id: selectedUpstreamId,
+        });
+      }
 
-    if (selectedUpstreamId) recordSuccess(selectedUpstreamId);
+      await debug.step(6, 'pending', {
+        attempt: attempt + 1,
+        stream: false,
+        upstream_id: selectedUpstreamId,
+        upstream_url: upstreamUrl,
+        provider: selectedProviderName,
+      });
 
-    const usage = upstreamRes.data?.usage || {};
-    const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? usage.total_tokens ?? 0;
-    const completionTokens = 0;
-    const tokenCost = await calculateCost(
-      promptTokens,
-      completionTokens,
-      modelConfig.input_price_per_1k,
-      modelConfig.output_price_per_1k,
-      modelConfig.price_currency
-    );
-    const settleResult = await settleModelCharge(
-      req.apiUserId,
-      modelConfig,
-      billingContext,
-      tokenCost,
-      `Embeddings ${model}`,
-      {
-        route: req.aiGatewayRouteName || 'embeddings',
-        request_id: requestId,
-        model,
+      const upstreamRes = await axiosInstance.post(upstreamUrl, upstreamBody, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 120000
+      });
+
+      const usage = upstreamRes.data?.usage || {};
+      const promptTokens = usage.prompt_tokens ?? usage.input_tokens ?? usage.total_tokens ?? 0;
+      const completionTokens = 0;
+      const tokenCost = await calculateCost(
+        promptTokens,
+        completionTokens,
+        modelConfig.input_price_per_1k,
+        modelConfig.output_price_per_1k,
+        modelConfig.price_currency
+      );
+      const settleResult = await settleModelCharge(
+        req.apiUserId,
+        modelConfig,
+        billingContext,
+        tokenCost,
+        `Embeddings ${model}`,
+        {
+          route: req.aiGatewayRouteName || 'embeddings',
+          request_id: requestId,
+          model,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+        }
+      );
+      billingContext.finalized = true;
+      const chargedAmount = settleResult?.chargedAmount ?? getChargedAmountForLog(modelConfig, tokenCost);
+
+      await debug.step(6, 'success', {
+        attempt: attempt + 1,
+        stream: false,
+        upstream_id: selectedUpstreamId,
+        upstream_url: upstreamUrl,
+        provider: selectedProviderName,
+        status_code: upstreamRes.status,
+      });
+      if (!settleResult?.success) {
+        await debug.step(7, 'error', {
+          stream: false,
+          status_code: upstreamRes.status,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          charged_amount: billingContext.reservedAmount || 0,
+        }, { errorMessage: 'Insufficient balance for this request' });
+        await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, tokenCost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
+        return res.status(402).json({
+          error: { message: 'Insufficient balance for this request', type: 'billing_error' }
+        });
+      }
+
+      await debug.step(7, 'success', {
+        stream: false,
+        status_code: upstreamRes.status,
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
-      }
-    );
-    billingContext.finalized = true;
-    const chargedAmount = settleResult?.chargedAmount ?? getChargedAmountForLog(modelConfig, tokenCost);
+        charged_amount: chargedAmount,
+      });
+      await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
+      await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+      await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, tokenCost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, chargedAmount));
+      return res.json(upstreamRes.data);
+    } catch (err) {
+      lastErr = err;
+      const errMsg = await markEndpointFailure(selected, attemptMeta, err);
+      const latencyDetail = buildMessagesLatencyPayload(latencyTracker);
+      const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
 
-    await debug.step(7, 'success', {
-      stream: false,
-      status_code: upstreamRes.status,
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      charged_amount: chargedAmount,
-    });
-    await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, tokenCost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, chargedAmount));
-    return res.json(upstreamRes.data);
-  } catch (err) {
-    if (selectedUpstreamId) recordFail(selectedUpstreamId);
-    const errMsg = err.response?.data?.error?.message || err.response?.data?.message || err.message || 'Upstream request failed';
-    const isTimeout = err.code === 'ECONNABORTED' || String(errMsg).toLowerCase().includes('timeout');
-    console.error(`Upstream error [embeddings model=${model}, upstream=${baseUrl}]:`, errMsg);
-    await debug.step(6, 'error', {
-      stream: false,
-      upstream_id: selectedUpstreamId,
-      upstream_url: upstreamUrl,
-      provider: selectedProviderName,
-      status_code: err.response?.status || null,
-    }, { errorMessage: errMsg });
-    await debug.step(7, 'error', {
-      stream: false,
-      status_code: err.response?.status || null,
-    }, { errorMessage: errMsg });
-    await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 请求失败，释放预留余额');
-    await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-    const statusCode = isTimeout ? 503 : (err.response?.status || 502);
-    return res.status(statusCode).json({
-      error: { message: errMsg, type: isTimeout ? 'overloaded_error' : 'upstream_error' }
-    });
+      if (is429) {
+        await noteCcClubRateLimit({
+          providerName: selectedProviderName,
+          baseUrl,
+          apiKey,
+          errorMessage: errMsg,
+          statusCode: err.response?.status || 429,
+          source: 'embeddings'
+        });
+      }
+
+      console.error(`Upstream error [embeddings model=${model}, upstream=${baseUrl}]:`, errMsg);
+      await debug.step(6, 'error', {
+        attempt: attempt + 1,
+        stream: false,
+        upstream_id: selectedUpstreamId,
+        upstream_url: upstreamUrl,
+        provider: selectedProviderName,
+        status_code: err.response?.status || null,
+      }, { errorMessage: errMsg });
+
+      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
+        remaining = removeEndpointCandidate(remaining, selected);
+        await debug.step(8, 'success', {
+          reason: is429 ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
+          failed_upstream_id: selectedUpstreamId,
+          remaining_candidates: remaining.length,
+        });
+        continue;
+      }
+
+      await debug.step(7, 'error', {
+        stream: false,
+        status_code: err.response?.status || null,
+      }, { errorMessage: errMsg });
+      await debug.step(8, 'error', {
+        reason: is429 ? 'rate_limit_no_backup' : 'upstream_failed',
+        failed_upstream_id: selectedUpstreamId,
+        remaining_candidates: Math.max(0, remaining.length - 1),
+      }, { errorMessage: errMsg });
+      break;
+    }
   }
+
+  const errMsg = await extractUpstreamErrorMessage(lastErr, 'Upstream request failed');
+  const isTimeout = lastErr?.code === 'UPSTREAM_SATURATED'
+    || lastErr?.code === 'ECONNABORTED'
+    || errMsg.toLowerCase().includes('timeout');
+  await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 请求失败，释放预留余额');
+  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
+  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 503 : (lastErr?.response?.status || 502));
+  return res.status(statusCode).json({
+    error: { message: errMsg, type: statusCode === 503 ? 'overloaded_error' : 'upstream_error' }
+  });
 });
 
 // POST /v1/chat/completions — 核心转发
@@ -920,20 +1298,7 @@ router.post('/chat/completions', async (req, res) => {
       const needCostLimit = !!(userPkg.monthly_quota && billingMeta.billingMode === 'token');
 
       if (needCallLimit || needCostLimit) {
-        // 单次查询同时取 COUNT 和 SUM，并用 Redis 缓存 5 分钟
-        const yearMonth = new Date(monthStart).toISOString().slice(0, 7);
-        const monthCacheKey = `monthly:${req.apiUserId}:${yearMonth}`;
-        let monthlyStats = await cache.get(monthCacheKey);
-        if (monthlyStats === undefined) {
-          const [[row]] = await db.query(
-            `SELECT COUNT(*) AS cnt, COALESCE(SUM(total_cost), 0) AS cost
-             FROM openclaw_call_logs
-             WHERE user_id = ? AND created_at >= ? AND status = 'success'`,
-            [req.apiUserId, monthStart]
-          );
-          monthlyStats = { cnt: Number(row.cnt), cost: Number(row.cost) };
-          await cache.set(monthCacheKey, monthlyStats, MONTHLY_QUOTA_CACHE_TTL);
-        }
+        const monthlyStats = await getMonthlyUsageStats(req.apiUserId, monthStart);
 
         if (needCallLimit) {
           const monthlyCallLimit = userPkg.daily_limit * 30;
@@ -962,73 +1327,58 @@ router.post('/chat/completions', async (req, res) => {
     // 限额检查失败不阻断请求，继续处理
   }
 
-  // 确定上游地址（从 model_upstreams 直接读取，429 自动轮询）
-  let baseUrl, apiKey;
-  let allProviders = [];
-  let selectedProviderName = null;
-
-  const upstreams = await getAvailableUpstreams(modelConfig);
-
-  let selectedBindingUpstreamModelId = null;
-  let selectedUpstreamId = null;
-  if (upstreams.length > 0) {
-    allProviders = [...upstreams];
-    const selected = selectUpstream(upstreams);
-    baseUrl = selected.base_url;
-    apiKey = selected.api_key;
-    selectedProviderName = selected.provider_name || null;
-    selectedBindingUpstreamModelId = selected.upstream_model_id || null;
-    selectedUpstreamId = selected.id;
-  } else {
-    const provider = PROVIDERS.getProviderConfig
-      ? PROVIDERS.getProviderConfig(modelConfig.provider)
-      : (PROVIDERS[modelConfig.provider] || {});
-    baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
-    apiKey = modelConfig.upstream_key || provider.apiKey;
-  }
-
-  if (!baseUrl || !apiKey) {
+  const allEndpoints = await getAllUpstreamEndpoints(modelConfig);
+  if (allEndpoints.length === 0) {
     await debug.step(5, 'error', { reason: 'provider_not_configured' }, { errorMessage: 'Model provider not configured' });
     await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 未配置上游，释放预留余额');
     return res.status(503).json({ error: { message: 'Model provider not configured', type: 'server_error' } });
   }
 
-  // 识别上游协议：Anthropic / Google Gemini 原生 / OpenAI 兼容
-  const upstreamModel = selectedBindingUpstreamModelId || modelConfig.upstream_model_id || model;
-  const upstreamApiFormat = detectUpstreamApiFormat(model, selectedProviderName || modelConfig.provider, baseUrl);
-  const isAnthropicAPI = upstreamApiFormat === 'anthropic';
-  const isGoogleNativeAPI = upstreamApiFormat === 'google_native';
+  let remaining = [...allEndpoints];
+  let lastErr = null;
 
-  // 根据 API 类型确定 URL
-  let upstreamUrl;
-  const trimmedBase = baseUrl.replace(/\/+$/, '');
-  if (isGoogleNativeAPI) {
-    upstreamUrl = resolveGoogleGenerateContentUrl(baseUrl, upstreamModel, stream);
-  } else if (trimmedBase.match(/\/chat\/completions$/)) {
-    // upstream_endpoint 已含完整路径（如火山引擎 /api/v3/chat/completions）
-    upstreamUrl = trimmedBase;
-  } else if (isAnthropicAPI && trimmedBase.match(/\/messages$/)) {
-    upstreamUrl = trimmedBase;
-  } else {
-    const cleanBaseUrl = trimmedBase
-      .replace(/\/v1\/messages\/?$/, '')
-      .replace(/\/v1\/chat\/completions\/?$/, '')
-      .replace(/\/v1\/?$/, '')
-      .replace(/\/+$/, '');
-    if (isAnthropicAPI) {
-      upstreamUrl = `${cleanBaseUrl}/v1/messages`;
-    } else {
-      upstreamUrl = `${cleanBaseUrl}/v1/chat/completions`;
+  for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
+    const leaseToken = `${requestId}:${attempt + 1}`;
+    const picked = await acquireBestEndpoint(remaining, leaseToken);
+    const selected = picked.endpoint;
+    if (!selected) {
+      lastErr = createUpstreamSaturatedError();
+      break;
     }
-  }
 
-  try {
-    // 构建转发请求
-    // upstream_model_id 优先级：binding级（按baseurl对应）> 模型级（兜底）> 请求中的model
-    let upstreamBody, headers;
+    const attemptMeta = {
+      leaseToken,
+      startedAt: Date.now(),
+    };
+    const baseUrl = selected.base_url;
+    const apiKey = selected.api_key;
+    const selectedUpstreamId = selected.id || null;
+    const selectedProviderName = selected.provider_name || modelConfig.provider || null;
+    const upstreamModel = selected.upstream_model_id || modelConfig.upstream_model_id || model;
+    const upstreamApiFormat = detectUpstreamApiFormat(model, selectedProviderName || modelConfig.provider, baseUrl);
+    const isAnthropicAPI = upstreamApiFormat === 'anthropic';
+    const isGoogleNativeAPI = upstreamApiFormat === 'google_native';
 
+    let upstreamUrl;
+    const trimmedBase = baseUrl.replace(/\/+$/, '');
+    if (isGoogleNativeAPI) {
+      upstreamUrl = resolveGoogleGenerateContentUrl(baseUrl, upstreamModel, stream);
+    } else if (trimmedBase.match(/\/chat\/completions$/)) {
+      upstreamUrl = trimmedBase;
+    } else if (isAnthropicAPI && trimmedBase.match(/\/messages$/)) {
+      upstreamUrl = trimmedBase;
+    } else {
+      const cleanBaseUrl = trimmedBase
+        .replace(/\/v1\/messages\/?$/, '')
+        .replace(/\/v1\/chat\/completions\/?$/, '')
+        .replace(/\/v1\/?$/, '')
+        .replace(/\/+$/, '');
+      upstreamUrl = isAnthropicAPI ? `${cleanBaseUrl}/v1/messages` : `${cleanBaseUrl}/v1/chat/completions`;
+    }
+
+    let upstreamBody;
+    let headers;
     if (isAnthropicAPI) {
-      // Anthropic API 格式
       upstreamBody = {
         model: upstreamModel,
         messages,
@@ -1050,18 +1400,13 @@ router.post('/chat/completions', async (req, res) => {
         'Content-Type': 'application/json'
       };
     } else {
-      // OpenAI 兼容格式
       upstreamBody = { model: upstreamModel, messages, stream };
-      if (stream) {
-        upstreamBody.stream_options = { include_usage: true };
-      }
+      if (stream) upstreamBody.stream_options = { include_usage: true };
       if (temperature !== undefined) upstreamBody.temperature = temperature;
       if (max_tokens !== undefined) upstreamBody.max_tokens = max_tokens;
       if (top_p !== undefined) upstreamBody.top_p = top_p;
       if (tools) upstreamBody.tools = tools;
       if (tool_choice) upstreamBody.tool_choice = tool_choice;
-
-      // NVIDIA API: 不再自动添加 upstream_provider，大多数模型不接受此参数
 
       headers = {
         'Authorization': `Bearer ${apiKey}`,
@@ -1071,81 +1416,83 @@ router.post('/chat/completions', async (req, res) => {
     }
 
     await debug.step(5, 'success', {
+      attempt: attempt + 1,
       selected_upstream_id: selectedUpstreamId,
       selected_provider: selectedProviderName,
       selected_base_url: baseUrl,
-      selected_upstream_model_id: selectedBindingUpstreamModelId || modelConfig.upstream_model_id || model,
-      upstream_count: upstreams.length,
-      upstream_candidates: describeUpstreams(allProviders.length ? allProviders : upstreams),
+      selected_upstream_model_id: upstreamModel,
+      upstream_count: remaining.length,
+      upstream_candidates: describeUpstreams(allEndpoints),
+      endpoint_health_score: selected.scheduler?.score ?? null,
+      endpoint_inflight: selected.scheduler?.inflight ?? null,
       api_format: upstreamApiFormat,
       upstream_url: upstreamUrl,
     });
 
-    if (stream) {
-      await debug.step(6, 'pending', {
-        stream: true,
-        upstream_id: selectedUpstreamId,
-        upstream_url: upstreamUrl,
-        provider: selectedProviderName,
-      });
-      // 流式响应（带 relay 重试）
-      const upstreamRes = await withRelayRetry(
-        () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 }),
-        { model, debug }
-      );
+    try {
+      if (attempt > 0) {
+        console.log(`[Chat Retry] attempt ${attempt + 1}, endpoint ${selectedUpstreamId || getEndpointIdentity(selected)}`);
+        await debug.step(8, 'success', {
+          reason: 'retry_switch_endpoint',
+          attempt: attempt + 1,
+          selected_upstream_id: selectedUpstreamId,
+        });
+      }
 
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Request-Id', requestId);
+      if (stream) {
+        await debug.step(6, 'pending', {
+          attempt: attempt + 1,
+          stream: true,
+          upstream_id: selectedUpstreamId,
+          upstream_url: upstreamUrl,
+          provider: selectedProviderName,
+        });
+        const upstreamRes = await withRelayRetry(
+          () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 }),
+          { model, debug }
+        );
 
-      let fullContent = '';
-      let promptTokens = 0;
-      let completionTokens = 0;
-      let cacheWriteTokens = 0;
-      let cacheReadTokens = 0;
-      let cachedTokens = 0;
-      let streamUsageAnth = {}; // 完整 usage 对象，供 end 回调使用
-      let tokenCountIsEstimated = false;
-      let anthropicBuffer = ''; // 缓存 Anthropic SSE 数据
-      let googleBuffer = '';
-      let googleFinishReason = 'stop';
-      let openAICompatibleBuffer = '';
-      let sawGeminiNativeOpenAIStream = false;
-      let geminiOverOpenAIFinishReason = 'stop';
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Request-Id', requestId);
 
-      upstreamRes.data.on('data', (chunk) => {
-        const text = chunk.toString();
+        let fullContent = '';
+        let promptTokens = 0;
+        let completionTokens = 0;
+        let cachedTokens = 0;
+        let streamUsageAnth = {};
+        let tokenCountIsEstimated = false;
+        let anthropicBuffer = '';
+        let googleBuffer = '';
+        let googleFinishReason = 'stop';
+        let openAICompatibleBuffer = '';
+        let sawGeminiNativeOpenAIStream = false;
+        let geminiOverOpenAIFinishReason = 'stop';
 
-        if (isAnthropicAPI) {
-          // 转换 Anthropic SSE 为 OpenAI 格式
-          anthropicBuffer += text;
-          const lines = anthropicBuffer.split('\n');
+        upstreamRes.data.on('data', (chunk) => {
+          const text = chunk.toString();
 
-          // 保留最后一行（可能不完整）
-          anthropicBuffer = lines.pop() || '';
+          if (isAnthropicAPI) {
+            anthropicBuffer += text;
+            const lines = anthropicBuffer.split('\n');
+            anthropicBuffer = lines.pop() || '';
 
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (line.startsWith('data: ')) {
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i].trim();
+              if (!line.startsWith('data: ')) continue;
               const data = line.slice(6).trim();
               if (!data) continue;
 
               try {
                 const parsed = JSON.parse(data);
-
                 if (parsed.type === 'message_start') {
                   streamUsageAnth = parsed.message?.usage || {};
-                  promptTokens    = streamUsageAnth.input_tokens || 0;
-                  cacheWriteTokens = streamUsageAnth.cache_creation_input_tokens || 0;
-                  cacheReadTokens  = streamUsageAnth.cache_read_input_tokens || 0;
-                  console.log(`[Anthropic Stream] message_start: input=${promptTokens} cache_write=${cacheWriteTokens} cache_read=${cacheReadTokens}`);
+                  promptTokens = streamUsageAnth.input_tokens || 0;
                 } else if (parsed.type === 'content_block_delta') {
-                  // 只转发 text_delta，跳过 thinking_delta
                   const delta = parsed.delta?.type === 'text_delta' ? (parsed.delta?.text || '') : '';
                   if (delta) {
                     fullContent += delta;
-                    // 发送 OpenAI 格式的 chunk
                     const openaiChunk = {
                       id: requestId,
                       object: 'chat.completion.chunk',
@@ -1161,9 +1508,7 @@ router.post('/chat/completions', async (req, res) => {
                   }
                 } else if (parsed.type === 'message_delta') {
                   completionTokens = parsed.usage?.output_tokens || 0;
-                  console.log(`[Anthropic Stream] message_delta: output_tokens=${completionTokens}`);
                 } else if (parsed.type === 'message_stop') {
-                  // 发送结束标记
                   const finalChunk = {
                     id: requestId,
                     object: 'chat.completion.chunk',
@@ -1180,62 +1525,19 @@ router.post('/chat/completions', async (req, res) => {
                 }
               } catch (e) { /* ignore parse errors */ }
             }
-          }
-        } else if (isGoogleNativeAPI) {
-          googleBuffer += text;
-          const lines = googleBuffer.split('\n');
-          googleBuffer = lines.pop() || '';
+          } else if (isGoogleNativeAPI) {
+            googleBuffer += text;
+            const lines = googleBuffer.split('\n');
+            googleBuffer = lines.pop() || '';
 
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
-            if (!data) continue;
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i].trim();
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6).trim();
+              if (!data) continue;
 
-            try {
-              const parsed = JSON.parse(data);
-              const candidate = parsed.candidates?.[0];
-              const delta = extractGeminiCandidateText(candidate);
-              if (delta) {
-                fullContent += delta;
-                const openaiChunk = {
-                  id: requestId,
-                  object: 'chat.completion.chunk',
-                  created: Math.floor(Date.now() / 1000),
-                  model,
-                  choices: [{
-                    index: 0,
-                    delta: { content: delta },
-                    finish_reason: null
-                  }]
-                };
-                res.write(`data: ${JSON.stringify(openaiChunk)}\n\n`);
-              }
-              const usage = parsed.usageMetadata || {};
-              promptTokens = usage.promptTokenCount || promptTokens;
-              completionTokens = usage.candidatesTokenCount || completionTokens;
-              if (candidate?.finishReason) {
-                googleFinishReason = candidate.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
-              }
-            } catch (e) { /* ignore parse errors */ }
-          }
-        } else {
-          openAICompatibleBuffer += text;
-          const lines = openAICompatibleBuffer.split('\n');
-          openAICompatibleBuffer = lines.pop() || '';
-
-          for (const rawLine of lines) {
-            const line = rawLine.trim();
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') {
-              if (!sawGeminiNativeOpenAIStream) res.write('data: [DONE]\n\n');
-              continue;
-            }
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.candidates) {
-                sawGeminiNativeOpenAIStream = true;
+              try {
+                const parsed = JSON.parse(data);
                 const candidate = parsed.candidates?.[0];
                 const delta = extractGeminiCandidateText(candidate);
                 if (delta) {
@@ -1257,83 +1559,203 @@ router.post('/chat/completions', async (req, res) => {
                 promptTokens = usage.promptTokenCount || promptTokens;
                 completionTokens = usage.candidatesTokenCount || completionTokens;
                 if (candidate?.finishReason) {
-                  geminiOverOpenAIFinishReason = candidate.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
+                  googleFinishReason = candidate.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
                 }
+              } catch (e) { /* ignore parse errors */ }
+            }
+          } else {
+            openAICompatibleBuffer += text;
+            const lines = openAICompatibleBuffer.split('\n');
+            openAICompatibleBuffer = lines.pop() || '';
+
+            for (const rawLine of lines) {
+              const line = rawLine.trim();
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') {
+                if (!sawGeminiNativeOpenAIStream) res.write('data: [DONE]\n\n');
                 continue;
               }
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.candidates) {
+                  sawGeminiNativeOpenAIStream = true;
+                  const candidate = parsed.candidates?.[0];
+                  const delta = extractGeminiCandidateText(candidate);
+                  if (delta) {
+                    fullContent += delta;
+                    const openaiChunk = {
+                      id: requestId,
+                      object: 'chat.completion.chunk',
+                      created: Math.floor(Date.now() / 1000),
+                      model,
+                      choices: [{
+                        index: 0,
+                        delta: { content: delta },
+                        finish_reason: null
+                      }]
+                    };
+                    res.write(`data: ${JSON.stringify(openaiChunk)}\n\n`);
+                  }
+                  const usage = parsed.usageMetadata || {};
+                  promptTokens = usage.promptTokenCount || promptTokens;
+                  completionTokens = usage.candidatesTokenCount || completionTokens;
+                  if (candidate?.finishReason) {
+                    geminiOverOpenAIFinishReason = candidate.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
+                  }
+                  continue;
+                }
 
-              const ok = res.write(`data: ${data}\n\n`);
-              if (!ok) {
-                upstreamRes.data.pause();
-                res.once('drain', () => upstreamRes.data.resume());
-              }
-              if (parsed.usage) {
-                promptTokens     = parsed.usage.prompt_tokens || promptTokens;
-                completionTokens = parsed.usage.completion_tokens || completionTokens;
-                cachedTokens     = parsed.usage.prompt_tokens_details?.cached_tokens || cachedTokens;
-              }
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) fullContent += delta;
-            } catch (e) {
-              const ok = res.write(`${rawLine}\n`);
-              if (!ok) {
-                upstreamRes.data.pause();
-                res.once('drain', () => upstreamRes.data.resume());
+                const ok = res.write(`data: ${data}\n\n`);
+                if (!ok) {
+                  upstreamRes.data.pause();
+                  res.once('drain', () => upstreamRes.data.resume());
+                }
+                if (parsed.usage) {
+                  promptTokens = parsed.usage.prompt_tokens || promptTokens;
+                  completionTokens = parsed.usage.completion_tokens || completionTokens;
+                  cachedTokens = parsed.usage.prompt_tokens_details?.cached_tokens || cachedTokens;
+                }
+                const delta = parsed.choices?.[0]?.delta?.content;
+                if (delta) fullContent += delta;
+              } catch (e) {
+                const ok = res.write(`${rawLine}\n`);
+                if (!ok) {
+                  upstreamRes.data.pause();
+                  res.once('drain', () => upstreamRes.data.resume());
+                }
               }
             }
           }
-        }
+        });
+
+        upstreamRes.data.on('end', async () => {
+          if (isGoogleNativeAPI) {
+            const finalChunk = {
+              id: requestId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: googleFinishReason
+              }]
+            };
+            res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+            res.write('data: [DONE]\n\n');
+          } else if (sawGeminiNativeOpenAIStream) {
+            const finalChunk = {
+              id: requestId,
+              object: 'chat.completion.chunk',
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: geminiOverOpenAIFinishReason
+              }]
+            };
+            res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+            res.write('data: [DONE]\n\n');
+          }
+          res.end();
+
+          if (!promptTokens) {
+            promptTokens = estimateTokens(messages);
+            tokenCountIsEstimated = true;
+          }
+          if (!completionTokens) {
+            completionTokens = estimateTokens(fullContent);
+            tokenCountIsEstimated = true;
+          }
+
+          const tokenSource = tokenCountIsEstimated ? 'estimated' : 'upstream';
+          const effectivePrompt = tokenCountIsEstimated ? promptTokens
+            : isAnthropicAPI ? calcEffectiveInputTokens(streamUsageAnth, true)
+            : isGoogleNativeAPI ? promptTokens
+            : calcEffectiveInputTokens({ prompt_tokens: promptTokens, prompt_tokens_details: { cached_tokens: cachedTokens } }, false);
+          const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+          const result = await settleModelCharge(
+            req.apiUserId,
+            modelConfig,
+            cost,
+            `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
+            billingContext,
+            { route: 'chat.completions', request_id: requestId, model }
+          );
+          billingContext.finalized = true;
+          await debug.step(6, 'success', {
+            stream: true,
+            upstream_id: selectedUpstreamId,
+            provider: selectedProviderName,
+            upstream_url: upstreamUrl,
+          });
+          if (result.success) {
+            await debug.step(7, 'success', {
+              stream: true,
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+              token_source: tokenSource,
+              total_cost: cost,
+            });
+            await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
+            await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost), tokenSource));
+            await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
+          } else {
+            await debug.step(7, 'error', {
+              stream: true,
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+              total_cost: cost,
+            }, { errorMessage: '余额不足（流式响应后扣款失败）' });
+            await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0, tokenSource));
+            await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
+            console.error(`[Billing] Stream billing failed for user ${req.apiUserId}, cost: ${cost}, balance: ${result.balance}`);
+          }
+        });
+
+        upstreamRes.data.on('error', async (err) => {
+          const errMsg = await markEndpointFailure(selected, attemptMeta, err);
+          console.error('Stream error:', errMsg);
+          res.end();
+          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl }, { errorMessage: errMsg });
+          await debug.step(8, 'error', {
+            reason: 'stream_upstream_error',
+            selected_upstream_id: selectedUpstreamId,
+          }, { errorMessage: errMsg });
+          await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 流式上游错误，释放预留余额');
+          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
+          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, null);
+        });
+
+        return;
+      }
+
+      await debug.step(6, 'pending', {
+        attempt: attempt + 1,
+        stream: false,
+        upstream_id: selectedUpstreamId,
+        upstream_url: upstreamUrl,
+        provider: selectedProviderName,
       });
+      const upstreamRes = await withRelayRetry(
+        () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: 120000 }),
+        { model, debug }
+      );
 
-      upstreamRes.data.on('end', async () => {
-        if (isGoogleNativeAPI) {
-          const finalChunk = {
-            id: requestId,
-            object: 'chat.completion.chunk',
-            created: Math.floor(Date.now() / 1000),
-            model,
-            choices: [{
-              index: 0,
-              delta: {},
-              finish_reason: googleFinishReason
-            }]
-          };
-          res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
-          res.write('data: [DONE]\n\n');
-        } else if (sawGeminiNativeOpenAIStream) {
-          const finalChunk = {
-            id: requestId,
-            object: 'chat.completion.chunk',
-            created: Math.floor(Date.now() / 1000),
-            model,
-            choices: [{
-              index: 0,
-              delta: {},
-              finish_reason: geminiOverOpenAIFinishReason
-            }]
-          };
-          res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
-          res.write('data: [DONE]\n\n');
-        }
-        res.end();
-        if (selectedUpstreamId) recordSuccess(selectedUpstreamId);
-        // 估算 token（如果上游未返回 usage）
-        if (!promptTokens) {
-          promptTokens = estimateTokens(messages);
-          tokenCountIsEstimated = true;
-        }
-        if (!completionTokens) {
-          completionTokens = estimateTokens(fullContent);
-          tokenCountIsEstimated = true;
-        }
+      const data = upstreamRes.data;
+      let promptTokens;
+      let completionTokens;
+      let responseContent;
 
-        const tokenSource = tokenCountIsEstimated ? 'estimated' : 'upstream';
-        const effectivePrompt = tokenCountIsEstimated ? promptTokens
-          : isAnthropicAPI ? calcEffectiveInputTokens(streamUsageAnth, true)
-          : isGoogleNativeAPI ? promptTokens
-          : calcEffectiveInputTokens({ prompt_tokens: promptTokens, prompt_tokens_details: { cached_tokens: cachedTokens } }, false);
-        console.log(`[Stream End] Model: ${model}, Prompt: ${promptTokens}, Effective: ${effectivePrompt.toFixed(1)}, Completion: ${completionTokens}, Source: ${tokenSource}`);
-
+      if (isAnthropicAPI) {
+        promptTokens = data.usage?.input_tokens || estimateTokens(messages);
+        completionTokens = data.usage?.output_tokens || 0;
+        responseContent = extractTextFromContent(data.content);
+        const effectivePrompt = calcEffectiveInputTokens(data.usage, true);
         const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         const result = await settleModelCharge(
           req.apiUserId,
@@ -1344,94 +1766,13 @@ router.post('/chat/completions', async (req, res) => {
           { route: 'chat.completions', request_id: requestId, model }
         );
         billingContext.finalized = true;
-        const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost), tokenSource);
-        await debug.step(6, 'success', {
-          stream: true,
-          upstream_id: selectedUpstreamId,
-          provider: selectedProviderName,
-          upstream_url: upstreamUrl,
-        });
-        if (result.success) {
-          await debug.step(7, 'success', {
-            stream: true,
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            token_source: tokenSource,
-            total_cost: cost,
-          });
-          await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
-        } else {
-          await debug.step(7, 'error', {
-            stream: true,
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            total_cost: cost,
-          }, { errorMessage: '余额不足（流式响应后扣款失败）' });
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0, tokenSource));
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
-          console.error(`[Billing] Stream billing failed for user ${req.apiUserId}, cost: ${cost}, balance: ${result.balance}`);
-        }
-      });
 
-      upstreamRes.data.on('error', async (err) => {
-        console.error('Stream error:', err);
-        res.end();
-        await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl }, { errorMessage: err.message });
-        await debug.step(8, 'error', {
-          reason: 'stream_upstream_error',
-          fallback_candidates: Math.max(0, allProviders.length - 1),
-        }, { errorMessage: err.message });
-        await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 流式上游错误，释放预留余额');
-        await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', err.message, requestId, getLogExtra(modelConfig, 0));
-        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, null);
-      });
-
-    } else {
-      await debug.step(6, 'pending', {
-        stream: false,
-        upstream_id: selectedUpstreamId,
-        upstream_url: upstreamUrl,
-        provider: selectedProviderName,
-      });
-      // 非流式响应（带 relay 重试）
-      const upstreamRes = await withRelayRetry(
-        () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: 120000 }),
-        { model, debug }
-      );
-
-      const data = upstreamRes.data;
-      let promptTokens, completionTokens, responseContent;
-
-      if (isAnthropicAPI) {
-        // Anthropic API 响应格式
-        console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage));
-        promptTokens = data.usage?.input_tokens || estimateTokens(messages);
-        completionTokens = data.usage?.output_tokens || 0;
-        responseContent = extractTextFromContent(data.content);
-        const effectivePrompt1 = calcEffectiveInputTokens(data.usage, true);
-        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Effective: ${effectivePrompt1.toFixed(1)}, Completion: ${completionTokens}`);
-
-        // 转换为 OpenAI 格式返回
-        const cost = await calculateCost(effectivePrompt1, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
-        const result = await settleModelCharge(
-          req.apiUserId,
-          modelConfig,
-          cost,
-          `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
-          billingContext,
-          { route: 'chat.completions', request_id: requestId, model }
-        );
-        billingContext.finalized = true;
-        const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost));
         await debug.step(6, 'success', {
           stream: false,
           upstream_id: selectedUpstreamId,
           upstream_url: upstreamUrl,
           status_code: upstreamRes.status,
         });
-
         if (!result.success) {
           await debug.step(7, 'error', {
             stream: false,
@@ -1439,6 +1780,7 @@ router.post('/chat/completions', async (req, res) => {
             completion_tokens: completionTokens,
             total_cost: cost,
           }, { errorMessage: '额度已用尽' });
+          await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
           await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
           return res.status(402).json({ error: { message: '额度已用尽', type: 'billing_error' } });
         }
@@ -1450,10 +1792,11 @@ router.post('/chat/completions', async (req, res) => {
           total_cost: cost,
         });
         await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
+        await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
         await saveRequestDetail(requestId, req.apiUserId, model, messages, null, responseContent);
 
-        res.json({
+        return res.json({
           id: requestId,
           object: 'chat.completion',
           created: Math.floor(Date.now() / 1000),
@@ -1465,74 +1808,16 @@ router.post('/chat/completions', async (req, res) => {
           }],
           usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
         });
-      } else {
-        // OpenAI 兼容格式（或 Gemini 原生格式）
-        console.log(`[Upstream Usage] Model: ${model}, Raw usage:`, JSON.stringify(data.usage || data.usageMetadata));
+      }
 
-        // 检测是否为 Gemini 原生响应格式（candidates 结构）
-        if (data.candidates) {
-          // Gemini 原生格式转换
-          const candidate = data.candidates[0];
-          const geminiText = candidate?.content?.parts?.map(p => p.text || '').join('') || '';
-          const usage = data.usageMetadata || {};
-          promptTokens = usage.promptTokenCount || estimateTokens(messages);
-          completionTokens = usage.candidatesTokenCount || estimateTokens(geminiText);
+      if (data.candidates) {
+        const candidate = data.candidates[0];
+        const geminiText = candidate?.content?.parts?.map(p => p.text || '').join('') || '';
+        const usage = data.usageMetadata || {};
+        promptTokens = usage.promptTokenCount || estimateTokens(messages);
+        completionTokens = usage.candidatesTokenCount || estimateTokens(geminiText);
 
-          const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
-          const result = await settleModelCharge(
-            req.apiUserId,
-            modelConfig,
-            cost,
-            `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
-            billingContext,
-            { route: 'chat.completions', request_id: requestId, model }
-          );
-          billingContext.finalized = true;
-          const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost));
-          if (!result.success) {
-            await debug.step(7, 'error', {
-              stream: false,
-              prompt_tokens: promptTokens,
-              completion_tokens: completionTokens,
-              total_cost: cost,
-            }, { errorMessage: 'Insufficient balance for this request' });
-            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
-            return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
-          }
-          await debug.step(6, 'success', {
-            stream: false,
-            upstream_id: selectedUpstreamId,
-            upstream_url: upstreamUrl,
-            status_code: upstreamRes.status,
-            response_format: 'gemini_native',
-          });
-          await debug.step(7, 'success', {
-            stream: false,
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            total_cost: cost,
-            response_format: 'gemini_native',
-          });
-          await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, geminiText);
-
-          const geminiFinish = candidate?.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
-          res.json({
-            id: requestId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model,
-            choices: [{ index: 0, message: { role: 'assistant', content: geminiText }, finish_reason: geminiFinish }],
-            usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
-          });
-        } else {
-        // 标准 OpenAI 兼容格式
-        promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
-        completionTokens = data.usage?.completion_tokens || estimateTokens(data.choices?.[0]?.message?.content || '');
-        const effectivePrompt2 = calcEffectiveInputTokens(data.usage, false);
-        console.log(`[Token Stats] Model: ${model}, Prompt: ${promptTokens}, Effective: ${effectivePrompt2.toFixed(1)}, Completion: ${completionTokens}`);
-
-        const cost = await calculateCost(effectivePrompt2, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
-
-        // 扣费
+        const cost = await calculateCost(promptTokens, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         const result = await settleModelCharge(
           req.apiUserId,
           modelConfig,
@@ -1542,7 +1827,7 @@ router.post('/chat/completions', async (req, res) => {
           { route: 'chat.completions', request_id: requestId, model }
         );
         billingContext.finalized = true;
-        const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost));
+
         if (!result.success) {
           await debug.step(7, 'error', {
             stream: false,
@@ -1550,6 +1835,7 @@ router.post('/chat/completions', async (req, res) => {
             completion_tokens: completionTokens,
             total_cost: cost,
           }, { errorMessage: 'Insufficient balance for this request' });
+          await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
           await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
           return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
         }
@@ -1559,84 +1845,144 @@ router.post('/chat/completions', async (req, res) => {
           upstream_id: selectedUpstreamId,
           upstream_url: upstreamUrl,
           status_code: upstreamRes.status,
-          response_format: 'openai_compatible',
+          response_format: 'gemini_native',
         });
         await debug.step(7, 'success', {
           stream: false,
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
           total_cost: cost,
-          response_format: 'openai_compatible',
+          response_format: 'gemini_native',
         });
         await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
-        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, data.choices?.[0]?.message?.content || '');
+        await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
+        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, geminiText);
 
-        // 统一返回格式
-        res.json({
+        const geminiFinish = candidate?.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
+        return res.json({
           id: requestId,
           object: 'chat.completion',
           created: Math.floor(Date.now() / 1000),
           model,
-          choices: data.choices,
+          choices: [{ index: 0, message: { role: 'assistant', content: geminiText }, finish_reason: geminiFinish }],
           usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
         });
-        }
       }
-    }
-  } catch (err) {
-    if (selectedUpstreamId) recordFail(selectedUpstreamId);
-    const errMsg = await extractUpstreamErrorMessage(err);
-    const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
-    if (is429) {
-      await noteCcClubRateLimit({
-        providerName: selectedProviderName,
-        baseUrl,
-        apiKey,
-        errorMessage: errMsg,
-        statusCode: err.response?.status || 429,
-        source: 'chat.completions'
+
+      promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
+      completionTokens = data.usage?.completion_tokens || estimateTokens(data.choices?.[0]?.message?.content || '');
+      const effectivePrompt = calcEffectiveInputTokens(data.usage, false);
+      const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+      const result = await settleModelCharge(
+        req.apiUserId,
+        modelConfig,
+        cost,
+        `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
+        billingContext,
+        { route: 'chat.completions', request_id: requestId, model }
+      );
+      billingContext.finalized = true;
+
+      if (!result.success) {
+        await debug.step(7, 'error', {
+          stream: false,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          total_cost: cost,
+        }, { errorMessage: 'Insufficient balance for this request' });
+        await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
+        return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
+      }
+
+      await debug.step(6, 'success', {
+        stream: false,
+        upstream_id: selectedUpstreamId,
+        upstream_url: upstreamUrl,
+        status_code: upstreamRes.status,
+        response_format: 'openai_compatible',
       });
-    }
+      await debug.step(7, 'success', {
+        stream: false,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_cost: cost,
+        response_format: 'openai_compatible',
+      });
+      await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
+      await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+      await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
+      await saveRequestDetail(requestId, req.apiUserId, model, messages, null, data.choices?.[0]?.message?.content || '');
 
-    if (is429 && allProviders.length > 1) {
-      console.log(`[429 Retry] upstream ${selectedUpstreamId} 失败(score=${getFailCount(selectedUpstreamId).toFixed(1)})，${allProviders.length - 1} 个备选`);
-      await debug.step(8, 'error', {
-        reason: 'upstream_rate_limited',
-        fallback_candidates: allProviders.length - 1,
-        selected_upstream_id: selectedUpstreamId,
-        provider: selectedProviderName,
-      }, { errorMessage: errMsg });
-      await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'rate_limit_error', `429: upstream ${selectedUpstreamId}`, requestId, getLogExtra(modelConfig, 0));
-    } else {
-      await debug.step(8, 'error', {
-        reason: is429 ? 'upstream_rate_limited_without_backup' : 'upstream_failed',
-        fallback_candidates: Math.max(0, allProviders.length - 1),
-        selected_upstream_id: selectedUpstreamId,
-        provider: selectedProviderName,
-      }, { errorMessage: errMsg });
-    }
+      return res.json({
+        id: requestId,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: data.choices,
+        usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens }
+      });
+    } catch (err) {
+      lastErr = err;
+      const errMsg = await markEndpointFailure(selected, attemptMeta, err);
+      const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
 
-    const isTimeout = err.code === 'ECONNABORTED' || errMsg.toLowerCase().includes('timeout');
-    console.error(`Upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
-    await debug.step(6, 'error', {
-      stream,
-      upstream_id: selectedUpstreamId,
-      upstream_url: upstreamUrl,
-      provider: selectedProviderName,
-      status_code: err.response?.status || null,
-    }, { errorMessage: errMsg });
-    await debug.step(7, 'error', {
-      stream,
-      status_code: err.response?.status || null,
-    }, { errorMessage: errMsg });
-    await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 请求失败，释放预留余额');
-    await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-    const statusCode = isTimeout ? 503 : (err.response?.status || 502);
-    res.status(statusCode).json({
-      error: { message: errMsg, type: isTimeout ? 'overloaded_error' : 'upstream_error' }
-    });
+      if (is429) {
+        await noteCcClubRateLimit({
+          providerName: selectedProviderName,
+          baseUrl,
+          apiKey,
+          errorMessage: errMsg,
+          statusCode: err.response?.status || 429,
+          source: 'chat.completions'
+        });
+      }
+
+      console.error(`Upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
+      await debug.step(6, 'error', {
+        attempt: attempt + 1,
+        stream,
+        upstream_id: selectedUpstreamId,
+        upstream_url: upstreamUrl,
+        provider: selectedProviderName,
+        status_code: err.response?.status || null,
+      }, { errorMessage: errMsg });
+
+      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
+        remaining = removeEndpointCandidate(remaining, selected);
+        await debug.step(8, 'success', {
+          reason: is429 ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
+          failed_upstream_id: selectedUpstreamId,
+          remaining_candidates: remaining.length,
+        });
+        continue;
+      }
+
+      await debug.step(7, 'error', {
+        stream,
+        status_code: err.response?.status || null,
+      }, { errorMessage: errMsg });
+      await debug.step(8, 'error', {
+        reason: is429 ? 'rate_limit_no_backup' : 'upstream_failed',
+        failed_upstream_id: selectedUpstreamId,
+        remaining_candidates: Math.max(0, remaining.length - 1),
+      }, { errorMessage: errMsg });
+      break;
+    }
   }
+
+  const errMsg = await extractUpstreamErrorMessage(lastErr, 'Upstream request failed');
+  const isTimeout = lastErr?.code === 'UPSTREAM_SATURATED'
+    || lastErr?.code === 'ECONNABORTED'
+    || errMsg.toLowerCase().includes('timeout');
+  await debug.step(7, 'error', { stream }, { errorMessage: errMsg });
+  await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 请求失败，释放预留余额');
+  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
+  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 503 : (lastErr?.response?.status || 502));
+  return res.status(statusCode).json({
+    error: { message: errMsg, type: statusCode === 503 ? 'overloaded_error' : 'upstream_error' }
+  });
 });
 
 // ==========================================
@@ -1647,6 +1993,11 @@ router.post('/messages', async (req, res) => {
   const requestId = req.aiGatewayRequestId || `msg_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
   const { model, messages, system, max_tokens, stream = false, temperature, top_p, top_k, tools, tool_choice, stop_sequences, thinking, metadata, betas } = req.body;
   const debug = createRouteRecorder(req, requestId, model);
+  const latencyTracker = createMessagesLatencyTracker(req, model);
+  const glm5FastStartConfig = isGlm5Model(model) && stream
+    ? await getGlm5FastStartConfig()
+    : DEFAULT_GLM5_FAST_START_CONFIG;
+  latencyTracker.fastStartEnabled = Boolean(glm5FastStartConfig?.enabled);
   res.setHeader('X-Request-Id', requestId);
 
   if (!model || !messages) {
@@ -1689,28 +2040,31 @@ router.post('/messages', async (req, res) => {
   const billingMeta2 = reservation.billing;
   const billingContext2 = reservation.billingContext;
 
+  let allEndpoints = [];
+  let userPkg = null;
+  try {
+    [allEndpoints, userPkg] = await Promise.all([
+      getAllUpstreamEndpoints(modelConfig),
+      getUserPackageLimits(req.apiUserId).catch((err) => {
+        console.error('[Messages Limit Prefetch Error]:', err);
+        return null;
+      }),
+    ]);
+  } catch (err) {
+    console.error('[Messages Upstream Prefetch Error]:', err);
+    await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 上游预取失败，释放预留余额');
+    return res.status(503).json({ type: 'error', error: { type: 'server_error', message: 'Model provider not configured' } });
+  }
+
   // 检查月度配额限制（套餐字段缓存 10 分钟，聚合查询缓存 5 分钟，与 chat.completions 共享缓存）
   try {
-    const userPkg = await getUserPackageLimits(req.apiUserId);
     if (userPkg) {
       const monthStart = userPkg.started_at || new Date(Date.now() - 30 * 24 * 3600000);
       const needCallLimit = !!userPkg.daily_limit;
       const needCostLimit = !!(userPkg.monthly_quota && billingMeta2.billingMode === 'token');
 
       if (needCallLimit || needCostLimit) {
-        const yearMonth = new Date(monthStart).toISOString().slice(0, 7);
-        const monthCacheKey = `monthly:${req.apiUserId}:${yearMonth}`;
-        let monthlyStats = await cache.get(monthCacheKey);
-        if (monthlyStats === undefined) {
-          const [[row]] = await db.query(
-            `SELECT COUNT(*) AS cnt, COALESCE(SUM(total_cost), 0) AS cost
-             FROM openclaw_call_logs
-             WHERE user_id = ? AND created_at >= ? AND status = 'success'`,
-            [req.apiUserId, monthStart]
-          );
-          monthlyStats = { cnt: Number(row.cnt), cost: Number(row.cost) };
-          await cache.set(monthCacheKey, monthlyStats, MONTHLY_QUOTA_CACHE_TTL);
-        }
+        const monthlyStats = await getMonthlyUsageStats(req.apiUserId, monthStart);
 
         if (needCallLimit) {
           const monthlyCallLimit = userPkg.daily_limit * 30;
@@ -1738,200 +2092,228 @@ router.post('/messages', async (req, res) => {
     console.error('[Messages Limit Check Error]:', err);
   }
 
-  // 确定上游地址（从 model_upstreams 直接读取，429 自动轮询）
-  let baseUrl, apiKey;
-  let allProviders = [];
-  let selectedProviderName2 = null;
-
-  const upstreams2 = await getAvailableUpstreams(modelConfig);
-
-  let selectedBindingUpstreamModelId2 = null;
-  let selectedUpstreamId2 = null;
-  if (upstreams2.length > 0) {
-    allProviders = [...upstreams2];
-    const selected = selectUpstream(upstreams2);
-    baseUrl = selected.base_url;
-    apiKey = selected.api_key;
-    selectedProviderName2 = selected.provider_name || null;
-    selectedBindingUpstreamModelId2 = selected.upstream_model_id || null;
-    selectedUpstreamId2 = selected.id;
-  } else {
-    const provider = PROVIDERS.getProviderConfig
-      ? PROVIDERS.getProviderConfig(modelConfig.provider)
-      : (PROVIDERS[modelConfig.provider] || {});
-    baseUrl = modelConfig.upstream_endpoint || provider.baseUrl;
-    apiKey = modelConfig.upstream_key || provider.apiKey;
-  }
-
-  if (!baseUrl || !apiKey) {
+  if (allEndpoints.length === 0) {
     await debug.step(5, 'error', { reason: 'provider_not_configured' }, { errorMessage: 'Model provider not configured' });
     await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 未配置上游，释放预留余额');
     return res.status(503).json({ type: 'error', error: { type: 'server_error', message: 'Model provider not configured' } });
   }
 
-  const upstreamModel = selectedBindingUpstreamModelId2 || modelConfig.upstream_model_id || model;
-  const isClaudeModel2 = model.includes('claude');
-  const isUpstreamAnthropic = isClaudeModel2 && (modelConfig.provider === 'ccclub' || modelConfig.provider === 'anthropic' || baseUrl.includes('claude-code.club') || baseUrl.includes('anthropic.com'));
-  await debug.step(5, 'success', {
-    selected_upstream_id: selectedUpstreamId2,
-    selected_provider: selectedProviderName2,
-    selected_base_url: baseUrl,
-    selected_upstream_model_id: upstreamModel,
-    upstream_count: upstreams2.length,
-    upstream_candidates: describeUpstreams(allProviders.length ? allProviders : upstreams2),
-    api_format: isUpstreamAnthropic ? 'anthropic' : 'openai_compatible',
-  });
+  let remaining = [...allEndpoints];
+  let lastErr = null;
 
-  try {
-    if (isUpstreamAnthropic) {
-      // ===== Anthropic 上游：直接透传 =====
-      const upstreamUrl = baseUrl.includes('/messages') ? baseUrl : `${baseUrl.replace(/\/+$/, '')}/v1/messages`;
-      const upstreamBody = { model: upstreamModel, messages, max_tokens: max_tokens || 4096 };
-      if (system) upstreamBody.system = system;
-      if (temperature !== undefined) upstreamBody.temperature = temperature;
-      if (top_p !== undefined) upstreamBody.top_p = top_p;
-      if (top_k !== undefined) upstreamBody.top_k = top_k;
-      if (tools) upstreamBody.tools = tools;
-      if (tool_choice) upstreamBody.tool_choice = tool_choice;
-      if (stop_sequences) upstreamBody.stop_sequences = stop_sequences;
-      if (thinking) upstreamBody.thinking = thinking;
-      if (metadata) upstreamBody.metadata = metadata;
-      if (stream) upstreamBody.stream = true;
+  for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
+    const leaseToken = `${requestId}:${attempt + 1}`;
+    const picked = await acquireBestEndpoint(remaining, leaseToken);
+    const selected = picked.endpoint;
+    if (!selected) {
+      lastErr = createUpstreamSaturatedError();
+      break;
+    }
 
-      const headers = buildAnthropicUpstreamHeaders(req, apiKey, betas);
+    const attemptMeta = {
+      leaseToken,
+      startedAt: Date.now(),
+    };
+    const baseUrl = selected.base_url;
+    const apiKey = selected.api_key;
+    const selectedUpstreamId = selected.id || null;
+    const selectedProviderName = selected.provider_name || modelConfig.provider || null;
+    const upstreamModel = selected.upstream_model_id || modelConfig.upstream_model_id || model;
+    const isClaudeModel = model.includes('claude');
+    const isUpstreamAnthropic = isClaudeModel && (
+      selectedProviderName === 'ccclub'
+      || selectedProviderName === 'anthropic'
+      || baseUrl.includes('claude-code.club')
+      || baseUrl.includes('anthropic.com')
+    );
+    const relayRetryConfig = getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic });
+    const upstreamTimeoutConfig = getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic });
 
-      if (stream) {
-        await debug.step(6, 'pending', {
-          stream: true,
-          upstream_id: selectedUpstreamId2,
-          upstream_url: upstreamUrl,
-          provider: selectedProviderName2,
+    await debug.step(5, 'success', {
+      attempt: attempt + 1,
+      selected_upstream_id: selectedUpstreamId,
+      selected_provider: selectedProviderName,
+      selected_base_url: baseUrl,
+      selected_upstream_model_id: upstreamModel,
+      upstream_count: remaining.length,
+      upstream_candidates: describeUpstreams(allEndpoints),
+      endpoint_health_score: selected.scheduler?.score ?? null,
+      endpoint_inflight: selected.scheduler?.inflight ?? null,
+      api_format: isUpstreamAnthropic ? 'anthropic' : 'openai_compatible',
+    });
+    markMessagesDispatchComplete(latencyTracker);
+
+    try {
+      if (attempt > 0) {
+        console.log(`[Messages Retry] attempt ${attempt + 1}, endpoint ${selectedUpstreamId || getEndpointIdentity(selected)}`);
+        await debug.step(8, 'success', {
+          reason: 'retry_switch_endpoint',
+          attempt: attempt + 1,
+          selected_upstream_id: selectedUpstreamId,
         });
-        const upstreamRes = await withRelayRetry(
-          () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 }),
-          { model, debug }
-        );
+      }
 
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Request-Id', requestId);
+      if (isUpstreamAnthropic) {
+        const upstreamUrl = baseUrl.includes('/messages') ? baseUrl : `${baseUrl.replace(/\/+$/, '')}/v1/messages`;
+        const upstreamBody = { model: upstreamModel, messages, max_tokens: max_tokens || 4096 };
+        if (system) upstreamBody.system = system;
+        if (temperature !== undefined) upstreamBody.temperature = temperature;
+        if (top_p !== undefined) upstreamBody.top_p = top_p;
+        if (top_k !== undefined) upstreamBody.top_k = top_k;
+        if (tools) upstreamBody.tools = tools;
+        if (tool_choice) upstreamBody.tool_choice = tool_choice;
+        if (stop_sequences) upstreamBody.stop_sequences = stop_sequences;
+        if (thinking) upstreamBody.thinking = thinking;
+        if (metadata) upstreamBody.metadata = metadata;
+        if (stream) upstreamBody.stream = true;
 
-        let promptTokens = 0, completionTokens = 0;
-        let cacheWriteTokens5 = 0, cacheReadTokens5 = 0;
-        let streamUsage5 = {};
-        let sseBuffer = '';
-        let fullContent = '';
+        const headers = buildAnthropicUpstreamHeaders(req, apiKey, betas);
 
-        upstreamRes.data.on('data', (chunk) => {
-          const text = chunk.toString();
-          // 直接转发 SSE 给客户端（带背压控制）
-          const ok = res.write(text);
-          if (!ok) {
-            upstreamRes.data.pause();
-            res.once('drain', () => upstreamRes.data.resume());
-          }
-
-          // 解析 token usage 和内容
-          sseBuffer += text;
-          const lines = sseBuffer.split('\n');
-          sseBuffer = lines.pop() || '';
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const parsed = JSON.parse(line.slice(6));
-              if (parsed.type === 'message_start') {
-                streamUsage5      = parsed.message?.usage || {};
-                promptTokens      = streamUsage5.input_tokens || 0;
-                cacheWriteTokens5 = streamUsage5.cache_creation_input_tokens || 0;
-                cacheReadTokens5  = streamUsage5.cache_read_input_tokens || 0;
-              } else if (parsed.type === 'message_delta') {
-                completionTokens = parsed.usage?.output_tokens || 0;
-              } else if (parsed.type === 'content_block_delta') {
-                // 只累积文本内容，跳过 thinking_delta
-                if (parsed.delta?.type === 'text_delta') fullContent += parsed.delta?.text || '';
-              }
-            } catch (e) { /* ignore */ }
-          }
-        });
-
-        upstreamRes.data.on('end', async () => {
-          res.end();
-          if (selectedUpstreamId2) recordSuccess(selectedUpstreamId2);
-          if (!promptTokens) promptTokens = estimateTokens(messages);
-          if (!completionTokens) completionTokens = estimateTokens(fullContent);
-          const effectivePrompt5 = promptTokens
-            ? calcEffectiveInputTokens(streamUsage5, true)
-            : promptTokens;
-          const cost = await calculateCost(effectivePrompt5, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
-          const result = await settleModelCharge(
-            req.apiUserId,
-            modelConfig,
-            cost,
-            `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
-            billingContext2,
-            { route: 'messages', request_id: requestId, model }
-          );
-          billingContext2.finalized = true;
-          const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost));
-          await debug.step(6, 'success', {
+        if (stream) {
+          await debug.step(6, 'pending', {
+            attempt: attempt + 1,
             stream: true,
-            upstream_id: selectedUpstreamId2,
+            upstream_id: selectedUpstreamId,
             upstream_url: upstreamUrl,
+            provider: selectedProviderName,
           });
-          if (!result.success) {
-            await debug.step(7, 'error', {
+          markMessagesUpstreamStart(latencyTracker);
+          const upstreamRes = await withRelayRetry(
+            () => axiosInstance.post(upstreamUrl, upstreamBody, {
+              headers,
+              responseType: 'stream',
+              timeout: upstreamTimeoutConfig.connectTimeoutMs,
+            }),
+            { model, debug, retryConfig: relayRetryConfig }
+          );
+          markMessagesUpstreamConnected(latencyTracker);
+          applyStreamIdleTimeout(upstreamRes.data, upstreamTimeoutConfig.idleTimeoutMs, () => {
+            const error = new Error('Upstream stream idle timeout');
+            error.code = 'ECONNABORTED';
+            return error;
+          });
+
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+          res.setHeader('X-Request-Id', requestId);
+
+          let promptTokens = 0;
+          let completionTokens = 0;
+          let streamUsage = {};
+          let sseBuffer = '';
+          let fullContent = '';
+
+          upstreamRes.data.on('data', (chunk) => {
+            markMessagesFirstChunk(latencyTracker);
+            const text = chunk.toString();
+            const ok = res.write(text);
+            if (!ok) {
+              upstreamRes.data.pause();
+              res.once('drain', () => upstreamRes.data.resume());
+            }
+
+            sseBuffer += text;
+            const lines = sseBuffer.split('\n');
+            sseBuffer = lines.pop() || '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              try {
+                const parsed = JSON.parse(line.slice(6));
+                if (parsed.type === 'message_start') {
+                  streamUsage = parsed.message?.usage || {};
+                  promptTokens = streamUsage.input_tokens || 0;
+                } else if (parsed.type === 'message_delta') {
+                  completionTokens = parsed.usage?.output_tokens || 0;
+                } else if (parsed.type === 'content_block_delta') {
+                  if (parsed.delta?.type === 'text_delta') fullContent += parsed.delta?.text || '';
+                }
+              } catch (e) { /* ignore */ }
+            }
+          });
+
+          upstreamRes.data.on('end', async () => {
+            res.end();
+            const latencyDetail = recordMessagesLatency(latencyTracker);
+            if (!promptTokens) promptTokens = estimateTokens(messages);
+            if (!completionTokens) completionTokens = estimateTokens(fullContent);
+            const effectivePrompt = promptTokens ? calcEffectiveInputTokens(streamUsage, true) : promptTokens;
+            const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+            const result = await settleModelCharge(
+              req.apiUserId,
+              modelConfig,
+              cost,
+              `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
+              billingContext2,
+              { route: 'messages', request_id: requestId, model }
+            );
+            billingContext2.finalized = true;
+            await debug.step(6, 'success', {
+              stream: true,
+              upstream_id: selectedUpstreamId,
+              upstream_url: upstreamUrl,
+              ...latencyDetail,
+            });
+            if (!result.success) {
+              await debug.step(7, 'error', {
+                stream: true,
+                prompt_tokens: promptTokens,
+                completion_tokens: completionTokens,
+                total_cost: cost,
+              }, { errorMessage: '余额不足（流式响应后扣款失败）' });
+              await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+              await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
+              await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
+              return;
+            }
+            await debug.step(7, 'success', {
               stream: true,
               prompt_tokens: promptTokens,
               completion_tokens: completionTokens,
               total_cost: cost,
-            }, { errorMessage: '余额不足（流式响应后扣款失败）' });
-            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
+            });
+            await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
+            await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
             await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
-            return;
-          }
-          await debug.step(7, 'success', {
-            stream: true,
-            prompt_tokens: promptTokens,
-            completion_tokens: completionTokens,
-            total_cost: cost,
           });
-          await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
-        });
 
-        upstreamRes.data.on('error', async (err) => {
-          if (selectedUpstreamId2) recordFail(selectedUpstreamId2);
-          const errMsg = await extractUpstreamErrorMessage(err);
-          console.error('Anthropic stream error:', errMsg);
-          res.end();
-          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl }, { errorMessage: errMsg });
-          await debug.step(8, 'error', { reason: 'stream_upstream_error', fallback_candidates: Math.max(0, allProviders.length - 1) }, { errorMessage: errMsg });
-          await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages Anthropic stream error，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
-        });
+          upstreamRes.data.on('error', async (err) => {
+            const errMsg = await markEndpointFailure(selected, attemptMeta, err);
+            console.error('Anthropic stream error:', errMsg);
+            res.end();
+            const latencyDetail = recordMessagesLatency(latencyTracker);
+            await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl, ...latencyDetail }, { errorMessage: errMsg });
+            await debug.step(8, 'error', { reason: 'stream_upstream_error', selected_upstream_id: selectedUpstreamId }, { errorMessage: errMsg });
+            await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages Anthropic stream error，释放预留余额');
+            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
+            await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
+          });
 
-      } else {
+          return;
+        }
+
         await debug.step(6, 'pending', {
+          attempt: attempt + 1,
           stream: false,
-          upstream_id: selectedUpstreamId2,
+          upstream_id: selectedUpstreamId,
           upstream_url: upstreamUrl,
-          provider: selectedProviderName2,
+          provider: selectedProviderName,
         });
-        // 非流式 Anthropic 透传（带 relay 重试）
+        markMessagesUpstreamStart(latencyTracker);
         const upstreamRes = await withRelayRetry(
-          () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: 120000 }),
-          { model, debug }
+          () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: upstreamTimeoutConfig.requestTimeoutMs }),
+          { model, debug, retryConfig: relayRetryConfig }
         );
+        markMessagesUpstreamConnected(latencyTracker);
+        markMessagesFirstChunk(latencyTracker);
         const data = upstreamRes.data;
+        const latencyDetail = recordMessagesLatency(latencyTracker);
 
         const promptTokens = data.usage?.input_tokens || estimateTokens(messages);
         const completionTokens = data.usage?.output_tokens || 0;
-        const effectivePrompt6 = calcEffectiveInputTokens(data.usage, true);
-
-        const cost = await calculateCost(effectivePrompt6, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+        const effectivePrompt = calcEffectiveInputTokens(data.usage, true);
+        const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
         const result = await settleModelCharge(
           req.apiUserId,
           modelConfig,
@@ -1941,36 +2323,32 @@ router.post('/messages', async (req, res) => {
           { route: 'messages', request_id: requestId, model }
         );
         billingContext2.finalized = true;
-        const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost));
 
         if (!result.success) {
           await debug.step(7, 'error', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost }, { errorMessage: '额度已用尽' });
+          await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
           await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
           return res.status(402).json({ type: 'error', error: { type: 'billing_error', message: '额度已用尽' } });
         }
 
-        await debug.step(6, 'success', { stream: false, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl, status_code: upstreamRes.status });
+        await debug.step(6, 'success', { stream: false, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl, status_code: upstreamRes.status, ...latencyDetail });
         await debug.step(7, 'success', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost });
         await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
+        await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
         await saveRequestDetail(requestId, req.apiUserId, model, messages, system, extractTextFromContent(data.content));
 
-        if (selectedUpstreamId2) recordSuccess(selectedUpstreamId2);
         data.id = requestId;
         data.model = model;
-        res.json(data);
+        return res.json(data);
       }
 
-    } else {
-      // ===== OpenAI 兼容上游：格式转换 =====
-      const cleanBase2 = baseUrl
+      const cleanBase = baseUrl
         .replace(/\/v1\/messages\/?$/, '')
         .replace(/\/v1\/chat\/completions\/?$/, '')
         .replace(/\/v1\/?$/, '')
         .replace(/\/+$/, '');
-      const upstreamUrl = `${cleanBase2}/v1/chat/completions`;
-
-      // 转换 Anthropic messages → OpenAI messages
+      const upstreamUrl = `${cleanBase}/v1/chat/completions`;
       const openaiMessages = convertAnthropicToOpenAIMessages(system, messages);
       const openaiBody = { model: upstreamModel, messages: openaiMessages, stream };
       if (stream) openaiBody.stream_options = { include_usage: true };
@@ -1978,10 +2356,8 @@ router.post('/messages', async (req, res) => {
       if (max_tokens !== undefined) openaiBody.max_tokens = max_tokens;
       if (top_p !== undefined) openaiBody.top_p = top_p;
       if (stop_sequences) openaiBody.stop = stop_sequences;
-
-      // 转换 tools
       if (tools && tools.length > 0) {
-        openaiBody.tools = tools.map(t => ({
+        openaiBody.tools = tools.map((t) => ({
           type: 'function',
           function: { name: t.name, description: t.description || '', parameters: t.input_schema || {} }
         }));
@@ -1991,37 +2367,61 @@ router.post('/messages', async (req, res) => {
 
       if (stream) {
         await debug.step(6, 'pending', {
+          attempt: attempt + 1,
           stream: true,
-          upstream_id: selectedUpstreamId2,
+          upstream_id: selectedUpstreamId,
           upstream_url: upstreamUrl,
-          provider: selectedProviderName2,
+          provider: selectedProviderName,
         });
-        const upstreamRes = await axiosInstance.post(upstreamUrl, openaiBody, { headers, responseType: 'stream', timeout: 120000 });
+        markMessagesUpstreamStart(latencyTracker);
+        const upstreamRes = await withRelayRetry(
+          () => axiosInstance.post(upstreamUrl, openaiBody, {
+            headers,
+            responseType: 'stream',
+            timeout: upstreamTimeoutConfig.connectTimeoutMs,
+          }),
+          { model, debug, retryConfig: relayRetryConfig }
+        );
+        markMessagesUpstreamConnected(latencyTracker);
+        applyStreamIdleTimeout(upstreamRes.data, upstreamTimeoutConfig.idleTimeoutMs, () => {
+          const error = new Error('Upstream stream idle timeout');
+          error.code = 'ECONNABORTED';
+          return error;
+        });
 
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Request-Id', requestId);
+        const fastStartEnabled = Boolean(glm5FastStartConfig?.enabled && isGlm5Model(model));
+        flushMessagesStreamHeaders(res, requestId, latencyTracker, { fastStartEnabled });
+        const fastStartPing = fastStartEnabled
+          ? startGlm5FastStartPing({ res, tracker: latencyTracker, config: glm5FastStartConfig })
+          : { stop: () => {} };
 
-        let promptTokens = 0, completionTokens = 0;
-        let cachedTokens7 = 0;
+        let promptTokens = 0;
+        let completionTokens = 0;
+        let cachedTokens = 0;
         let fullContent = '';
         let sseBuffer = '';
         let contentBlockStarted = false;
-        let toolCallBuffers = {}; // tool_call_id -> { name, arguments }
+        const toolCallBuffers = {};
 
-        // 发送 Anthropic message_start 事件
         const messageStart = {
           type: 'message_start',
           message: {
-            id: requestId, type: 'message', role: 'assistant', model,
-            content: [], stop_reason: null, stop_sequence: null,
+            id: requestId,
+            type: 'message',
+            role: 'assistant',
+            model,
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
             usage: { input_tokens: 0, output_tokens: 0 }
           }
         };
+        fastStartPing.stop();
+        markMessagesFirstRealEvent(latencyTracker);
         res.write(`event: message_start\ndata: ${JSON.stringify(messageStart)}\n\n`);
 
         upstreamRes.data.on('data', (chunk) => {
+          markMessagesFirstChunk(latencyTracker);
           sseBuffer += chunk.toString();
           const lines = sseBuffer.split('\n');
           sseBuffer = lines.pop() || '';
@@ -2034,26 +2434,25 @@ router.post('/messages', async (req, res) => {
             try {
               const parsed = JSON.parse(data);
               if (parsed.usage) {
-                promptTokens     = parsed.usage.prompt_tokens || promptTokens;
+                promptTokens = parsed.usage.prompt_tokens || promptTokens;
                 completionTokens = parsed.usage.completion_tokens || completionTokens;
-                cachedTokens7    = parsed.usage.prompt_tokens_details?.cached_tokens || cachedTokens7;
+                cachedTokens = parsed.usage.prompt_tokens_details?.cached_tokens || cachedTokens;
               }
 
               const choice = parsed.choices?.[0];
               if (!choice) continue;
 
-              // 处理文本内容
               const deltaContent = choice.delta?.content;
               if (deltaContent) {
                 if (!contentBlockStarted) {
                   contentBlockStarted = true;
+                  fastStartPing.stop();
                   res.write(`event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })}\n\n`);
                 }
                 fullContent += deltaContent;
                 res.write(`event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: deltaContent } })}\n\n`);
               }
 
-              // 处理 tool_calls
               const toolCalls = choice.delta?.tool_calls;
               if (toolCalls) {
                 for (const tc of toolCalls) {
@@ -2066,13 +2465,11 @@ router.post('/messages', async (req, res) => {
                 }
               }
 
-              // 流结束
               if (choice.finish_reason) {
                 if (contentBlockStarted) {
                   res.write(`event: content_block_stop\ndata: ${JSON.stringify({ type: 'content_block_stop', index: 0 })}\n\n`);
                 }
 
-                // 输出 tool_use 块
                 const toolEntries = Object.entries(toolCallBuffers);
                 for (let i = 0; i < toolEntries.length; i++) {
                   const [, tc] = toolEntries[i];
@@ -2093,14 +2490,15 @@ router.post('/messages', async (req, res) => {
         });
 
         upstreamRes.data.on('end', async () => {
+          fastStartPing.stop();
           res.end();
-          if (selectedUpstreamId2) recordSuccess(selectedUpstreamId2);
+          const latencyDetail = recordMessagesLatency(latencyTracker);
           if (!promptTokens) promptTokens = estimateTokens(messages);
           if (!completionTokens) completionTokens = estimateTokens(fullContent);
-          const effectivePrompt7 = promptTokens
-            ? calcEffectiveInputTokens({ prompt_tokens: promptTokens, prompt_tokens_details: { cached_tokens: cachedTokens7 } }, false)
+          const effectivePrompt = promptTokens
+            ? calcEffectiveInputTokens({ prompt_tokens: promptTokens, prompt_tokens_details: { cached_tokens: cachedTokens } }, false)
             : promptTokens;
-          const cost = await calculateCost(effectivePrompt7, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+          const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
           const result = await settleModelCharge(
             req.apiUserId,
             modelConfig,
@@ -2110,149 +2508,163 @@ router.post('/messages', async (req, res) => {
             { route: 'messages', request_id: requestId, model }
           );
           billingContext2.finalized = true;
-          const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost));
-          await debug.step(6, 'success', { stream: true, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl });
+          await debug.step(6, 'success', { stream: true, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl, ...latencyDetail });
           if (!result.success) {
             await debug.step(7, 'error', { stream: true, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost }, { errorMessage: '余额不足（流式响应后扣款失败）' });
+            await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
             await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
             await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
             return;
           }
           await debug.step(7, 'success', { stream: true, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost });
           await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
+          await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
           await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
         });
 
         upstreamRes.data.on('error', async (err) => {
-          if (selectedUpstreamId2) recordFail(selectedUpstreamId2);
-          const errMsg = await extractUpstreamErrorMessage(err);
+          fastStartPing.stop();
+          const errMsg = await markEndpointFailure(selected, attemptMeta, err);
           console.error('OpenAI→Anthropic stream error:', errMsg);
           res.end();
-          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl }, { errorMessage: errMsg });
-          await debug.step(8, 'error', { reason: 'stream_upstream_error', fallback_candidates: Math.max(0, allProviders.length - 1) }, { errorMessage: errMsg });
+          const latencyDetail = recordMessagesLatency(latencyTracker);
+          await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl, ...latencyDetail }, { errorMessage: errMsg });
+          await debug.step(8, 'error', { reason: 'stream_upstream_error', selected_upstream_id: selectedUpstreamId }, { errorMessage: errMsg });
           await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages OpenAI stream error，释放预留余额');
           await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
           await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
         });
 
-      } else {
-        await debug.step(6, 'pending', {
-          stream: false,
-          upstream_id: selectedUpstreamId2,
-          upstream_url: upstreamUrl,
-          provider: selectedProviderName2,
-        });
-        // 非流式 OpenAI → Anthropic 格式转换
-        const upstreamRes = await axiosInstance.post(upstreamUrl, openaiBody, { headers, timeout: 120000 });
-        const data = upstreamRes.data;
+        return;
+      }
 
-        const promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
-        const completionTokens = data.usage?.completion_tokens || 0;
-        const effectivePrompt8 = calcEffectiveInputTokens(data.usage, false);
+      await debug.step(6, 'pending', {
+        attempt: attempt + 1,
+        stream: false,
+        upstream_id: selectedUpstreamId,
+        upstream_url: upstreamUrl,
+        provider: selectedProviderName,
+      });
+      markMessagesUpstreamStart(latencyTracker);
+      const upstreamRes = await withRelayRetry(
+        () => axiosInstance.post(upstreamUrl, openaiBody, { headers, timeout: upstreamTimeoutConfig.requestTimeoutMs }),
+        { model, debug, retryConfig: relayRetryConfig }
+      );
+      markMessagesUpstreamConnected(latencyTracker);
+      markMessagesFirstChunk(latencyTracker);
+      const data = upstreamRes.data;
+      const latencyDetail = recordMessagesLatency(latencyTracker);
+      const promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
+      const completionTokens = data.usage?.completion_tokens || 0;
+      const effectivePrompt = calcEffectiveInputTokens(data.usage, false);
+      const cost = await calculateCost(effectivePrompt, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
+      const result = await settleModelCharge(
+        req.apiUserId,
+        modelConfig,
+        cost,
+        `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
+        billingContext2,
+        { route: 'messages', request_id: requestId, model }
+      );
+      billingContext2.finalized = true;
 
-        const cost = await calculateCost(effectivePrompt8, completionTokens, Number(modelConfig.input_price_per_1k), Number(modelConfig.output_price_per_1k), modelConfig.price_currency);
-        const result = await settleModelCharge(
-          req.apiUserId,
-          modelConfig,
-          cost,
-          `API调用: ${model} (${promptTokens}+${completionTokens} tokens)`,
-          billingContext2,
-          { route: 'messages', request_id: requestId, model }
-        );
-        billingContext2.finalized = true;
-        const logExtra = getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost));
+      if (!result.success) {
+        await debug.step(7, 'error', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost }, { errorMessage: '额度已用尽' });
+        await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
+        return res.status(402).json({ type: 'error', error: { type: 'billing_error', message: '额度已用尽' } });
+      }
 
-        if (!result.success) {
-          await debug.step(7, 'error', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost }, { errorMessage: '额度已用尽' });
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
-          return res.status(402).json({ type: 'error', error: { type: 'billing_error', message: '额度已用尽' } });
+      const choice = data.choices?.[0];
+      const content = [];
+
+      await debug.step(6, 'success', { stream: false, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl, status_code: upstreamRes.status, ...latencyDetail });
+      await debug.step(7, 'success', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost });
+      await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
+      await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
+      await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
+      await saveRequestDetail(requestId, req.apiUserId, model, messages, system, choice?.message?.content || '');
+
+      if (choice?.message?.content) {
+        content.push({ type: 'text', text: choice.message.content });
+      }
+      if (choice?.message?.tool_calls) {
+        for (const tc of choice.message.tool_calls) {
+          let inputObj = {};
+          try { inputObj = JSON.parse(tc.function.arguments); } catch (e) { /* ignore */ }
+          content.push({ type: 'tool_use', id: tc.id || `toolu_${uuidv4().slice(0, 8)}`, name: tc.function.name, input: inputObj });
         }
+      }
 
-        // 构建 Anthropic Messages API 响应
-        const choice = data.choices?.[0];
-        const content = [];
+      return res.json({
+        id: requestId,
+        type: 'message',
+        role: 'assistant',
+        model,
+        content,
+        stop_reason: convertFinishReason(choice?.finish_reason),
+        stop_sequence: null,
+        usage: { input_tokens: promptTokens, output_tokens: completionTokens }
+      });
+    } catch (err) {
+      lastErr = err;
+      const errMsg = await markEndpointFailure(selected, attemptMeta, err);
+      const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
 
-        await debug.step(6, 'success', { stream: false, upstream_id: selectedUpstreamId2, upstream_url: upstreamUrl, status_code: upstreamRes.status });
-        await debug.step(7, 'success', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost });
-        await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, logExtra);
-        await saveRequestDetail(requestId, req.apiUserId, model, messages, system, choice?.message?.content || '');
-
-        if (choice?.message?.content) {
-          content.push({ type: 'text', text: choice.message.content });
-        }
-        if (choice?.message?.tool_calls) {
-          for (const tc of choice.message.tool_calls) {
-            let inputObj = {};
-            try { inputObj = JSON.parse(tc.function.arguments); } catch (e) { /* ignore */ }
-            content.push({ type: 'tool_use', id: tc.id || `toolu_${uuidv4().slice(0, 8)}`, name: tc.function.name, input: inputObj });
-          }
-        }
-
-        res.json({
-          id: requestId,
-          type: 'message',
-          role: 'assistant',
-          model,
-          content,
-          stop_reason: convertFinishReason(choice?.finish_reason),
-          stop_sequence: null,
-          usage: { input_tokens: promptTokens, output_tokens: completionTokens }
+      if (is429) {
+        await noteCcClubRateLimit({
+          providerName: selectedProviderName,
+          baseUrl,
+          apiKey,
+          errorMessage: errMsg,
+          statusCode: err.response?.status || 429,
+          source: 'messages'
         });
       }
-    }
-  } catch (err) {
-    if (selectedUpstreamId2) recordFail(selectedUpstreamId2);
-    const errMsg = await extractUpstreamErrorMessage(err);
-    const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
-    if (is429) {
-      await noteCcClubRateLimit({
-        providerName: selectedProviderName2,
-        baseUrl,
-        apiKey,
-        errorMessage: errMsg,
-        statusCode: err.response?.status || 429,
-        source: 'messages'
-      });
-    }
-    const isTimeout = err.code === 'ECONNABORTED' || errMsg.toLowerCase().includes('timeout');
 
-    console.error(`Messages API upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
-
-    if (is429 && allProviders && allProviders.length > 1) {
-      console.log(`[429] upstream ${selectedUpstreamId2} 失败(score=${getFailCount(selectedUpstreamId2).toFixed(1)})，${allProviders.length - 1} 个备选`);
-      await debug.step(8, 'error', {
-        reason: 'upstream_rate_limited',
-        fallback_candidates: allProviders.length - 1,
-        selected_upstream_id: selectedUpstreamId2,
-        provider: selectedProviderName2,
+      console.error(`Messages API upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
+      await debug.step(6, 'error', {
+        attempt: attempt + 1,
+        stream,
+        upstream_id: selectedUpstreamId,
+        upstream_url: baseUrl,
+        provider: selectedProviderName,
+        status_code: err.response?.status || null,
+        ...latencyDetail,
       }, { errorMessage: errMsg });
-      await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'rate_limit', `429: upstream ${selectedUpstreamId2}`, requestId, getLogExtra(modelConfig, 0));
-    } else {
-      await debug.step(8, 'error', {
-        reason: is429 ? 'upstream_rate_limited_without_backup' : 'upstream_failed',
-        fallback_candidates: Math.max(0, allProviders.length - 1),
-        selected_upstream_id: selectedUpstreamId2,
-        provider: selectedProviderName2,
-      }, { errorMessage: errMsg });
-    }
 
-    await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 请求失败，释放预留余额');
-    await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-    await debug.step(6, 'error', {
-      stream,
-      upstream_id: selectedUpstreamId2,
-      upstream_url: baseUrl,
-      provider: selectedProviderName2,
-      status_code: err.response?.status || null,
-    }, { errorMessage: errMsg });
-    await debug.step(7, 'error', { stream, status_code: err.response?.status || null }, { errorMessage: errMsg });
-    const statusCode = isTimeout ? 503 : (err.response?.status || 502);
-    res.status(statusCode).json({
-      type: 'error', error: { type: isTimeout ? 'overloaded_error' : 'upstream_error', message: errMsg }
-    });
+      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
+        remaining = removeEndpointCandidate(remaining, selected);
+        await debug.step(8, 'success', {
+          reason: is429 ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
+          failed_upstream_id: selectedUpstreamId,
+          remaining_candidates: remaining.length,
+        });
+        continue;
+      }
+
+      await debug.step(8, 'error', {
+        reason: is429 ? 'rate_limit_no_backup' : 'upstream_failed',
+        failed_upstream_id: selectedUpstreamId,
+        remaining_candidates: Math.max(0, remaining.length - 1),
+      }, { errorMessage: errMsg });
+      await debug.step(7, 'error', { stream, status_code: err.response?.status || null }, { errorMessage: errMsg });
+      break;
+    }
   }
+
+  const errMsg = await extractUpstreamErrorMessage(lastErr, 'Upstream request failed');
+  const isTimeout = lastErr?.code === 'UPSTREAM_SATURATED'
+    || lastErr?.code === 'ECONNABORTED'
+    || errMsg.toLowerCase().includes('timeout');
+  await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 请求失败，释放预留余额');
+  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
+  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 503 : (lastErr?.response?.status || 502));
+  return res.status(statusCode).json({
+    type: 'error',
+    error: { type: statusCode === 503 ? 'overloaded_error' : 'upstream_error', message: errMsg }
+  });
 });
 
 // Anthropic messages → OpenAI messages 格式转换
@@ -2396,20 +2808,15 @@ function extractUserPrompt(messages) {
 // 保存请求/响应内容（仅管理员可查）
 // 只保留最后 3 条消息，避免 Claude Code 长上下文撑爆数据库
 async function saveRequestDetail(requestId, userId, model, messages, systemPrompt, responseContent) {
-  try {
-    const msgs = Array.isArray(messages) ? messages : [];
-    const recentMsgs = msgs.slice(-3);
-    const msgStr = JSON.stringify(recentMsgs).slice(0, 50000);
-    const userPrompt = extractUserPrompt(msgs);
-    const sysStr = (typeof systemPrompt === 'string' ? systemPrompt : JSON.stringify(systemPrompt || '')).slice(0, 10000);
-    const respStr = (responseContent || '').slice(0, 20000);
-    await db.query(
-      'INSERT IGNORE INTO openclaw_request_logs (request_id, user_id, model, messages, user_prompt, system_prompt, response_content) VALUES (?,?,?,?,?,?,?)',
-      [requestId, userId, model, msgStr, userPrompt, sysStr || null, respStr || null]
-    );
-  } catch (e) {
-    console.error('saveRequestDetail error:', e.message);
-  }
+  enqueueRequestDetail({
+    requestId,
+    userId,
+    model,
+    messages,
+    systemPrompt,
+    responseContent,
+    force: responseContent === null || responseContent === undefined,
+  }).catch((error) => console.error('saveRequestDetail error:', error.message));
 }
 
 // 计算有效输入 token 数（与 new-api / one-api 保持一致）
@@ -2456,3 +2863,7 @@ function estimateTokens(input) {
 }
 
 module.exports = router;
+module.exports.getModelConfig = getModelConfig;
+module.exports.getAllUpstreamEndpoints = getAllUpstreamEndpoints;
+module.exports.getUserPackageLimits = getUserPackageLimits;
+module.exports.getMonthlyUsageStats = getMonthlyUsageStats;

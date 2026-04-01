@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const db = require('../../../config/db');
+const { getChinaDateString } = require('../../../utils/chinaTime');
 const { auth, optionalAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/auth');
 const path = require('path');
@@ -639,7 +640,7 @@ router.get('/posts/:id', optionalAuth, async (req, res) => {
   } else {
     // 游客：检查每日浏览限制（10篇/天）
     const guestIp = req.ip || req.connection.remoteAddress || 'unknown';
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = getChinaDateString(); // YYYY-MM-DD
 
     // 检查今天是否已浏览过此帖子
     const [[alreadyViewed]] = await db.query(

@@ -1,15 +1,28 @@
 const router = require('express').Router();
+const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const db = require('../../../config/db');
 const { adminOnly } = require('../middleware/auth');
 const cache = require('../utils/cache');
 const { getSettingCached } = require('../../../routes/quota');
+const { getQueueStats } = require('../middleware/requestQueue');
 const {
   adjustBalance,
   normalizeBillingMode,
   normalizeModelCategory,
   roundAmount,
 } = require('../utils/billing');
+
+// 运行时迁移：CC Club 密钥注册表（含备注）
+db.query(`
+  CREATE TABLE IF NOT EXISTS openclaw_ccclub_keys (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    api_key VARCHAR(500) NOT NULL UNIQUE,
+    notes VARCHAR(255) DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+`).catch(() => {});
+db.query(`ALTER TABLE openclaw_ccclub_keys ADD COLUMN status ENUM('active','disabled') DEFAULT 'active'`).catch(() => {});
 
 // 运行时迁移：创建模型直连端点表
 db.query(`
@@ -24,6 +37,17 @@ db.query(`
     status ENUM('active','disabled') DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (model_id) REFERENCES openclaw_models(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+`).catch(() => {});
+
+db.query(`
+  CREATE TABLE IF NOT EXISTS openclaw_app_market (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    url VARCHAR(2048) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 `).catch(() => {});
 
@@ -53,6 +77,10 @@ function escapeHtml(input = '') {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function nl2brHtml(input = '') {
+  return escapeHtml(input).replace(/\r?\n/g, '<br>');
 }
 
 function trimForLog(input, max = 1200) {
@@ -294,6 +322,14 @@ router.get('/overview', async (req, res) => {
        FROM openclaw_call_logs l LEFT JOIN users u ON l.user_id = u.id
        ORDER BY l.created_at DESC LIMIT 20`
     );
+    const [[queuePeak]] = await db.query(
+      `SELECT
+         COALESCE(MAX(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json,'$.waiting_count')) AS UNSIGNED)),0) AS peak_waiting,
+         COALESCE(MAX(CAST(JSON_UNQUOTE(JSON_EXTRACT(detail_json,'$.active_count'))  AS UNSIGNED)),0) AS peak_active
+       FROM openclaw_request_debug_logs
+       WHERE step_name='请求排队' AND DATE(created_at)=CURDATE()`
+    );
+    const liveQueue = getQueueStats();
 
     res.json({
       total_users: users.total,
@@ -304,11 +340,200 @@ router.get('/overview', async (req, res) => {
       today_cost: Number(todayStats.cost),
       today_tokens: Number(todayStats.tokens),
       active_keys: apiKeys.total,
-      recent_logs: recentLogs
+      recent_logs: recentLogs,
+      queue: {
+        peak_waiting_today: Number(queuePeak.peak_waiting),
+        peak_active_today:  Number(queuePeak.peak_active),
+        active_now:         liveQueue.activeCount,
+        waiting_now:        liveQueue.waitingCount,
+        max_concurrent:     liveQueue.maxConcurrent,
+      },
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '获取概览失败' });
+  }
+});
+
+// 自定义时间段统计
+router.get('/stats/range', adminOnly, async (req, res) => {
+  const { start, end, model, user_id, api_key_id } = req.query;
+  if (!start || !end) return res.status(400).json({ error: '缺少 start / end 参数' });
+  const s = new Date(start), e = new Date(end);
+  if (isNaN(s) || isNaN(e) || s >= e) return res.status(400).json({ error: '时间范围无效' });
+
+  try {
+    const where = ['l.created_at >= ?', 'l.created_at <= ?'];
+    const params = [s, e];
+    if (model) {
+      where.push('l.model = ?');
+      params.push(String(model).trim());
+    }
+    if (user_id) {
+      const userIdNum = Number(user_id);
+      if (!Number.isInteger(userIdNum) || userIdNum <= 0) {
+        return res.status(400).json({ error: 'user_id 无效' });
+      }
+      where.push('l.user_id = ?');
+      params.push(userIdNum);
+    }
+    if (api_key_id) {
+      const apiKeyIdNum = Number(api_key_id);
+      if (!Number.isInteger(apiKeyIdNum) || apiKeyIdNum <= 0) {
+        return res.status(400).json({ error: 'api_key_id 无效' });
+      }
+      where.push('l.api_key_id = ?');
+      params.push(apiKeyIdNum);
+    }
+    const [rows] = await db.query(
+      `SELECT u.username, l.user_id,
+         COUNT(*)                                          AS calls,
+         COALESCE(SUM(l.prompt_tokens),0)                 AS input_tokens,
+         COALESCE(SUM(l.completion_tokens),0)             AS output_tokens,
+         COALESCE(SUM(l.prompt_tokens+l.completion_tokens),0) AS total_tokens,
+         COALESCE(SUM(l.total_cost),0)                    AS cost_usd
+       FROM openclaw_call_logs l
+       LEFT JOIN users u ON u.id = l.user_id
+       WHERE ${where.join(' AND ')}
+       GROUP BY l.user_id, u.username
+       ORDER BY cost_usd DESC`,
+      params
+    );
+    const total = rows.reduce((acc, r) => ({
+      calls:        acc.calls        + Number(r.calls),
+      input_tokens: acc.input_tokens + Number(r.input_tokens),
+      output_tokens:acc.output_tokens+ Number(r.output_tokens),
+      total_tokens: acc.total_tokens + Number(r.total_tokens),
+      cost_usd:     acc.cost_usd     + Number(r.cost_usd),
+    }), { calls:0, input_tokens:0, output_tokens:0, total_tokens:0, cost_usd:0 });
+    res.json({ users: rows, total });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '查询失败' });
+  }
+});
+
+router.get('/stats/range/options', async (_req, res) => {
+  try {
+    const [models, users, apiKeys] = await Promise.all([
+      db.query(
+        `SELECT DISTINCT model
+         FROM openclaw_call_logs
+         WHERE model IS NOT NULL AND model != ''
+         ORDER BY model ASC`
+      ),
+      db.query(
+        `SELECT DISTINCT l.user_id AS id, u.username
+         FROM openclaw_call_logs l
+         JOIN users u ON u.id = l.user_id
+         WHERE l.user_id IS NOT NULL
+         ORDER BY u.username ASC, l.user_id ASC`
+      ),
+      db.query(
+        `SELECT DISTINCT k.id, k.key_display, k.user_id, u.username
+         FROM openclaw_call_logs l
+         JOIN openclaw_api_keys k ON k.id = l.api_key_id
+         LEFT JOIN users u ON u.id = k.user_id
+         WHERE l.api_key_id IS NOT NULL
+         ORDER BY k.id DESC`
+      ),
+    ]);
+
+    res.json({
+      models: (models[0] || []).map(row => ({ value: row.model, label: row.model })),
+      users: (users[0] || []).map(row => ({
+        id: row.id,
+        username: row.username || `用户 ${row.id}`,
+      })),
+      api_keys: (apiKeys[0] || []).map(row => ({
+        id: row.id,
+        key_display: row.key_display,
+        user_id: row.user_id,
+        username: row.username || `用户 ${row.user_id}`,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取统计筛选选项失败' });
+  }
+});
+
+function normalizeAppMarketPayload(body = {}) {
+  const name = String(body.name || '').trim();
+  const description = String(body.description || '').trim();
+  const url = String(body.url || '').trim();
+  return { name, description, url };
+}
+
+function validateAppMarketPayload({ name, description, url }) {
+  if (!name || !description || !url) return '请填写名称、描述和 URL';
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return 'URL 仅支持 http/https';
+  } catch {
+    return '请输入有效的 URL';
+  }
+  return null;
+}
+
+router.get('/app-market', async (_req, res) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT id, name, description, url, created_at, updated_at FROM openclaw_app_market ORDER BY id DESC'
+    );
+    res.json({ apps: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取应用市场列表失败' });
+  }
+});
+
+router.post('/app-market', async (req, res) => {
+  const payload = normalizeAppMarketPayload(req.body);
+  const validationError = validateAppMarketPayload(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  try {
+    const [result] = await db.query(
+      'INSERT INTO openclaw_app_market (name, description, url) VALUES (?, ?, ?)',
+      [payload.name, payload.description, payload.url]
+    );
+    res.json({ id: result.insertId, message: '应用已添加' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '添加应用失败' });
+  }
+});
+
+router.put('/app-market/:id', async (req, res) => {
+  const payload = normalizeAppMarketPayload(req.body);
+  const validationError = validateAppMarketPayload(payload);
+  if (validationError) return res.status(400).json({ error: validationError });
+
+  try {
+    const [result] = await db.query(
+      'UPDATE openclaw_app_market SET name = ?, description = ?, url = ? WHERE id = ?',
+      [payload.name, payload.description, payload.url, Number(req.params.id)]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: '应用不存在' });
+    res.json({ message: '应用已更新' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '更新应用失败' });
+  }
+});
+
+router.delete('/app-market/:id', async (req, res) => {
+  try {
+    const [result] = await db.query(
+      'DELETE FROM openclaw_app_market WHERE id = ?',
+      [Number(req.params.id)]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: '应用不存在' });
+    res.json({ message: '应用已删除' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '删除应用失败' });
   }
 });
 
@@ -326,7 +551,7 @@ router.get('/users', async (req, res) => {
     }
     const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM users u WHERE ${where}`, params);
     const [users] = await db.query(
-      `SELECT u.id as user_id, u.username, u.role, u.created_at,
+      `SELECT u.id as user_id, u.username, u.role, u.status, u.created_at,
               COALESCE(q.balance, 0) as quota_balance,
               COALESCE(w.balance, 0) as wallet_balance,
        (SELECT COUNT(*) FROM openclaw_api_keys k WHERE k.user_id = u.id AND k.status = 'active') as key_count,
@@ -1064,6 +1289,85 @@ router.post('/ccclub/messages/send-email', async (req, res) => {
   }
 });
 
+router.post('/emails/send', async (req, res) => {
+  try {
+    const {
+      subject,
+      content,
+      target = 'all',
+      user_ids = [],
+    } = req.body || {};
+
+    const normalizedSubject = String(subject || '').trim();
+    const normalizedContent = String(content || '').trim();
+    if (!normalizedSubject) return res.status(400).json({ error: '邮件主题不能为空' });
+    if (!normalizedContent) return res.status(400).json({ error: '邮件正文不能为空' });
+
+    const transporter = await getMailer();
+    if (!transporter) return res.status(500).json({ error: 'SMTP未配置，无法发送邮件' });
+    const from = await getSettingCached('smtp_user', '');
+    if (!from) return res.status(500).json({ error: 'SMTP发件人未配置' });
+
+    let rows = [];
+    if (target === 'users') {
+      const ids = Array.from(new Set(
+        (Array.isArray(user_ids) ? user_ids : [])
+          .map(id => Number(id))
+          .filter(id => Number.isInteger(id) && id > 0)
+      )).slice(0, 500);
+      if (!ids.length) return res.status(400).json({ error: '请先填写有效的用户ID' });
+      const placeholders = ids.map(() => '?').join(',');
+      [rows] = await db.query(
+        `SELECT id, username, email
+         FROM users
+         WHERE id IN (${placeholders}) AND email IS NOT NULL AND email != ''
+         ORDER BY id ASC`,
+        ids
+      );
+      if (!rows.length) return res.status(404).json({ error: '所选用户均未绑定邮箱' });
+    } else {
+      [rows] = await db.query(
+        `SELECT id, username, email
+         FROM users
+         WHERE email IS NOT NULL AND email != ''
+         ORDER BY id ASC`
+      );
+      if (!rows.length) return res.status(404).json({ error: '暂无已绑定邮箱的用户' });
+    }
+
+    const recipients = Array.from(new Set(rows.map(row => String(row.email || '').trim()).filter(Boolean)));
+    if (!recipients.length) return res.status(404).json({ error: '未找到可发送的邮箱地址' });
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.7;color:#111;">
+        <div style="margin-bottom:14px;">${nl2brHtml(normalizedContent)}</div>
+        <hr style="margin:18px 0;border:none;border-top:1px solid #e5e7eb;">
+        <div style="font-size:12px;color:#666;">
+          本邮件由 OpenClaw API 管理后台群发发送。
+        </div>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from,
+      bcc: recipients,
+      subject: normalizedSubject,
+      text: normalizedContent,
+      html,
+    });
+
+    res.json({
+      message: `群发成功，已投递到 ${recipients.length} 个邮箱`,
+      sent: recipients.length,
+      matched_users: rows.length,
+      target: target === 'users' ? 'users' : 'all',
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '群发邮件失败' });
+  }
+});
+
 // CC Club 直连 vs 中转测速（管理员）
 router.post('/ccclub/test-latency', async (req, res) => {
   try {
@@ -1213,6 +1517,74 @@ router.get('/error-stats', adminOnly, async (req, res) => {
   }
 });
 
+// 趋势统计 — 最近 N 天每日调用/费用/tokens
+router.get('/stats/trends', async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 7, 30);
+  try {
+    const [rows] = await db.query(
+      `SELECT DATE(created_at) as date,
+         COUNT(*) as calls,
+         COALESCE(SUM(total_cost),0) as cost,
+         COALESCE(SUM(prompt_tokens+completion_tokens),0) as tokens
+       FROM openclaw_call_logs
+       WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY date ASC`,
+      [days]
+    );
+    res.json({ days, data: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取趋势数据失败' });
+  }
+});
+
+// 模型调用分布 — 最近 N 天各模型调用占比
+router.get('/stats/model-distribution', async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 7, 30);
+  try {
+    const [rows] = await db.query(
+      `SELECT model, COUNT(*) as calls, COALESCE(SUM(total_cost),0) as cost
+       FROM openclaw_call_logs
+       WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+       GROUP BY model
+       ORDER BY calls DESC
+       LIMIT 10`,
+      [days]
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取模型分布失败' });
+  }
+});
+
+// 修改用户状态（封禁/解禁）
+router.put('/users/:id/status', async (req, res) => {
+  const { status } = req.body;
+  if (!['active', 'banned'].includes(status)) return res.status(400).json({ error: '状态值无效' });
+  try {
+    await db.query('UPDATE users SET status = ? WHERE id = ?', [status, req.params.id]);
+    res.json({ message: status === 'banned' ? '用户已封禁' : '用户已解禁' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '操作失败' });
+  }
+});
+
+// 修改用户角色
+router.put('/users/:id/role', async (req, res) => {
+  const { role } = req.body;
+  if (!['admin', 'user', 'reviewer'].includes(role)) return res.status(400).json({ error: '角色值无效' });
+  try {
+    await db.query('UPDATE users SET role = ? WHERE id = ?', [role, req.params.id]);
+    res.json({ message: '角色已更新' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '操作失败' });
+  }
+});
+
 // ── 缓存管理接口：手动清除模型/上游缓存 ────────────────────────────────────
 router.post('/cache/clear', adminOnly, async (req, res) => {
   const { type, key } = req.body;
@@ -1291,6 +1663,355 @@ router.post('/models/health-check', async (req, res) => {
     res.json({ total: items.length, ok, fail, models: items });
   } catch (err) {
     res.status(500).json({ error: `健康检查失败: ${err.message}` });
+  }
+});
+
+// ── CC Club 密钥管理 ──────────────────────────────────────────────
+
+// GET /admin/ccclub/keys — 列出所有 CC Club 密钥（以 upstreams 为主，注册表补充备注）
+router.get('/ccclub/keys', async (req, res) => {
+  try {
+    const [keys] = await db.query(
+      `SELECT
+         COALESCE(k.id, 0)                        AS id,
+         u.api_key,
+         COALESCE(k.notes, '')                    AS notes,
+         COALESCE(k.status, 'active')             AS status,
+         k.created_at,
+         COUNT(u.id)                              AS upstream_count
+       FROM openclaw_model_upstreams u
+       LEFT JOIN openclaw_ccclub_keys k ON k.api_key = u.api_key
+       WHERE u.base_url LIKE '%claude-code.club%'
+       GROUP BY u.api_key
+       ORDER BY k.created_at DESC, u.api_key ASC`
+    );
+    res.json({ keys });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取密钥列表失败' });
+  }
+});
+
+// POST /admin/ccclub/keys — 新增 CC Club 密钥
+router.post('/ccclub/keys', async (req, res) => {
+  try {
+    let { key_raw, notes } = req.body || {};
+    if (!key_raw) return res.status(400).json({ error: '请输入密钥' });
+    const apiKey = String(key_raw).startsWith('cr_') ? String(key_raw) : 'cr_' + String(key_raw);
+    notes = String(notes || '').slice(0, 255);
+
+    // 重复检查
+    const [[exist]] = await db.query(
+      'SELECT id FROM openclaw_ccclub_keys WHERE api_key = ? LIMIT 1', [apiKey]
+    );
+    if (exist) return res.status(409).json({ error: '该密钥已存在，请勿重复添加' });
+
+    // 从参考密钥复制所有 CC Club upstream 行
+    const [templateRows] = await db.query(
+      `SELECT model_id, base_url, upstream_model_id, weight, sort_order, provider_name
+       FROM openclaw_model_upstreams
+       WHERE base_url LIKE '%claude-code.club%'
+         AND status IN ('active','disabled')
+       GROUP BY model_id, base_url, upstream_model_id, weight, sort_order, provider_name`
+    );
+
+    if (templateRows.length > 0) {
+      const insertVals = templateRows.map(r =>
+        [r.model_id, r.base_url, apiKey, r.upstream_model_id, r.weight, r.sort_order, r.provider_name, 'active']
+      );
+      await db.query(
+        `INSERT IGNORE INTO openclaw_model_upstreams
+         (model_id, base_url, api_key, upstream_model_id, weight, sort_order, provider_name, status)
+         VALUES ?`,
+        [insertVals]
+      );
+    }
+
+    await db.query('INSERT INTO openclaw_ccclub_keys (api_key, notes) VALUES (?, ?)', [apiKey, notes]);
+    await cache.delByPrefix('upstreams:');
+
+    res.json({ ok: true, api_key: apiKey, upstream_rows: templateRows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '添加密钥失败: ' + err.message });
+  }
+});
+
+// PUT/PATCH /admin/ccclub/keys — 修改 CC Club 密钥备注（body: { api_key, notes }）
+async function updateCcclubKeyNotes(req, res) {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    const notes = String(req.body?.notes || '').trim().slice(0, 255);
+    if (!apiKey) return res.status(400).json({ error: '缺少 api_key 参数' });
+
+    const [[registryRow]] = await db.query(
+      'SELECT id FROM openclaw_ccclub_keys WHERE api_key = ? LIMIT 1',
+      [apiKey]
+    );
+    const [[upstreamRow]] = await db.query(
+      `SELECT id
+       FROM openclaw_model_upstreams
+       WHERE api_key = ?
+         AND base_url LIKE '%claude-code.club%'
+       LIMIT 1`,
+      [apiKey]
+    );
+
+    if (!registryRow && !upstreamRow) {
+      return res.status(404).json({ error: '未找到该 CC Club 密钥' });
+    }
+
+    if (registryRow) {
+      await db.query('UPDATE openclaw_ccclub_keys SET notes = ? WHERE api_key = ?', [notes, apiKey]);
+    } else {
+      await db.query('INSERT INTO openclaw_ccclub_keys (api_key, notes) VALUES (?, ?)', [apiKey, notes]);
+    }
+
+    res.json({ ok: true, api_key: apiKey, notes });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '更新密钥备注失败: ' + err.message });
+  }
+}
+
+router.put('/ccclub/keys', updateCcclubKeyNotes);
+router.patch('/ccclub/keys', updateCcclubKeyNotes);
+
+// PUT /admin/ccclub/keys/status — 手动启用/禁用 CC Club 密钥（body: { api_key, status: 'active'|'disabled' }）
+router.put('/ccclub/keys/status', async (req, res) => {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    const status = req.body?.status === 'disabled' ? 'disabled' : 'active';
+    if (!apiKey) return res.status(400).json({ error: '缺少 api_key 参数' });
+
+    // 确保注册表中有记录
+    const [[existing]] = await db.query('SELECT id FROM openclaw_ccclub_keys WHERE api_key = ? LIMIT 1', [apiKey]);
+    if (!existing) return res.status(404).json({ error: '未找到该 CC Club 密钥' });
+
+    // 更新注册表状态
+    await db.query('UPDATE openclaw_ccclub_keys SET status = ? WHERE api_key = ?', [status, apiKey]);
+    // 同步更新所有对应上游行的状态
+    await db.query(
+      'UPDATE openclaw_model_upstreams SET status = ? WHERE api_key = ? AND base_url LIKE ?',
+      [status, apiKey, '%claude-code.club%']
+    );
+    await cache.delByPrefix('upstreams:');
+
+    res.json({ ok: true, api_key: apiKey, status });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '更新状态失败: ' + err.message });
+  }
+});
+
+// DELETE /admin/ccclub/keys — 删除 CC Club 密钥（body: { api_key }）
+router.delete('/ccclub/keys', async (req, res) => {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    if (!apiKey) return res.status(400).json({ error: '缺少 api_key 参数' });
+
+    await db.query('DELETE FROM openclaw_model_upstreams WHERE api_key = ? AND base_url LIKE ?', [apiKey, '%claude-code.club%']);
+    await db.query('DELETE FROM openclaw_ccclub_keys WHERE api_key = ?', [apiKey]);
+    await cache.delByPrefix('upstreams:');
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '删除密钥失败: ' + err.message });
+  }
+});
+
+// CC Club 密钥冷却状态查询
+router.get('/ccclub/key-resets', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT
+      k.id AS reg_id,
+      k.api_key,
+      k.notes,
+      COALESCE(k.status, 'active')  AS key_status,
+      COALESCE(r.status, 'ready')   AS status,
+      r.reset_at,
+      r.last_status_code,
+      r.last_error_message,
+      r.last_seen_at
+      FROM openclaw_ccclub_keys k
+      LEFT JOIN openclaw_ccclub_key_resets r ON r.key_fingerprint = SHA2(k.api_key, 256)
+      ORDER BY
+      CASE COALESCE(r.status, 'ready')
+      WHEN 'cooldown' THEN 0
+      WHEN 'ready' THEN 1
+      ELSE 2
+      END ASC,
+      r.reset_at ASC,
+      k.id ASC`
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取密钥冷却状态失败' });
+  }
+});
+
+// 手动将指定 CC Club 密钥从冷却状态恢复为可用
+router.post('/ccclub/key-resets/recover', async (req, res) => {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    if (!apiKey) return res.status(400).json({ error: '缺少 api_key 参数' });
+
+    const [[upstreamRow]] = await db.query(
+      `SELECT id, provider_name, base_url
+       FROM openclaw_model_upstreams
+       WHERE api_key = ?
+         AND base_url LIKE '%claude-code.club%'
+       LIMIT 1`,
+      [apiKey]
+    );
+    if (!upstreamRow) {
+      return res.status(404).json({ error: '未找到该 CC Club 密钥对应的上游记录' });
+    }
+
+    const keyFingerprint = crypto.createHash('sha256').update(apiKey).digest('hex');
+    await db.query(
+      `INSERT INTO openclaw_ccclub_key_resets
+       (key_fingerprint, provider_name, base_url, reset_at, status, last_seen_at, recovered_notified_at)
+       VALUES (?, ?, ?, NOW(), 'ready', NOW(), NOW())
+       ON DUPLICATE KEY UPDATE
+         provider_name = VALUES(provider_name),
+         base_url = VALUES(base_url),
+         status = 'ready',
+         reset_at = NOW(),
+         last_seen_at = NOW(),
+         recovered_notified_at = COALESCE(recovered_notified_at, NOW()),
+         updated_at = NOW()`,
+      [keyFingerprint, String(upstreamRow.provider_name || ''), String(upstreamRow.base_url || '')]
+    );
+
+    await db.query(
+      `UPDATE openclaw_model_upstreams
+       SET status = 'active'
+       WHERE base_url LIKE '%claude-code.club%'
+         AND SHA2(api_key, 256) = ?`,
+      [keyFingerprint]
+    );
+    await db.query(
+      `UPDATE openclaw_provider_endpoints
+       SET status = 'active'
+       WHERE base_url LIKE '%claude-code.club%'
+         AND SHA2(api_key, 256) = ?`,
+      [keyFingerprint]
+    ).catch(() => {});
+    await db.query(
+      `UPDATE openclaw_providers
+       SET status = 'active'
+       WHERE base_url LIKE '%claude-code.club%'
+         AND SHA2(api_key, 256) = ?`,
+      [keyFingerprint]
+    ).catch(() => {});
+    await db.query(
+      `UPDATE openclaw_models m
+       LEFT JOIN (
+         SELECT model_id, SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_cnt
+         FROM openclaw_model_upstreams
+         WHERE base_url LIKE '%claude-code.club%'
+         GROUP BY model_id
+       ) u ON u.model_id = m.id
+       SET m.status = CASE WHEN COALESCE(u.active_cnt, 0) > 0 THEN 'active' ELSE 'disabled' END
+       WHERE m.provider LIKE 'ccclub%' OR u.model_id IS NOT NULL`
+    );
+    await cache.delByPrefix('model:');
+    await cache.delByPrefix('upstreams:');
+    await cache.delByPrefix('provider-endpoints:');
+
+    res.json({ ok: true, api_key: apiKey, status: 'ready' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '手动恢复 CC Club 密钥失败: ' + err.message });
+  }
+});
+
+// CC Club 密钥冷却状态发送到管理员邮箱
+router.post('/ccclub/key-resets/send-email', async (req, res) => {
+  try {
+    const transporter = await getMailer();
+    if (!transporter) return res.status(500).json({ error: 'SMTP未配置，无法发送邮件' });
+    const from = await getSettingCached('smtp_user', '');
+    if (!from) return res.status(500).json({ error: 'SMTP发件人未配置' });
+    const to = process.env.ALERT_EMAIL || process.env.ADMIN_EMAIL || '2743319061@qq.com';
+
+    const [rows] = await db.query(
+      `SELECT
+         k.id AS reg_id,
+         k.api_key,
+         k.notes,
+         COALESCE(r.status, 'ready') AS status,
+         r.reset_at,
+         r.last_status_code,
+         r.last_error_message,
+         r.last_seen_at
+       FROM openclaw_ccclub_keys k
+       LEFT JOIN openclaw_ccclub_key_resets r ON r.key_fingerprint = SHA2(k.api_key, 256)
+       ORDER BY
+         CASE COALESCE(r.status, 'ready')
+           WHEN 'cooldown' THEN 0
+           WHEN 'ready' THEN 1
+           ELSE 2
+         END ASC,
+         r.reset_at ASC,
+         k.id ASC`
+    );
+
+    const now = new Date();
+    const fmtDate = d => d ? new Date(d).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '—';
+    const diffLabel = s => {
+      if (!s) return '';
+      const ms = new Date(s).getTime() - now.getTime();
+      if (ms <= 0) return '(已可用)';
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      return `(还需 ${h}h ${m}m)`;
+    };
+
+    const tableRows = rows.map((r, i) => `
+      <tr style="background:${i % 2 === 0 ? '#fff' : '#f9f9f9'}">
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(String(r.api_key || '').slice(0, 12) + '…' + String(r.api_key || '').slice(-6))}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(r.notes || '—')}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;color:${r.status === 'cooldown' ? '#e53e3e' : '#38a169'};font-weight:600;">${r.status === 'cooldown' ? '冷却中' : '可用'}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(fmtDate(r.reset_at))} ${escapeHtml(diffLabel(r.reset_at))}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${r.last_status_code || '—'}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;max-width:240px;">${escapeHtml((r.last_error_message || '').slice(0, 80) || '—')}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(fmtDate(r.last_seen_at))}</td>
+      </tr>`).join('');
+
+    const html = `
+      <h2 style="color:#333;">CC Club 密钥冷却状态报告</h2>
+      <p style="color:#666;">查询时间：${escapeHtml(fmtDate(now))}，共 ${rows.length} 条记录</p>
+      <table style="border-collapse:collapse;width:100%;font-size:13px;">
+        <thead>
+          <tr style="background:#f0f0f0;">
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">密钥</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">备注</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">状态</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">重置时间</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">HTTP码</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">最近错误</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">最近活跃</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>`;
+
+    await transporter.sendMail({
+      from,
+      to,
+      subject: `[CC Club] 密钥冷却状态报告 — ${rows.filter(r => r.status === 'cooldown').length} 个冷却中`,
+      html
+    });
+
+    res.json({ ok: true, to, count: rows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: `发送失败: ${err.message}` });
   }
 });
 

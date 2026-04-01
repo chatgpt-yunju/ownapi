@@ -8,6 +8,8 @@ const db = require('../../../config/db');
 const { formatPemKey, makeTradeNo, isMobile } = require('../utils/alipay');
 const { generateApiKey, hashApiKey, maskApiKey } = require('../utils/crypto');
 const { adjustBalance } = require('../utils/billing');
+const { getChinaDateString } = require('../../../utils/chinaTime');
+const { grantFirstPaidInviteReward } = require('../utils/inviteRewards');
 
 /**
  * 从 settings 表获取配置
@@ -15,6 +17,16 @@ const { adjustBalance } = require('../utils/billing');
 async function getSetting(key) {
   const [[row]] = await db.query('SELECT value FROM settings WHERE `key` = ?', [key]);
   return row?.value || '';
+}
+
+function getInviteEligiblePaidAmount(order) {
+  if (!order) return 0;
+  if (order.order_type === 'recharge') {
+    const actualPaid = Number(order.actual_paid || 0);
+    if (actualPaid > 0) return actualPaid;
+    return Math.max(0, Number(order.amount || 0) - Number(order.bonus_quota || 0));
+  }
+  return Number(order.actual_paid || order.amount || 0);
 }
 
 /**
@@ -104,12 +116,19 @@ router.post('/create-package', async (req, res) => {
         const keyHash = hashApiKey(key);
         const keyDisplay = maskApiKey(key);
         const keyPrefix = key.slice(0, 7);
-        const keyName = `${pkg.name} - ${new Date().toISOString().split('T')[0]}`;
+        const keyName = `${pkg.name} - ${getChinaDateString()}`;
 
         await conn.query(
           'INSERT INTO openclaw_api_keys (user_id, package_id, key_prefix, key_hash, key_display, name) VALUES (?, ?, ?, ?, ?, ?)',
           [userId, pkgResult.insertId, keyPrefix, keyHash, keyDisplay, keyName]
         );
+
+        await grantFirstPaidInviteReward({
+          conn,
+          inviteeUserId: userId,
+          outTradeNo: out_trade_no,
+          paidAmount: getInviteEligiblePaidAmount(order),
+        });
 
         await conn.commit();
 
@@ -235,16 +254,6 @@ router.post('/alipay/notify', async (req, res) => {
       try {
         await conn.beginTransaction();
 
-        // 检查10密钥上限
-        const [[{ cnt }]] = await conn.query(
-          'SELECT COUNT(*) as cnt FROM openclaw_api_keys WHERE user_id = ?',
-          [order.user_id]
-        );
-        if (cnt >= 10) {
-          await conn.rollback();
-          return res.send('fail');
-        }
-
         // 更新订单状态
         await conn.query(
           'UPDATE recharge_orders SET status = "paid", alipay_trade_no = ?, paid_at = NOW() WHERE out_trade_no = ?',
@@ -268,38 +277,72 @@ router.post('/alipay/notify', async (req, res) => {
           }
         }
 
-        // 创建用户套餐
-        const [[pkg]] = await conn.query('SELECT * FROM openclaw_packages WHERE id = ?', [order.package_id]);
-        const [pkgResult] = await conn.query(
-          'INSERT INTO openclaw_user_packages (user_id, package_id, expires_at, status) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), "active")',
-          [order.user_id, order.package_id]
-        );
-
-        // 充值月度配额
-        const monthlyQuota = Number(pkg.monthly_quota);
-        if (monthlyQuota > 0) {
-          await adjustBalance(
-            order.user_id,
-            'quota',
-            monthlyQuota,
-            'recharge',
-            `购买${pkg.name}套餐，获得月度配额 $${monthlyQuota}`,
-            { source: 'alipay_notify', order_type: 'package', package_id: pkg.id, out_trade_no },
-            conn
+        if (order.order_type === 'package' && order.package_id) {
+          // 检查10密钥上限
+          const [[{ cnt }]] = await conn.query(
+            'SELECT COUNT(*) as cnt FROM openclaw_api_keys WHERE user_id = ?',
+            [order.user_id]
           );
+          if (cnt >= 10) {
+            await conn.rollback();
+            return res.send('fail');
+          }
         }
 
-        // 创建 API Key
-        const key = generateApiKey();
-        const keyHash = hashApiKey(key);
-        const keyDisplay = maskApiKey(key);
-        const keyPrefix = key.slice(0, 7);
-        const keyName = `${pkg.name} - ${new Date().toISOString().split('T')[0]}`;
+        if (order.order_type === 'package' && order.package_id) {
+          // 创建用户套餐
+          const [[pkg]] = await conn.query('SELECT * FROM openclaw_packages WHERE id = ?', [order.package_id]);
+          const [pkgResult] = await conn.query(
+            'INSERT INTO openclaw_user_packages (user_id, package_id, expires_at, status) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), "active")',
+            [order.user_id, order.package_id]
+          );
 
-        await conn.query(
-          'INSERT INTO openclaw_api_keys (user_id, package_id, key_prefix, key_hash, key_display, name) VALUES (?, ?, ?, ?, ?, ?)',
-          [order.user_id, pkgResult.insertId, keyPrefix, keyHash, keyDisplay, keyName]
-        );
+          // 充值月度配额
+          const monthlyQuota = Number(pkg.monthly_quota);
+          if (monthlyQuota > 0) {
+            await adjustBalance(
+              order.user_id,
+              'quota',
+              monthlyQuota,
+              'recharge',
+              `购买${pkg.name}套餐，获得月度配额 $${monthlyQuota}`,
+              { source: 'alipay_notify', order_type: 'package', package_id: pkg.id, out_trade_no },
+              conn
+            );
+          }
+
+          // 创建 API Key
+          const key = generateApiKey();
+          const keyHash = hashApiKey(key);
+          const keyDisplay = maskApiKey(key);
+          const keyPrefix = key.slice(0, 7);
+          const keyName = `${pkg.name} - ${getChinaDateString()}`;
+
+          await conn.query(
+            'INSERT INTO openclaw_api_keys (user_id, package_id, key_prefix, key_hash, key_display, name) VALUES (?, ?, ?, ?, ?, ?)',
+            [order.user_id, pkgResult.insertId, keyPrefix, keyHash, keyDisplay, keyName]
+          );
+        } else if (order.order_type === 'recharge') {
+          const totalQuota = Number(order.amount || 0);
+          if (totalQuota > 0) {
+            await adjustBalance(
+              order.user_id,
+              'quota',
+              totalQuota,
+              'booster',
+              `加油包充值成功，获得 $${totalQuota}`,
+              { source: 'alipay_notify', order_type: 'recharge', out_trade_no },
+              conn
+            );
+          }
+        }
+
+        await grantFirstPaidInviteReward({
+          conn,
+          inviteeUserId: order.user_id,
+          outTradeNo: out_trade_no,
+          paidAmount: getInviteEligiblePaidAmount(order),
+        });
 
         await conn.commit();
       } catch (err) {
@@ -492,7 +535,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
         const keyHash = hashApiKey(key);
         const keyDisplay = maskApiKey(key);
         const keyPrefix = key.slice(0, 7);
-        const keyName = `${pkg.name} - ${new Date().toISOString().split('T')[0]}`;
+        const keyName = `${pkg.name} - ${getChinaDateString()}`;
 
         await conn.query(
           'INSERT INTO openclaw_api_keys (user_id, package_id, key_prefix, key_hash, key_display, name) VALUES (?, ?, ?, ?, ?, ?)',
@@ -525,6 +568,13 @@ router.post('/verify/:out_trade_no', async (req, res) => {
           conn
         );
 
+        await grantFirstPaidInviteReward({
+          conn,
+          inviteeUserId: userId,
+          outTradeNo: out_trade_no,
+          paidAmount: getInviteEligiblePaidAmount(order),
+        });
+
         await conn.commit();
 
         return res.json({
@@ -533,6 +583,13 @@ router.post('/verify/:out_trade_no', async (req, res) => {
           amount: totalQuota
         });
       }
+
+      await grantFirstPaidInviteReward({
+        conn,
+        inviteeUserId: userId,
+        outTradeNo: out_trade_no,
+        paidAmount: getInviteEligiblePaidAmount(order),
+      });
 
       await conn.commit();
       return res.json({ success: true, message: '订单验证成功' });

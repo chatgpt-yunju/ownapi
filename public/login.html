@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>登录 - OpenClaw API</title>
+  <title>身份登录 - OpenClaw API 控制台</title>
   <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
   <style>
     body { min-height: 100vh; display: grid; place-items: center; position: relative; }
     body::before {
@@ -12,12 +13,61 @@
       position: fixed;
       inset: 0;
       background:
-        radial-gradient(circle at 20% 20%, rgba(0, 199, 255, 0.12), rgba(0, 199, 255, 0) 30%),
-        radial-gradient(circle at 80% 18%, rgba(255, 95, 207, 0.12), rgba(255, 95, 207, 0) 28%);
+        radial-gradient(circle at 20% 20%, rgba(108, 92, 231, 0.12), rgba(108, 92, 231, 0) 30%),
+        radial-gradient(circle at 80% 18%, rgba(0, 206, 201, 0.12), rgba(0, 206, 201, 0) 28%);
       pointer-events: none;
     }
-    .login-wrap { width: 100%; max-width: 460px; padding: 24px; position: relative; }
-    .login-card { background: linear-gradient(180deg, rgba(9, 24, 42, 0.82), rgba(5, 15, 28, 0.88)); border: 1px solid rgba(130, 205, 255, 0.22); border-radius: 24px; padding: 28px; box-shadow: 0 24px 60px rgba(2, 12, 24, 0.46); position: relative; overflow: hidden; }
+    .login-wrap { width: 100%; max-width: 980px; padding: 24px; position: relative; display:grid; grid-template-columns:minmax(0, 0.95fr) minmax(320px, 0.7fr); gap:20px; align-items:center; }
+    .login-side {
+      padding: 28px;
+      border-radius: 24px;
+      background: var(--gradient-panel);
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-soft);
+      position: relative;
+      overflow: hidden;
+    }
+    .login-side::before {
+      content: '';
+      position: absolute;
+      inset: auto -18% -24% auto;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(162, 155, 254, 0.2), rgba(162, 155, 254, 0));
+      pointer-events: none;
+    }
+    .login-side h1 { font-family: var(--font-display); font-size: 2.25rem; line-height: 1.06; margin-bottom: 0.9rem; max-width: 520px; }
+    .login-side p { color: var(--text-secondary); font-size: 0.96rem; line-height: 1.8; max-width: 560px; }
+    .login-proof { display:flex; gap:0.9rem; flex-wrap:wrap; margin-top:1rem; color:var(--text-muted); font-size:0.8rem; }
+    .login-proof span { display:inline-flex; align-items:center; gap:0.42rem; }
+    .login-proof span::before { content:''; width:6px; height:6px; border-radius:50%; background:var(--accent-light); box-shadow:0 0 10px var(--accent-glow); }
+    .login-points { display:grid; gap:0.8rem; margin-top:1.2rem; }
+    .login-point {
+      display:flex;
+      gap:0.75rem;
+      align-items:flex-start;
+      padding:0.9rem 1rem;
+      border-radius:16px;
+      background:var(--surface-soft);
+      border:1px solid var(--border-color);
+    }
+    .login-point strong { display:block; margin-bottom:0.2rem; font-size:0.92rem; }
+    .login-point p { margin:0; font-size:0.82rem; line-height:1.65; }
+    .login-point-icon {
+      width:34px;
+      height:34px;
+      border-radius:12px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      background:var(--surface-accent);
+      color:var(--accent-light);
+      flex-shrink:0;
+      font-size:0.92rem;
+    }
+    .login-links { display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:1.2rem; }
+    .login-card { background: var(--gradient-panel); border: 1px solid var(--border-color); border-radius: 24px; padding: 28px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
     .login-card::before {
       content: '';
       position: absolute;
@@ -25,15 +75,15 @@
       width: 240px;
       height: 240px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(0, 199, 255, 0.18), rgba(0, 199, 255, 0));
+      background: radial-gradient(circle, rgba(108, 92, 231, 0.18), rgba(108, 92, 231, 0));
       pointer-events: none;
     }
     .login-title { margin-bottom: 12px; font-size: 1.55rem; color: var(--text-primary); font-family: var(--font-display); letter-spacing: 0.04em; }
     .muted { color: var(--text-muted); font-size: 0.85rem; }
-    .login-eyebrow { display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.45rem 0.8rem; margin-bottom: 1rem; border-radius: 999px; border: 1px solid rgba(116, 245, 255, 0.18); background: rgba(9, 29, 48, 0.56); color: #dffaff; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-    .login-eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #29d6b0, #74f5ff); box-shadow: 0 0 12px rgba(116, 245, 255, 0.65); }
+    .login-eyebrow { display: inline-flex; align-items: center; gap: 0.55rem; padding: 0.45rem 0.8rem; margin-bottom: 1rem; border-radius: 999px; border: 1px solid var(--border-color); background: var(--surface-soft); color: var(--accent-light); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .login-eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-light)); box-shadow: 0 0 12px var(--accent-glow); }
     .captcha-row { display: flex; gap: 8px; align-items: center; }
-    .captcha-box { min-width: 108px; width: 108px; height: 44px; border: 1px solid rgba(130, 205, 255, 0.22); border-radius: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: rgba(255,255,255,0.94); overflow: hidden; flex-shrink: 0; }
+    .captcha-box { min-width: 108px; width: 108px; height: 44px; border: 1px solid var(--border-color); border-radius: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--bg-secondary); overflow: hidden; flex-shrink: 0; }
     .captcha-box img,
     .captcha-box svg { display: block; width: 108px; height: 44px; }
     .hidden { display: none !important; }
@@ -42,11 +92,13 @@
     .footer-links { margin-top: 16px; font-size: 0.82rem; display: flex; justify-content: space-between; }
     .divider { display: flex; align-items: center; gap: 8px; margin: 16px 0 12px; color: var(--text-muted); font-size: 0.8rem; }
     .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border-color); }
-    .btn-qq { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border: 1px solid rgba(130, 205, 255, 0.22); border-radius: 999px; background: rgba(7, 20, 35, 0.84); color: var(--text-primary); cursor: pointer; font-size: 0.9rem; transition: background 0.15s, transform 0.15s, border-color 0.15s; }
-    .btn-qq:hover { background: rgba(9, 28, 48, 0.9); border-color: var(--accent-light); transform: translateY(-1px); }
+    .btn-qq { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-soft); color: var(--text-primary); cursor: pointer; font-size: 0.9rem; transition: background 0.15s, transform 0.15s, border-color 0.15s; }
+    .btn-qq:hover { background: var(--surface-accent); border-color: var(--accent-light); transform: translateY(-1px); }
     .btn-qq svg { flex-shrink: 0; }
     @media (max-width: 640px) {
-      .login-wrap { padding: 16px; }
+      .login-wrap { padding: 16px; grid-template-columns:1fr; }
+      .login-side { padding: 22px 18px; border-radius: 20px; }
+      .login-side h1 { font-size: 1.72rem; }
       .login-card { padding: 22px 18px; border-radius: 20px; }
       .captcha-row { flex-wrap: wrap; }
       .captcha-box { width: 100%; }
@@ -57,33 +109,35 @@
 </head>
 <body>
   <div class="login-wrap">
+    <div class="login-side">
+    </div>
     <div class="login-card">
-      <div class="login-eyebrow">Secure Access</div>
-      <div class="login-title">账号登录</div>
-      <div class="muted" id="step-tip">请输入账号密码</div>
+      <div class="login-eyebrow">安全验证</div>
+      <div class="login-title">账户登录</div>
+      <div class="muted" id="step-tip">登录后即可进入控制台创建 API Key 并继续接入</div>
 
       <div id="step-login">
         <div class="form-group">
           <label>用户名</label>
-          <input class="oc-input" id="username" autocomplete="username" placeholder="请输入用户名">
+          <input class="oc-input" id="username" autocomplete="username" placeholder="请输入用户名或已绑定账户名">
         </div>
         <div class="form-group">
           <label>密码</label>
-          <input class="oc-input" id="password" type="password" autocomplete="current-password" placeholder="请输入密码">
+          <input class="oc-input" id="password" type="password" autocomplete="current-password" placeholder="请输入登录密码">
         </div>
         <div class="form-group">
           <label>图形验证码</label>
           <div class="captcha-row">
-            <input class="oc-input" id="captcha-text" maxlength="6" placeholder="验证码">
+            <input class="oc-input" id="captcha-text" maxlength="6" placeholder="请输入图形验证码">
             <div class="captcha-box" id="captcha-box" title="点击刷新"></div>
           </div>
         </div>
-        <button class="btn-accent" style="width:100%;" onclick="submitLogin()">登录</button>
+        <button class="btn-accent" style="width:100%;" onclick="submitLogin()">登录并进入控制台创建 API Key</button>
         <div id="qq-login-section" class="hidden">
           <div class="divider">或</div>
           <button class="btn-qq" onclick="startQQLogin()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="#12B7F5"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.236 2.636 7.855 6.356 9.312-.084-.793-.16-2.01.033-2.874.175-.786 1.17-4.975 1.17-4.975s-.299-.597-.299-1.48c0-1.386.806-2.422 1.808-2.422.853 0 1.267.64 1.267 1.408 0 .858-.547 2.144-.83 3.338-.236.997.499 1.808 1.479 1.808 1.775 0 3.142-1.87 3.142-4.57 0-2.387-1.717-4.056-4.166-4.056-2.837 0-4.502 2.128-4.502 4.328 0 .857.33 1.776.741 2.278a.3.3 0 0 1 .069.285c-.075.313-.243 1.001-.276 1.141-.044.184-.147.223-.339.134-1.249-.582-2.03-2.407-2.03-3.874 0-3.154 2.292-6.052 6.608-6.052 3.469 0 6.165 2.473 6.165 5.776 0 3.447-2.173 6.22-5.19 6.22-1.013 0-1.966-.527-2.292-1.148l-.623 2.326c-.226.869-.835 1.958-1.244 2.621.937.29 1.931.446 2.962.446 5.523 0 10-4.477 10-10S17.523 2 12 2z"/></svg>
-            QQ 登录
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#12B7F5"><path d="M12.003 2c-2.265 0-6.29 1.364-6.29 7.325v1.195S3.55 14.96 3.55 17.474c0 .665.297 1.373.743 1.093.386-.24 1.984-3.116 1.984-3.116s-.043 2.809 1.065 3.554c1.109.745 4.19 1.867 4.19 1.867s-1.337.95-1.418 1.488c-.08.537.3.566.802.566h2.168c.502 0 .882-.029.801-.566-.08-.537-1.418-1.488-1.418-1.488s3.081-1.122 4.19-1.867c1.108-.745 1.065-3.554 1.065-3.554s1.598 2.876 1.984 3.116c.446.28.743-.428.743-1.093 0-2.514-2.163-6.954-2.163-6.954V9.325C18.293 3.364 14.268 2 12.003 2z"/></svg>
+            QQ 授权登录
           </button>
         </div>
       </div>
@@ -91,33 +145,33 @@
       <div id="step-email-verify" class="hidden">
         <div class="form-group">
           <label>邮箱验证码</label>
-          <input class="oc-input" id="email-code-login" maxlength="6" placeholder="请输入6位验证码">
+          <input class="oc-input" id="email-code-login" maxlength="6" placeholder="请输入 6 位邮箱验证码">
         </div>
         <div class="muted" id="masked-email-tip"></div>
-        <button class="btn-accent" style="width:100%;margin-top:8px;" onclick="submitEmailVerify()">验证并登录</button>
-        <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="backToLogin()">返回重试</button>
+        <button class="btn-accent" style="width:100%;margin-top:8px;" onclick="submitEmailVerify()">验证并继续登录</button>
+        <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="backToLogin()">返回登录页</button>
       </div>
 
       <div id="step-bind-email" class="hidden">
         <div class="form-group">
           <label>绑定邮箱</label>
-          <input class="oc-input" id="bind-email" placeholder="请输入邮箱地址">
+          <input class="oc-input" id="bind-email" placeholder="请输入绑定邮箱地址">
         </div>
         <div class="form-group">
           <label>邮箱验证码</label>
           <div class="captcha-row">
-            <input class="oc-input" id="bind-email-code" maxlength="6" placeholder="请输入6位验证码">
+            <input class="oc-input" id="bind-email-code" maxlength="6" placeholder="请输入 6 位邮箱验证码">
             <button class="btn-outline btn-sm" onclick="sendBindCode()">发送验证码</button>
           </div>
         </div>
-        <button class="btn-accent" style="width:100%;" onclick="submitBindEmail()">绑定并登录</button>
-        <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="backToLogin()">返回重试</button>
+        <button class="btn-accent" style="width:100%;" onclick="submitBindEmail()">绑定邮箱并登录</button>
+        <button class="btn-outline" style="width:100%;margin-top:8px;" onclick="backToLogin()">返回登录页</button>
       </div>
 
       <div class="err" id="msg"></div>
       <div class="footer-links">
         <a href="/">返回首页</a>
-        <a href="/register.html?return_url=%2Fconsole.html">注册账号</a>
+        <a href="/register.html?return_url=%2Fconsole.html">创建新账号</a>
       </div>
     </div>
   </div>
@@ -228,7 +282,7 @@
         captchaToken = '';
         captchaAvailable = false;
         box.textContent = '点击重试';
-        setMsg('图形验证码暂时不可用，当前将仅校验账号密码。可点击右侧重试加载。');
+        setMsg('图形验证码暂不可用，将仅验证账号密码，可点击验证码区域重试加载。');
       }
     }
 

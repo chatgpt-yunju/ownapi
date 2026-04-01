@@ -12,7 +12,7 @@ const cache = require('../utils/cache');
 
 // GET /api/admin/queue/status
 router.get('/status', adminOnly, async (req, res) => {
-  const stats = getQueueStats();
+  const stats = await getQueueStats();
 
   let redisStats = null;
   try {
@@ -31,7 +31,7 @@ router.get('/status', adminOnly, async (req, res) => {
 // POST /api/admin/queue/config/reload
 router.post('/config/reload', adminOnly, async (req, res) => {
   await refreshConfig();
-  res.json({ ok: true, config: getQueueStats() });
+  res.json({ ok: true, config: await getQueueStats() });
 });
 
 module.exports = router;

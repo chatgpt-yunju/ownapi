@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const db = require('../config/db');
+const { getChinaDateString } = require('../../../utils/chinaTime');
 
 // 获取用户个人信息（包含积分、VIP等）
 router.get('/me', requireAuth, async (req, res) => {
@@ -73,7 +74,7 @@ router.get('/me', requireAuth, async (req, res) => {
 router.post('/checkin', requireAuth, async (req, res) => {
   try {
     const userId = req.session.user.id;
-    const today = new Date().toISOString().split('T')[0];
+    const today = getChinaDateString();
 
     // 获取用户积分信息
     const [[quota]] = await db.query(

@@ -1,72 +1,84 @@
 'use strict';
-/**
- * 请求排队中间件 — API中转站 Step 4
- * 优先级队列控制并发，防止上游过载
- */
 
+const crypto = require('crypto');
 const cache = require('../utils/cache');
 const { logDebugStep } = require('../utils/requestDebug');
+const { recordQueueSnapshot, recordQueueWait } = require('../utils/metrics');
 
-// ── 优先级映射（数值越小越优先）────────────────────────────────────────────
 const PRIORITY = {
   enterprise: 0,
-  pro:        1,
-  basic:      2,
-  free:       3,
-  guest:      4,
+  pro: 1,
+  basic: 2,
+  free: 3,
+  guest: 4,
 };
+
+const DEFAULTS = {
+  GLOBAL_MAX_INFLIGHT: 120,
+  MODEL_MAX_INFLIGHT_DEFAULT: 30,
+  MAX_QUEUE_SIZE: 3000,
+  WAIT_TIMEOUT_MS: 45000,
+  POLL_INTERVAL_MS: 50,
+  LEASE_TTL_MS: 180000,
+  HEARTBEAT_INTERVAL_MS: 15000,
+};
+
+const REDIS_KEYS = {
+  GLOBAL_ACTIVE: 'ai-gw:queue:active:global',
+  WAITING: 'ai-gw:queue:waiting',
+};
+
+const WAITING_SCORE_BASE = 1e15;
+
+let config = { ...DEFAULTS };
+let modelInflightOverrides = {};
+
+let getSettingCachedFn = null;
+function getSettingFn() {
+  if (!getSettingCachedFn) {
+    try {
+      getSettingCachedFn = require('../../../routes/quota').getSettingCached;
+    } catch {
+      getSettingCachedFn = async (_key, def) => def;
+    }
+  }
+  return getSettingCachedFn;
+}
 
 function getPriority(req) {
   const type = req.userPackageType || 'guest';
   return PRIORITY[type] ?? PRIORITY.guest;
 }
 
-// ── 配置默认值（可通过 settings 表覆盖）────────────────────────────────────
-const DEFAULTS = {
-  MAX_CONCURRENT:  10,
-  MAX_QUEUE_SIZE: 100,
-  WAIT_TIMEOUT_MS: 30000,
-};
-
-let config = { ...DEFAULTS };
-
-// 懒加载 getSettingCached，避免模块循环依赖
-let _getSettingCached = null;
-function getSettingFn() {
-  if (!_getSettingCached) {
-    try {
-      _getSettingCached = require('../../../routes/quota').getSettingCached;
-    } catch {
-      _getSettingCached = async (_key, def) => def;
-    }
-  }
-  return _getSettingCached;
+function isTargetRoute(req) {
+  if (req.method !== 'POST') return false;
+  const path = req.path || '';
+  const isGemini = path.includes(':generateContent') || path.includes(':streamGenerateContent');
+  return (
+    path.endsWith('/chat/completions') ||
+    path.endsWith('/embeddings') ||
+    path.endsWith('/messages') ||
+    path.endsWith('/responses') ||
+    isGemini
+  );
 }
 
-async function refreshConfig() {
-  const getSetting = getSettingFn();
-  try {
-    const [c, s, t] = await Promise.all([
-      getSetting('queue_max_concurrent',  String(DEFAULTS.MAX_CONCURRENT)),
-      getSetting('queue_max_size',         String(DEFAULTS.MAX_QUEUE_SIZE)),
-      getSetting('queue_wait_timeout_ms',  String(DEFAULTS.WAIT_TIMEOUT_MS)),
-    ]);
-    config = {
-      MAX_CONCURRENT:  Math.max(1, parseInt(c, 10)  || DEFAULTS.MAX_CONCURRENT),
-      MAX_QUEUE_SIZE:  Math.max(0, parseInt(s, 10)  || DEFAULTS.MAX_QUEUE_SIZE),
-      WAIT_TIMEOUT_MS: Math.max(1000, parseInt(t, 10) || DEFAULTS.WAIT_TIMEOUT_MS),
-    };
-  } catch { /* 保留上次配置 */ }
+function normalizeModelKey(model) {
+  if (!model) return 'unknown';
+  return encodeURIComponent(String(model).slice(0, 160));
 }
 
-// 启动加载一次，之后每 5 分钟刷新
-refreshConfig();
-setInterval(refreshConfig, 5 * 60 * 1000).unref();
+function getModelActiveKey(model) {
+  return `ai-gw:queue:active:model:${normalizeModelKey(model)}`;
+}
 
-// ── 核心队列状态 ─────────────────────────────────────────────────────────────
-let activeCount = 0;
-// 元素：{ priority, enqueuedAt, resolve, reject, _aborted }
-const waitingQueue = [];
+function getModelInflightLimit(model) {
+  return modelInflightOverrides[normalizeModelKey(model)] || config.MODEL_MAX_INFLIGHT_DEFAULT;
+}
+
+function buildWaitingScore(priority, enqueuedAt) {
+  return priority * WAITING_SCORE_BASE + enqueuedAt;
+}
 
 async function debugQueueStep(req, status, detail = {}, extra = {}) {
   if (!req?.aiGatewayRequestId) return;
@@ -85,91 +97,294 @@ async function debugQueueStep(req, status, detail = {}, extra = {}) {
   });
 }
 
-// ── 调度器：从等待队列提升请求到处理中 ────────────────────────────────────
-function scheduleNext() {
-  while (activeCount < config.MAX_CONCURRENT && waitingQueue.length > 0) {
-    const item = waitingQueue.shift();
-    if (item._aborted) continue;  // 客户端已断开，跳过
-    activeCount++;
+async function getSettingWithFallback(primaryKey, fallbackKey, defaultValue) {
+  const getSettingCached = getSettingFn();
+  const primary = await getSettingCached(primaryKey, '');
+  if (String(primary || '').trim()) return primary;
+  if (!fallbackKey) return defaultValue;
+  return getSettingCached(fallbackKey, defaultValue);
+}
+
+async function refreshConfig() {
+  try {
+    const [globalInflight, modelInflight, queueSize, waitTimeoutMs, pollIntervalMs, overridesRaw] = await Promise.all([
+      getSettingWithFallback('gateway_global_max_inflight', 'queue_max_concurrent', String(DEFAULTS.GLOBAL_MAX_INFLIGHT)),
+      getSettingWithFallback('gateway_model_max_inflight_default', null, String(DEFAULTS.MODEL_MAX_INFLIGHT_DEFAULT)),
+      getSettingWithFallback('gateway_queue_max_size', 'queue_max_size', String(DEFAULTS.MAX_QUEUE_SIZE)),
+      getSettingWithFallback('gateway_queue_wait_timeout_ms', 'queue_wait_timeout_ms', String(DEFAULTS.WAIT_TIMEOUT_MS)),
+      getSettingWithFallback('gateway_queue_poll_interval_ms', null, String(DEFAULTS.POLL_INTERVAL_MS)),
+      getSettingWithFallback('gateway_model_max_inflight_overrides', null, ''),
+    ]);
+
+    let parsedOverrides = {};
+    if (String(overridesRaw || '').trim()) {
+      try {
+        const parsed = JSON.parse(overridesRaw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          parsedOverrides = Object.fromEntries(
+            Object.entries(parsed)
+              .map(([key, value]) => [normalizeModelKey(key), Math.max(1, parseInt(value, 10) || 0)])
+              .filter(([, value]) => value > 0)
+          );
+        }
+      } catch {
+        parsedOverrides = {};
+      }
+    }
+
+    config = {
+      ...config,
+      GLOBAL_MAX_INFLIGHT: Math.max(1, parseInt(globalInflight, 10) || DEFAULTS.GLOBAL_MAX_INFLIGHT),
+      MODEL_MAX_INFLIGHT_DEFAULT: Math.max(1, parseInt(modelInflight, 10) || DEFAULTS.MODEL_MAX_INFLIGHT_DEFAULT),
+      MAX_QUEUE_SIZE: Math.max(0, parseInt(queueSize, 10) || DEFAULTS.MAX_QUEUE_SIZE),
+      WAIT_TIMEOUT_MS: Math.max(1000, parseInt(waitTimeoutMs, 10) || DEFAULTS.WAIT_TIMEOUT_MS),
+      POLL_INTERVAL_MS: Math.max(10, parseInt(pollIntervalMs, 10) || DEFAULTS.POLL_INTERVAL_MS),
+    };
+    modelInflightOverrides = parsedOverrides;
+  } catch {
+    // Keep the previous config.
+  }
+}
+
+refreshConfig();
+setInterval(refreshConfig, 5 * 60 * 1000).unref();
+
+const tryAcquireScript = `
+local globalKey = KEYS[1]
+local waitingKey = KEYS[2]
+local modelKey = KEYS[3]
+
+local nowMs = tonumber(ARGV[1])
+local leaseTtlMs = tonumber(ARGV[2])
+local token = ARGV[3]
+local waitingScore = tonumber(ARGV[4])
+local maxGlobal = tonumber(ARGV[5])
+local maxModel = tonumber(ARGV[6])
+local maxQueueSize = tonumber(ARGV[7])
+
+redis.call('ZREMRANGEBYSCORE', globalKey, '-inf', nowMs - leaseTtlMs)
+if modelKey ~= '' then
+  redis.call('ZREMRANGEBYSCORE', modelKey, '-inf', nowMs - leaseTtlMs)
+end
+
+local activeCount = redis.call('ZCARD', globalKey)
+local modelCount = 0
+if modelKey ~= '' then
+  modelCount = redis.call('ZCARD', modelKey)
+end
+
+local existing = redis.call('ZSCORE', waitingKey, token)
+local waitingCount = redis.call('ZCARD', waitingKey)
+if not existing then
+  if waitingCount >= maxQueueSize and not (activeCount < maxGlobal and modelCount < maxModel and waitingCount == 0) then
+    return {-1, activeCount, waitingCount, modelCount, -1}
+  end
+  redis.call('ZADD', waitingKey, 'NX', waitingScore, token)
+  waitingCount = waitingCount + 1
+end
+
+local rank = redis.call('ZRANK', waitingKey, token)
+if activeCount < maxGlobal and modelCount < maxModel and rank == 0 then
+  redis.call('ZREM', waitingKey, token)
+  redis.call('ZADD', globalKey, nowMs, token)
+  if modelKey ~= '' then
+    redis.call('ZADD', modelKey, nowMs, token)
+  end
+  return {1, activeCount + 1, math.max(waitingCount - 1, 0), modelCount + 1, rank}
+end
+
+return {0, activeCount, waitingCount, modelCount, rank or -1}
+`;
+
+const heartbeatScript = `
+local globalKey = KEYS[1]
+local modelKey = KEYS[2]
+local token = ARGV[1]
+local nowMs = tonumber(ARGV[2])
+
+if redis.call('ZSCORE', globalKey, token) then
+  redis.call('ZADD', globalKey, 'XX', nowMs, token)
+end
+if modelKey ~= '' and redis.call('ZSCORE', modelKey, token) then
+  redis.call('ZADD', modelKey, 'XX', nowMs, token)
+end
+return 1
+`;
+
+const releaseScript = `
+local globalKey = KEYS[1]
+local waitingKey = KEYS[2]
+local modelKey = KEYS[3]
+local token = ARGV[1]
+
+redis.call('ZREM', globalKey, token)
+redis.call('ZREM', waitingKey, token)
+if modelKey ~= '' then
+  redis.call('ZREM', modelKey, token)
+end
+return 1
+`;
+
+async function tryAcquireRedisSlot(token, model, priority, enqueuedAt) {
+  const modelKey = getModelActiveKey(model);
+  const modelLimit = getModelInflightLimit(model);
+  const result = await cache.redis.eval(
+    tryAcquireScript,
+    3,
+    REDIS_KEYS.GLOBAL_ACTIVE,
+    REDIS_KEYS.WAITING,
+    modelKey,
+    Date.now(),
+    config.LEASE_TTL_MS,
+    token,
+    buildWaitingScore(priority, enqueuedAt),
+    config.GLOBAL_MAX_INFLIGHT,
+    modelLimit,
+    config.MAX_QUEUE_SIZE
+  );
+
+  return {
+    state: Number(result[0]),
+    activeCount: Number(result[1]),
+    waitingCount: Number(result[2]),
+    modelCount: Number(result[3]),
+    rank: Number(result[4]),
+    modelKey,
+    modelLimit,
+  };
+}
+
+async function releaseRedisSlot(token, modelKey) {
+  if (!cache.redis || cache.redis.status !== 'ready') return;
+  await cache.redis.eval(
+    releaseScript,
+    3,
+    REDIS_KEYS.GLOBAL_ACTIVE,
+    REDIS_KEYS.WAITING,
+    modelKey || '',
+    token
+  ).catch(() => {});
+}
+
+function startRedisHeartbeat(token, modelKey) {
+  if (!cache.redis || cache.redis.status !== 'ready') return null;
+  return setInterval(() => {
+    cache.redis.eval(
+      heartbeatScript,
+      2,
+      REDIS_KEYS.GLOBAL_ACTIVE,
+      modelKey || '',
+      token,
+      Date.now()
+    ).catch(() => {});
+  }, config.HEARTBEAT_INTERVAL_MS).unref();
+}
+
+async function getRedisPriorityBreakdown() {
+  const counts = {};
+  for (const [label, priority] of Object.entries(PRIORITY)) {
+    const min = priority * WAITING_SCORE_BASE;
+    const max = ((priority + 1) * WAITING_SCORE_BASE) - 1;
+    counts[label] = Number(await cache.redis.zcount(REDIS_KEYS.WAITING, min, max).catch(() => 0));
+  }
+  return counts;
+}
+
+async function getRedisQueueStats() {
+  const [activeCount, waitingCount, priorityBreakdown] = await Promise.all([
+    cache.redis.zcard(REDIS_KEYS.GLOBAL_ACTIVE).catch(() => 0),
+    cache.redis.zcard(REDIS_KEYS.WAITING).catch(() => 0),
+    getRedisPriorityBreakdown(),
+  ]);
+
+  const snapshot = {
+    activeCount: Number(activeCount),
+    waitingCount: Number(waitingCount),
+    maxConcurrent: config.GLOBAL_MAX_INFLIGHT,
+    maxQueueSize: config.MAX_QUEUE_SIZE,
+    waitTimeoutMs: config.WAIT_TIMEOUT_MS,
+    mode: 'redis',
+    priorityBreakdown,
+  };
+  recordQueueSnapshot(snapshot);
+  return snapshot;
+}
+
+let memoryActiveCount = 0;
+const memoryWaitingQueue = [];
+const memoryReleased = new WeakSet();
+
+function scheduleMemoryNext() {
+  while (memoryActiveCount < config.GLOBAL_MAX_INFLIGHT && memoryWaitingQueue.length > 0) {
+    const item = memoryWaitingQueue.shift();
+    if (item.aborted) continue;
+    memoryActiveCount += 1;
     item.resolve();
   }
 }
 
-// ── Redis 统计上报（2秒防抖，不影响请求路径）─────────────────────────────
-let _statsTimer = null;
-function debouncedPublishStats() {
-  if (_statsTimer) return;
-  _statsTimer = setTimeout(() => {
-    _statsTimer = null;
-    if (cache.redis && cache.redis.status === 'ready') {
-      cache.redis.hset('queue:stats',
-        'activeCount',  String(activeCount),
-        'waitingCount', String(waitingQueue.length),
-        'updatedAt',    String(Date.now())
-      ).then(() => cache.redis.expire('queue:stats', 60)).catch(() => {});
-    }
-  }, 2000);
+function releaseMemorySlot() {
+  if (memoryReleased.has(this)) return;
+  memoryReleased.add(this);
+  memoryActiveCount = Math.max(0, memoryActiveCount - 1);
+  setImmediate(scheduleMemoryNext);
+  recordQueueSnapshot({
+    activeCount: memoryActiveCount,
+    waitingCount: memoryWaitingQueue.length,
+    maxConcurrent: config.GLOBAL_MAX_INFLIGHT,
+    maxQueueSize: config.MAX_QUEUE_SIZE,
+    waitTimeoutMs: config.WAIT_TIMEOUT_MS,
+    mode: 'memory',
+  });
 }
 
-// ── 槽位释放（WeakSet 防重复触发）─────────────────────────────────────────
-const _released = new WeakSet();
-function releaseSlot() {
-  if (_released.has(this)) return;
-  _released.add(this);
-  activeCount = Math.max(0, activeCount - 1);
-  setImmediate(scheduleNext);
-  debouncedPublishStats();
-}
-
-// ── Express 中间件入口 ────────────────────────────────────────────────────
-async function requestQueueMiddleware(req, res, next) {
-  if (req._queueChecked) return next();
-  // 只对推理接口排队
-  if (req.method !== 'POST') return next();
-  const path = req.path || '';
-  const isGemini = path.includes(':generateContent') || path.includes(':streamGenerateContent');
-  if (!path.endsWith('/chat/completions') && !path.endsWith('/embeddings') && !path.endsWith('/messages') && !path.endsWith('/responses') && !isGemini) {
-    return next();
-  }
-  req._queueChecked = true;
-
-  // 槽位充足：直接处理
-  if (activeCount < config.MAX_CONCURRENT) {
-    activeCount++;
-    debouncedPublishStats();
+async function handleMemoryQueue(req, res, next) {
+  if (memoryActiveCount < config.GLOBAL_MAX_INFLIGHT) {
+    memoryActiveCount += 1;
+    recordQueueSnapshot({
+      activeCount: memoryActiveCount,
+      waitingCount: memoryWaitingQueue.length,
+      maxConcurrent: config.GLOBAL_MAX_INFLIGHT,
+      maxQueueSize: config.MAX_QUEUE_SIZE,
+      waitTimeoutMs: config.WAIT_TIMEOUT_MS,
+      mode: 'memory',
+    });
+    recordQueueWait(0, false);
     await debugQueueStep(req, 'success', {
       queued: false,
-      active_count: activeCount,
-      waiting_count: waitingQueue.length,
-      max_concurrent: config.MAX_CONCURRENT,
+      active_count: memoryActiveCount,
+      waiting_count: memoryWaitingQueue.length,
+      max_concurrent: config.GLOBAL_MAX_INFLIGHT,
+      mode: 'memory',
     });
-    res.on('finish', releaseSlot);
-    res.on('close',  releaseSlot);
+    res.setHeader('X-Queue-Wait-Ms', '0');
+    req.aiGatewayQueueWaitMs = 0;
+    res.on('finish', releaseMemorySlot);
+    res.on('close', releaseMemorySlot);
     return next();
   }
 
-  // 队列已满：立即 503
-  if (waitingQueue.length >= config.MAX_QUEUE_SIZE) {
+  if (memoryWaitingQueue.length >= config.MAX_QUEUE_SIZE) {
     await debugQueueStep(req, 'error', {
       queued: false,
-      active_count: activeCount,
-      waiting_count: waitingQueue.length,
+      active_count: memoryActiveCount,
+      waiting_count: memoryWaitingQueue.length,
       max_queue_size: config.MAX_QUEUE_SIZE,
+      mode: 'memory',
     }, { errorMessage: '服务器繁忙，请稍后重试（队列已满）' });
     return res.status(503).json({
       error: {
         message: '服务器繁忙，请稍后重试（队列已满）',
         type: 'overloaded_error',
-        queue_depth: waitingQueue.length,
+        queue_depth: memoryWaitingQueue.length,
         retry_after: 5,
       }
     });
   }
 
-  // ── 入队等待 ──────────────────────────────────────────────────────────────
-  const priority   = getPriority(req);
+  const priority = getPriority(req);
   const enqueuedAt = Date.now();
-  let _aborted     = false;
+  let aborted = false;
   let timeoutHandle;
 
   await new Promise((resolve, reject) => {
@@ -178,99 +393,260 @@ async function requestQueueMiddleware(req, res, next) {
       enqueuedAt,
       resolve,
       reject,
-      get _aborted() { return _aborted; },
+      get aborted() { return aborted; },
     };
 
-    // 按优先级有序插入（O(n)，队列上限100条，可接受）
-    let insertAt = waitingQueue.length;
-    for (let i = 0; i < waitingQueue.length; i++) {
+    let insertAt = memoryWaitingQueue.length;
+    for (let i = 0; i < memoryWaitingQueue.length; i++) {
       if (
-        priority < waitingQueue[i].priority ||
-        (priority === waitingQueue[i].priority && enqueuedAt < waitingQueue[i].enqueuedAt)
+        priority < memoryWaitingQueue[i].priority ||
+        (priority === memoryWaitingQueue[i].priority && enqueuedAt < memoryWaitingQueue[i].enqueuedAt)
       ) {
         insertAt = i;
         break;
       }
     }
-    waitingQueue.splice(insertAt, 0, item);
-    debouncedPublishStats();
+    memoryWaitingQueue.splice(insertAt, 0, item);
+    recordQueueSnapshot({
+      activeCount: memoryActiveCount,
+      waitingCount: memoryWaitingQueue.length,
+      maxConcurrent: config.GLOBAL_MAX_INFLIGHT,
+      maxQueueSize: config.MAX_QUEUE_SIZE,
+      waitTimeoutMs: config.WAIT_TIMEOUT_MS,
+      mode: 'memory',
+    });
     debugQueueStep(req, 'pending', {
       queued: true,
       priority,
       enqueued_at: enqueuedAt,
-      waiting_count: waitingQueue.length,
-      active_count: activeCount,
+      waiting_count: memoryWaitingQueue.length,
+      active_count: memoryActiveCount,
+      mode: 'memory',
     }).catch(() => {});
 
-    // 等待超时
     timeoutHandle = setTimeout(() => {
-      _aborted = true;
-      const idx = waitingQueue.indexOf(item);
-      if (idx !== -1) waitingQueue.splice(idx, 1);
-      debouncedPublishStats();
+      aborted = true;
+      const index = memoryWaitingQueue.indexOf(item);
+      if (index !== -1) memoryWaitingQueue.splice(index, 1);
       reject(new Error('QUEUE_TIMEOUT'));
     }, config.WAIT_TIMEOUT_MS);
 
-    // 客户端断开（SSE流式场景尤为重要）
     req.on('close', () => {
-      _aborted = true;
+      aborted = true;
       clearTimeout(timeoutHandle);
-      const idx = waitingQueue.indexOf(item);
-      if (idx !== -1) waitingQueue.splice(idx, 1);
-      debouncedPublishStats();
-      // 连接已关闭，不需要 reject，Express 无需再响应
+      const index = memoryWaitingQueue.indexOf(item);
+      if (index !== -1) memoryWaitingQueue.splice(index, 1);
+      reject(new Error('QUEUE_ABORTED'));
     });
-  }).then(() => {
+  }).then(async () => {
     clearTimeout(timeoutHandle);
-    debouncedPublishStats();
     const waitMs = Date.now() - enqueuedAt;
-    debugQueueStep(req, 'success', {
+    recordQueueWait(waitMs, true);
+    await debugQueueStep(req, 'success', {
       queued: true,
       priority,
       wait_ms: waitMs,
-      active_count: activeCount,
-      waiting_count: waitingQueue.length,
-    }).catch(() => {});
-    res.on('finish', releaseSlot);
-    res.on('close',  releaseSlot);
+      active_count: memoryActiveCount,
+      waiting_count: memoryWaitingQueue.length,
+      mode: 'memory',
+    });
+    res.setHeader('X-Queue-Wait-Ms', String(waitMs));
+    req.aiGatewayQueueWaitMs = waitMs;
+    res.on('finish', releaseMemorySlot);
+    res.on('close', releaseMemorySlot);
     next();
-  }).catch((err) => {
-    if (err.message === 'QUEUE_TIMEOUT') {
-      const waitMs = Date.now() - enqueuedAt;
-      debugQueueStep(req, 'error', {
-        queued: true,
-        priority,
-        wait_ms: waitMs,
-        waiting_count: waitingQueue.length,
-        timeout_ms: config.WAIT_TIMEOUT_MS,
-      }, { errorMessage: '请求排队超时' }).catch(() => {});
-      return res.status(503).json({
-        error: {
-          message: `请求排队超时（超过 ${Math.round(config.WAIT_TIMEOUT_MS / 1000)} 秒），请稍后重试`,
-          type: 'overloaded_error',
-          retry_after: Math.ceil(config.WAIT_TIMEOUT_MS / 1000),
-        }
-      });
-    }
-    next(err);
+  }).catch(async (error) => {
+    if (error.message === 'QUEUE_ABORTED') return;
+    if (error.message !== 'QUEUE_TIMEOUT') return next(error);
+    const waitMs = Date.now() - enqueuedAt;
+    await debugQueueStep(req, 'error', {
+      queued: true,
+      priority,
+      wait_ms: waitMs,
+      waiting_count: memoryWaitingQueue.length,
+      timeout_ms: config.WAIT_TIMEOUT_MS,
+      mode: 'memory',
+    }, { errorMessage: '请求排队超时' });
+    res.status(503).json({
+      error: {
+        message: `请求排队超时（超过 ${Math.round(config.WAIT_TIMEOUT_MS / 1000)} 秒），请稍后重试`,
+        type: 'overloaded_error',
+        retry_after: Math.ceil(config.WAIT_TIMEOUT_MS / 1000),
+      }
+    });
   });
 }
 
-// ── 暴露内部状态（供监控接口读取）────────────────────────────────────────
-function getQueueStats() {
-  const priorityBreakdown = {};
-  for (const item of waitingQueue) {
-    const label = Object.keys(PRIORITY).find(k => PRIORITY[k] === item.priority) || 'unknown';
-    priorityBreakdown[label] = (priorityBreakdown[label] || 0) + 1;
-  }
-  return {
-    activeCount,
-    waitingCount: waitingQueue.length,
-    maxConcurrent: config.MAX_CONCURRENT,
-    maxQueueSize: config.MAX_QUEUE_SIZE,
-    waitTimeoutMs: config.WAIT_TIMEOUT_MS,
-    priorityBreakdown,
+async function handleRedisQueue(req, res, next) {
+  const model = req.aiGatewayRequestedModel || req.body?.model || 'unknown';
+  const token = req.aiGatewayRequestId || `queue_${crypto.randomBytes(8).toString('hex')}`;
+  const priority = getPriority(req);
+  const enqueuedAt = Date.now();
+  let aborted = false;
+  let heartbeat = null;
+  let acquired = false;
+  let modelKey = getModelActiveKey(model);
+  let initialPosition = null;
+  let queued = false;
+
+  const onClose = () => {
+    aborted = true;
+    if (!acquired) {
+      releaseRedisSlot(token, modelKey).catch(() => {});
+    }
   };
+
+  req.on('close', onClose);
+
+  try {
+    while (!aborted) {
+      const result = await tryAcquireRedisSlot(token, model, priority, enqueuedAt);
+      modelKey = result.modelKey;
+      recordQueueSnapshot({
+        activeCount: result.activeCount,
+        waitingCount: result.waitingCount,
+        maxConcurrent: config.GLOBAL_MAX_INFLIGHT,
+        maxQueueSize: config.MAX_QUEUE_SIZE,
+        waitTimeoutMs: config.WAIT_TIMEOUT_MS,
+        mode: 'redis',
+      });
+
+      if (result.rank >= 0 && initialPosition === null) {
+        initialPosition = result.rank + 1;
+      }
+
+      if (result.state === -1) {
+        await debugQueueStep(req, 'error', {
+          queued: false,
+          active_count: result.activeCount,
+          waiting_count: result.waitingCount,
+          max_queue_size: config.MAX_QUEUE_SIZE,
+          mode: 'redis',
+        }, { errorMessage: '服务器繁忙，请稍后重试（队列已满）' });
+        return res.status(503).json({
+          error: {
+            message: '服务器繁忙，请稍后重试（队列已满）',
+            type: 'overloaded_error',
+            queue_depth: result.waitingCount,
+            retry_after: 5,
+          }
+        });
+      }
+
+      if (result.state === 1) {
+        acquired = true;
+        const waitMs = Date.now() - enqueuedAt;
+        recordQueueWait(waitMs, queued);
+        await debugQueueStep(req, 'success', {
+          queued,
+          priority,
+          wait_ms: waitMs,
+          active_count: result.activeCount,
+          waiting_count: result.waitingCount,
+          max_concurrent: config.GLOBAL_MAX_INFLIGHT,
+          model_max_inflight: result.modelLimit,
+          mode: 'redis',
+        });
+        res.setHeader('X-Queue-Wait-Ms', String(waitMs));
+        if (queued && initialPosition) {
+          res.setHeader('X-Queue-Position', String(initialPosition));
+        }
+        req.aiGatewayQueueWaitMs = waitMs;
+        req.aiGatewayQueueInitialPosition = initialPosition;
+        req.aiGatewayQueueModelLimit = result.modelLimit;
+
+        heartbeat = startRedisHeartbeat(token, modelKey);
+        const release = () => {
+          if (heartbeat) clearInterval(heartbeat);
+          heartbeat = null;
+          releaseRedisSlot(token, modelKey).catch(() => {});
+        };
+        res.on('finish', release);
+        res.on('close', release);
+        return next();
+      }
+
+      if (!queued) {
+        queued = true;
+        await debugQueueStep(req, 'pending', {
+          queued: true,
+          priority,
+          enqueued_at: enqueuedAt,
+          waiting_count: result.waitingCount,
+          active_count: result.activeCount,
+          position: initialPosition,
+          model_max_inflight: result.modelLimit,
+          mode: 'redis',
+        });
+      }
+
+      if ((Date.now() - enqueuedAt) >= config.WAIT_TIMEOUT_MS) {
+        await releaseRedisSlot(token, modelKey);
+        const waitMs = Date.now() - enqueuedAt;
+        await debugQueueStep(req, 'error', {
+          queued: true,
+          priority,
+          wait_ms: waitMs,
+          waiting_count: result.waitingCount,
+          timeout_ms: config.WAIT_TIMEOUT_MS,
+          mode: 'redis',
+        }, { errorMessage: '请求排队超时' });
+        return res.status(503).json({
+          error: {
+            message: `请求排队超时（超过 ${Math.round(config.WAIT_TIMEOUT_MS / 1000)} 秒），请稍后重试`,
+            type: 'overloaded_error',
+            retry_after: Math.ceil(config.WAIT_TIMEOUT_MS / 1000),
+          }
+        });
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, config.POLL_INTERVAL_MS));
+    }
+  } catch (error) {
+    await releaseRedisSlot(token, modelKey);
+    return next(error);
+  } finally {
+    req.off('close', onClose);
+  }
 }
 
-module.exports = { requestQueueMiddleware, getQueueStats, refreshConfig };
+async function requestQueueMiddleware(req, res, next) {
+  if (req._queueChecked) return next();
+  if (!isTargetRoute(req)) return next();
+  req._queueChecked = true;
+
+  if (cache.redis && cache.redis.status === 'ready') {
+    return handleRedisQueue(req, res, next);
+  }
+  return handleMemoryQueue(req, res, next);
+}
+
+async function getQueueStats() {
+  if (cache.redis && cache.redis.status === 'ready') {
+    return getRedisQueueStats();
+  }
+
+  const priorityBreakdown = {};
+  for (const item of memoryWaitingQueue) {
+    const label = Object.keys(PRIORITY).find((key) => PRIORITY[key] === item.priority) || 'unknown';
+    priorityBreakdown[label] = (priorityBreakdown[label] || 0) + 1;
+  }
+
+  const snapshot = {
+    activeCount: memoryActiveCount,
+    waitingCount: memoryWaitingQueue.length,
+    maxConcurrent: config.GLOBAL_MAX_INFLIGHT,
+    maxQueueSize: config.MAX_QUEUE_SIZE,
+    waitTimeoutMs: config.WAIT_TIMEOUT_MS,
+    mode: 'memory',
+    priorityBreakdown,
+  };
+  recordQueueSnapshot(snapshot);
+  return snapshot;
+}
+
+module.exports = {
+  requestQueueMiddleware,
+  getQueueStats,
+  refreshConfig,
+};
