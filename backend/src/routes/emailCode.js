@@ -48,6 +48,20 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+const ALLOWED_EMAIL_DOMAINS = new Set([
+  'qq.com', 'vip.qq.com', 'foxmail.com',
+  '163.com', 'vip.163.com', '126.com', 'yeah.net',
+  'sina.com', 'sina.cn',
+  'sohu.com',
+  '139.com', '189.cn',
+  '21cn.com', 'tom.com',
+]);
+
+function isAllowedEmailDomain(email) {
+  const domain = email.split('@')[1]?.toLowerCase();
+  return domain && ALLOWED_EMAIL_DOMAINS.has(domain);
+}
+
 function generateCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
@@ -72,6 +86,7 @@ router.post('/send', async (req, res) => {
     const { email, purpose } = req.body;
     if (!email || !purpose) return res.status(400).json({ message: '参数缺失' });
     if (!isValidEmail(email)) return res.status(400).json({ message: '邮箱格式不正确' });
+    if (!isAllowedEmailDomain(email)) return res.status(400).json({ message: '仅支持国内主流邮箱（QQ、163、126、新浪、搜狐等）' });
     if (!PURPOSE_LABELS[purpose]) return res.status(400).json({ message: '无效的验证类型' });
 
     // Rate limit: 60s per email
@@ -182,3 +197,4 @@ module.exports = router;
 module.exports.verifyEmailCode = verifyEmailCode;
 module.exports.sendEmailCode = sendEmailCode;
 module.exports.maskEmail = maskEmail;
+module.exports.isAllowedEmailDomain = isAllowedEmailDomain;

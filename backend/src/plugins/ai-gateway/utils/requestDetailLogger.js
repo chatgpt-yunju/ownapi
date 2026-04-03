@@ -6,21 +6,29 @@ const DETAIL_FLUSH_INTERVAL_MS = Math.max(200, parseInt(process.env.GATEWAY_DETA
 
 let queue = [];
 
+// 去掉客户端注入的 "System: [timestamp] " 前缀，只保留实际用户输入
+const SYSTEM_PREFIX_RE = /^(System:\s*\[[^\]]*\]\s*)+/i;
+
+function stripSystemPrefix(text) {
+  return text.replace(SYSTEM_PREFIX_RE, '').trim();
+}
+
 function extractUserPrompt(messages) {
   if (!Array.isArray(messages)) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== 'user') continue;
     if (typeof message.content === 'string') {
-      const text = message.content.trim();
+      const text = stripSystemPrefix(message.content);
       if (text) return text.slice(0, 4000);
     }
     if (Array.isArray(message.content)) {
-      const text = message.content
-        .filter((item) => item.type === 'text')
-        .map((item) => item.text || '')
-        .join('\n')
-        .trim();
+      const text = stripSystemPrefix(
+        message.content
+          .filter((item) => item.type === 'text')
+          .map((item) => item.text || '')
+          .join('\n')
+      );
       if (text) return text.slice(0, 4000);
     }
   }

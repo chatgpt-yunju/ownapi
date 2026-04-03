@@ -230,13 +230,13 @@
         </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
           <div class="admin-filter-bar">
-            <input class="oc-input" id="user-search" placeholder="搜索用户名..." style="width:250px;" onkeydown="if(event.key==='Enter')loadUsers()">
+            <input class="oc-input" id="user-search" placeholder="搜索用户名/邮箱..." style="width:250px;" onkeydown="if(event.key==='Enter')loadUsers()">
             <button class="btn-accent btn-sm" onclick="usersPage=1;loadUsers()">搜索</button>
           </div>
         </div>
         <div class="oc-card admin-table-card">
           <table class="oc-table">
-            <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>状态</th><th>套餐余额</th><th>钱包余额</th><th>活跃 Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
+            <thead><tr><th>ID</th><th>用户名</th><th>邮箱</th><th>角色</th><th>状态</th><th>套餐余额</th><th>钱包余额</th><th>活跃 Keys</th><th>总调用</th><th>总费用</th><th>操作</th></tr></thead>
             <tbody id="users-tbody"></tbody>
           </table>
           <div class="oc-pagination" id="users-pagination"></div>
@@ -1652,6 +1652,7 @@
               return `<tr>
               <td>${u.user_id}</td>
               <td style="color:var(--text-primary)">${u.username || '-'}</td>
+              <td style="color:var(--text-muted);font-size:0.85rem;">${u.email || '-'}</td>
               <td>
                 <span class="badge-${u.role === 'admin' ? 'active' : 'disabled'}" style="cursor:pointer;" title="点击修改角色" onclick="showRoleModal(${u.user_id},'${safeUsername}','${u.role||'user'}')">${u.role || 'user'}</span>
               </td>
@@ -1670,7 +1671,7 @@
               </td>
             </tr>`;
             }).join('')
-          : '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
+          : '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">暂无用户</td></tr>';
 
         const total = data.total || 0;
         const totalPages = Math.ceil(total / 20);

@@ -82,7 +82,7 @@ function genInviteCode() {
 })();
 
 // ── 邮箱验证码相关 ──
-const { verifyEmailCode, maskEmail } = require('./emailCode');
+const { verifyEmailCode, maskEmail, isAllowedEmailDomain } = require('./emailCode');
 const TEMP_TOKEN_EXPIRE = '5m';
 
 function signTempToken(user) {
@@ -184,6 +184,7 @@ router.post('/login/verify', async (req, res) => {
 router.post('/bind-email', async (req, res) => {
   const { temp_token, email, email_code } = req.body;
   if (!temp_token || !email || !email_code) return res.status(400).json({ message: '参数缺失' });
+  if (!isAllowedEmailDomain(email)) return res.status(400).json({ message: '仅支持国内主流邮箱（QQ、163、126、新浪、搜狐等）' });
 
   const decoded = verifyTempToken(temp_token);
   if (!decoded) return res.status(401).json({ message: '临时令牌无效或已过期，请重新登录' });
@@ -269,6 +270,9 @@ router.post('/register', async (req, res) => {
   const { username, password, email, email_code, invite_code, captcha_token, captcha_text } = req.body;
   if (!username || !password || !email || !email_code) {
     return res.status(400).json({ message: '请填写用户名、密码、邮箱和验证码' });
+  }
+  if (!isAllowedEmailDomain(email)) {
+    return res.status(400).json({ message: '仅支持国内主流邮箱（QQ、163、126、新浪、搜狐等）' });
   }
   if (!verifyCaptcha(captcha_token, captcha_text)) {
     return res.status(400).json({ message: '图形验证码错误或已过期' });

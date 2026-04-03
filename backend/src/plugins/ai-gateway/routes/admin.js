@@ -546,12 +546,12 @@ router.get('/users', async (req, res) => {
     let where = '1=1';
     const params = [];
     if (q) {
-      where = 'u.username LIKE ?';
-      params.push(`%${q}%`);
+      where = '(u.username LIKE ? OR u.email LIKE ?)';
+      params.push(`%${q}%`, `%${q}%`);
     }
     const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM users u WHERE ${where}`, params);
     const [users] = await db.query(
-      `SELECT u.id as user_id, u.username, u.role, u.status, u.created_at,
+      `SELECT u.id as user_id, u.username, u.email, u.role, u.status, u.created_at,
               COALESCE(q.balance, 0) as quota_balance,
               COALESCE(w.balance, 0) as wallet_balance,
        (SELECT COUNT(*) FROM openclaw_api_keys k WHERE k.user_id = u.id AND k.status = 'active') as key_count,
