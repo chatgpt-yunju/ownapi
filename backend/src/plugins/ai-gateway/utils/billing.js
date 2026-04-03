@@ -1,4 +1,5 @@
 const db = require('../../../config/db');
+const { getSettingCached } = require('../../../routes/quota');
 
 const DEFAULT_EXCHANGE_RATE = 7.2;
 const CACHE_TTL = 3600000;
@@ -98,9 +99,15 @@ function getBalanceTable(balanceType) {
 
 async function ensureBalanceRecord(userId, balanceType, conn = db) {
   const table = getBalanceTable(balanceType);
+  // 检查是否已存在，避免覆盖已有余额
+  const [[existing]] = await conn.query(`SELECT user_id FROM ${table} WHERE user_id = ?`, [userId]);
+  if (existing) return;
+  // 新用户使用 settings 中配置的默认值
+  const settingKey = balanceType === 'quota' ? 'new_user_quota' : 'new_user_wallet';
+  const defaultBalance = parseFloat(await getSettingCached(settingKey, '0')) || 0;
   await conn.query(
-    `INSERT INTO ${table} (user_id, balance) VALUES (?, 0) ON DUPLICATE KEY UPDATE user_id = user_id`,
-    [userId]
+    `INSERT IGNORE INTO ${table} (user_id, balance) VALUES (?, ?)`,
+    [userId, defaultBalance]
   );
 }
 

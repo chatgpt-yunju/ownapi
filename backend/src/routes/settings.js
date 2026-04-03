@@ -58,6 +58,8 @@ const defaultSettings = [
   ['vip_preview_daily_limit', '30'],
   ['vip_claim_daily_limit', '10'],
   ['invite_new_user_reward', '3'],
+  ['new_user_quota', '0'],
+  ['new_user_wallet', '0'],
   // 联系信息
   ['contact_wechat', '19966519194'],
   ['contact_email', '2743319061@qq.com'],
