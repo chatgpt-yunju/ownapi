@@ -722,25 +722,18 @@
         </div>
         <div id="ss-msg" style="margin-bottom:0.75rem;font-size:0.85rem;min-height:1.2em;"></div>
 
-        <!-- Settings Tabs -->
+        <!-- Settings Tabs (仅展示 openclaw_ 相关设置) -->
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
-          <button class="btn-outline btn-sm ss-tab active" data-tab="brand" onclick="switchSettingsTab('brand')">品牌/SEO</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="quota" onclick="switchSettingsTab('quota')">积分/费用</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="vip" onclick="switchSettingsTab('vip')">VIP套餐</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="ai" onclick="switchSettingsTab('ai')">AI模型</button>
+          <button class="btn-outline btn-sm ss-tab active" data-tab="ai" onclick="switchSettingsTab('ai')">AI模型</button>
           <button class="btn-outline btn-sm ss-tab" data-tab="apikeys" onclick="switchSettingsTab('apikeys')">API密钥</button>
+          <button class="btn-outline btn-sm ss-tab" data-tab="quota" onclick="switchSettingsTab('quota')">新用户余额</button>
           <button class="btn-outline btn-sm ss-tab" data-tab="security" onclick="switchSettingsTab('security')">安全</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="search" onclick="switchSettingsTab('search')">搜索</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="login" onclick="switchSettingsTab('login')">登录/QQ</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="modules" onclick="switchSettingsTab('modules')">模块显示</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="popup" onclick="switchSettingsTab('popup')">弹窗公告</button>
-          <button class="btn-outline btn-sm ss-tab" data-tab="sso" onclick="switchSettingsTab('sso')">SSO</button>
           <button class="btn-outline btn-sm ss-tab" data-tab="smtp" onclick="switchSettingsTab('smtp')">邮件SMTP</button>
           <button class="btn-outline btn-sm ss-tab" data-tab="queue" onclick="switchSettingsTab('queue')">请求队列</button>
         </div>
 
-        <!-- 品牌/SEO -->
-        <div class="ss-panel" id="ss-panel-brand">
+        <!-- 品牌/SEO (hidden: not openclaw_ related) -->
+        <div class="ss-panel" id="ss-panel-brand" style="display:none;">
           <div class="oc-card" style="padding:1.25rem;max-width:700px;">
             <h3 style="margin-bottom:1rem;font-size:1rem;">品牌设置</h3>
             <div class="form-group" style="margin-bottom:0.75rem;">
@@ -787,78 +780,11 @@
           </div>
         </div>
 
-        <!-- 积分/费用 -->
+        <!-- 新用户余额（openclaw_quota / openclaw_wallet） -->
         <div class="ss-panel" id="ss-panel-quota" style="display:none;">
           <div class="oc-card" style="padding:1.25rem;max-width:700px;">
-            <h3 style="margin-bottom:1rem;font-size:1rem;">积分费用</h3>
+            <h3 style="margin-bottom:1rem;font-size:1rem;">新用户默认余额（openclaw_quota / openclaw_wallet）</h3>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">余额兑换比例（1元=?积分）</label>
-                <input class="oc-input" id="ss-balance-conversion-rate" type="number" placeholder="10">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">图片生成费用（积分）</label>
-                <input class="oc-input" id="ss-cost-image-generate" type="number" placeholder="1">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">视频生成费用（积分）</label>
-                <input class="oc-input" id="ss-cost-video-generate" type="number" placeholder="5">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">3D生成费用（积分）</label>
-                <input class="oc-input" id="ss-cost-3d-generate" type="number" placeholder="25">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">发布需求费用</label>
-                <input class="oc-input" id="ss-cost-requirement-post" type="number" placeholder="1">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">解锁需求费用</label>
-                <input class="oc-input" id="ss-cost-requirement-unlock" type="number" placeholder="2">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">锁定素材费用</label>
-                <input class="oc-input" id="ss-cost-feed-lock" type="number" placeholder="10">
-              </div>
-            </div>
-            <h3 style="margin:1.25rem 0 1rem;font-size:1rem;">每日限额</h3>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日竞标限额</label>
-                <input class="oc-input" id="ss-daily-bid-limit" type="number" placeholder="10">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日锁定限额</label>
-                <input class="oc-input" id="ss-daily-lock-limit" type="number" placeholder="3">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日预览限额</label>
-                <input class="oc-input" id="ss-daily-preview-limit" type="number" placeholder="10">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">每日领取限额</label>
-                <input class="oc-input" id="ss-daily-claim-limit" type="number" placeholder="3">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP每日预览限额</label>
-                <input class="oc-input" id="ss-vip-preview-daily-limit" type="number" placeholder="30">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">VIP每日领取限额</label>
-                <input class="oc-input" id="ss-vip-claim-daily-limit" type="number" placeholder="10">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">会议限制（注册用户）</label>
-                <input class="oc-input" id="ss-meeting-limit-registered" type="number" placeholder="5">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">会议限制（游客）</label>
-                <input class="oc-input" id="ss-meeting-limit-guest" type="number" placeholder="3">
-              </div>
-              <div class="form-group">
-                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">邀请新用户奖励（积分）</label>
-                <input class="oc-input" id="ss-invite-new-user-reward" type="number" placeholder="3">
-              </div>
               <div class="form-group">
                 <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">新用户初始套餐余额（quota）</label>
                 <input class="oc-input" id="ss-new-user-quota" type="number" step="0.01" placeholder="0">
@@ -867,12 +793,16 @@
                 <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">新用户初始钱包余额（wallet）</label>
                 <input class="oc-input" id="ss-new-user-wallet" type="number" step="0.01" placeholder="0">
               </div>
+              <div class="form-group">
+                <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">余额兑换比例（1元=?quota）</label>
+                <input class="oc-input" id="ss-balance-conversion-rate" type="number" placeholder="10">
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- VIP套餐 -->
-        <div class="ss-panel" id="ss-panel-vip" style="display:none;">
+        <!-- VIP套餐 (hidden: not openclaw_ related) -->
+        <div class="ss-panel" id="ss-panel-vip" style="display:none !important;">
           <div class="oc-card" style="padding:1.25rem;max-width:700px;">
             <h3 style="margin-bottom:1rem;font-size:1rem;">VIP 套餐设置</h3>
             <div class="form-group" style="margin-bottom:0.75rem;">
@@ -906,7 +836,7 @@
         </div>
 
         <!-- AI模型 -->
-        <div class="ss-panel" id="ss-panel-ai" style="display:none;">
+        <div class="ss-panel" id="ss-panel-ai">
           <div class="oc-card" style="padding:1.25rem;max-width:700px;">
             <h3 style="margin-bottom:1rem;font-size:1rem;">AI模型配置</h3>
             <div class="form-group" style="margin-bottom:0.75rem;">
