@@ -58,7 +58,7 @@ const defaultSettings = [
   ['vip_preview_daily_limit', '30'],
   ['vip_claim_daily_limit', '10'],
   ['invite_new_user_reward', '3'],
-  ['new_user_quota', '0'],
+  ['new_user_quota', '1'],
   ['new_user_wallet', '0'],
   // 联系信息
   ['contact_wechat', '19966519194'],
@@ -123,6 +123,8 @@ const defaultSettings = [
   for (const [key, value] of defaultSettings) {
     await db.query('INSERT IGNORE INTO settings (`key`, `value`) VALUES (?, ?)', [key, value]).catch(() => {});
   }
+  // 强制更新新用户初始余额到正确默认值（迁移修正）
+  await db.query("UPDATE settings SET `value` = '1' WHERE `key` = 'new_user_quota' AND `value` = '0'").catch(() => {});
 })();
 
 // 公开配置键（无需认证即可读取，不含敏感信息）
