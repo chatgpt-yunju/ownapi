@@ -556,7 +556,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
 
       // 加油包订单处理
       if (order.order_type === 'recharge') {
-        const totalQuota = Number(order.amount) + Number(order.bonus_quota || 0);
+        const totalQuota = Number(order.amount); // amount 已含 bonus_quota，不重复相加
 
         await adjustBalance(
           userId,
