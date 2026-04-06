@@ -2015,4 +2015,148 @@ router.post('/ccclub/key-resets/send-email', async (req, res) => {
   }
 });
 
+// ── NVIDIA 密钥管理 ──────────────────────────────────────────────
+db.query(`CREATE TABLE IF NOT EXISTS openclaw_nvidia_keys (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  api_key VARCHAR(500) NOT NULL UNIQUE,
+  notes VARCHAR(255) DEFAULT '',
+  status ENUM('active','disabled') DEFAULT 'active',
+  created_at DATETIME DEFAULT NOW()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+// GET /admin/nvidia/keys — 列出所有 NVIDIA 密钥
+router.get('/nvidia/keys', async (req, res) => {
+  try {
+    const [keys] = await db.query(
+      `SELECT
+         COALESCE(k.id, 0)               AS id,
+         u.api_key,
+         COALESCE(k.notes, '')           AS notes,
+         COALESCE(k.status, 'active')    AS status,
+         k.created_at,
+         COUNT(u.id)                     AS upstream_count
+       FROM openclaw_model_upstreams u
+       LEFT JOIN openclaw_nvidia_keys k ON k.api_key = u.api_key
+       WHERE (u.provider_name = 'nvidia' OR u.base_url LIKE '%nvidia%')
+         AND u.status IN ('active', 'disabled')
+       GROUP BY u.api_key
+       ORDER BY k.created_at DESC, u.api_key ASC`
+    );
+    res.json({ keys });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取 NVIDIA 密钥列表失败' });
+  }
+});
+
+// POST /admin/nvidia/keys — 新增 NVIDIA 密钥
+router.post('/nvidia/keys', async (req, res) => {
+  try {
+    let { key_raw, notes } = req.body || {};
+    if (!key_raw) return res.status(400).json({ error: '请输入密钥' });
+    const apiKey = String(key_raw).trim();
+    notes = String(notes || '').slice(0, 255);
+
+    const [[exist]] = await db.query(
+      'SELECT id FROM openclaw_nvidia_keys WHERE api_key = ? LIMIT 1', [apiKey]
+    );
+    if (exist) return res.status(409).json({ error: '该密钥已存在，请勿重复添加' });
+
+    // 从现有 nvidia upstream 行复制模板
+    const [templateRows] = await db.query(
+      `SELECT model_id, base_url, upstream_model_id, weight, sort_order, provider_name
+       FROM openclaw_model_upstreams
+       WHERE (provider_name = 'nvidia' OR base_url LIKE '%nvidia%')
+         AND status IN ('active', 'disabled')
+       GROUP BY model_id, base_url, upstream_model_id, weight, sort_order, provider_name`
+    );
+
+    if (templateRows.length > 0) {
+      const insertVals = templateRows.map(r =>
+        [r.model_id, r.base_url, apiKey, r.upstream_model_id, r.weight, r.sort_order, r.provider_name, 'active']
+      );
+      await db.query(
+        `INSERT IGNORE INTO openclaw_model_upstreams
+         (model_id, base_url, api_key, upstream_model_id, weight, sort_order, provider_name, status)
+         VALUES ?`,
+        [insertVals]
+      );
+    }
+
+    await db.query('INSERT INTO openclaw_nvidia_keys (api_key, notes) VALUES (?, ?)', [apiKey, notes]);
+    await cache.delByPrefix('upstreams:');
+
+    res.json({ ok: true, api_key: apiKey, upstream_rows: templateRows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '添加密钥失败: ' + err.message });
+  }
+});
+
+// PUT /admin/nvidia/keys — 修改 NVIDIA 密钥备注
+router.put('/nvidia/keys', async (req, res) => {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    const notes = String(req.body?.notes || '').trim().slice(0, 255);
+    if (!apiKey) return res.status(400).json({ error: '缺少 api_key 参数' });
+
+    const [[row]] = await db.query('SELECT id FROM openclaw_nvidia_keys WHERE api_key = ? LIMIT 1', [apiKey]);
+    if (row) {
+      await db.query('UPDATE openclaw_nvidia_keys SET notes = ? WHERE api_key = ?', [notes, apiKey]);
+    } else {
+      await db.query('INSERT INTO openclaw_nvidia_keys (api_key, notes) VALUES (?, ?)', [apiKey, notes]);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '更新备注失败: ' + err.message });
+  }
+});
+
+// PUT /admin/nvidia/keys/status — 启用/禁用 NVIDIA 密钥
+router.put('/nvidia/keys/status', async (req, res) => {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    const status = req.body?.status;
+    if (!apiKey || !['active', 'disabled'].includes(status)) {
+      return res.status(400).json({ error: '参数错误' });
+    }
+
+    const [[existing]] = await db.query('SELECT id FROM openclaw_nvidia_keys WHERE api_key = ? LIMIT 1', [apiKey]);
+    if (!existing) return res.status(404).json({ error: '未找到该 NVIDIA 密钥' });
+
+    await db.query('UPDATE openclaw_nvidia_keys SET status = ? WHERE api_key = ?', [status, apiKey]);
+    await db.query(
+      `UPDATE openclaw_model_upstreams SET status = ?
+       WHERE api_key = ? AND (provider_name = 'nvidia' OR base_url LIKE '%nvidia%')`,
+      [status, apiKey]
+    );
+    await cache.delByPrefix('upstreams:');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '更新状态失败: ' + err.message });
+  }
+});
+
+// DELETE /admin/nvidia/keys — 删除 NVIDIA 密钥
+router.delete('/nvidia/keys', async (req, res) => {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    if (!apiKey) return res.status(400).json({ error: '缺少 api_key 参数' });
+
+    await db.query('DELETE FROM openclaw_nvidia_keys WHERE api_key = ?', [apiKey]);
+    await db.query(
+      `DELETE FROM openclaw_model_upstreams
+       WHERE api_key = ? AND (provider_name = 'nvidia' OR base_url LIKE '%nvidia%')`,
+      [apiKey]
+    );
+    await cache.delByPrefix('upstreams:');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
+
 module.exports = router;

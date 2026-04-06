@@ -55,6 +55,27 @@ function maskFingerprint(fp = '') {
   return `${fp.slice(0, 8)}...${fp.slice(-6)}`;
 }
 
+function maskApiKey(key = '') {
+  const s = String(key || '');
+  if (!s) return '';
+  // 保留 cr_ 前缀后最多8个字符，末尾保留6个字符
+  const prefix = s.startsWith('cr_') ? 'cr_' : '';
+  const rest = s.startsWith('cr_') ? s.slice(3) : s;
+  return `${prefix}${rest.slice(0, 8)}...${rest.slice(-6)}`;
+}
+
+async function fetchCcClubKeyNotes(apiKey) {
+  try {
+    const [[row]] = await db.query(
+      'SELECT notes FROM openclaw_ccclub_keys WHERE api_key = ? LIMIT 1',
+      [apiKey]
+    );
+    return row?.notes || '';
+  } catch {
+    return '';
+  }
+}
+
 function formatLocalTime(dateObj) {
   if (!dateObj) return '';
   const d = new Date(dateObj);
@@ -174,9 +195,11 @@ async function syncCcClubKeyStates() {
   await ensureSchema();
   await withDbLock(async () => {
     const [rows] = await db.query(
-      `SELECT key_fingerprint, provider_name, base_url, reset_at, recovered_notified_at
-       FROM openclaw_ccclub_key_resets
-       WHERE status = 'cooldown'`
+      `SELECT r.key_fingerprint, r.provider_name, r.base_url, r.reset_at, r.recovered_notified_at,
+              k.api_key, k.notes
+       FROM openclaw_ccclub_key_resets r
+       LEFT JOIN openclaw_ccclub_keys k ON SHA2(k.api_key, 256) = r.key_fingerprint
+       WHERE r.status = 'cooldown'`
     );
 
     if (!rows.length) return;
@@ -200,13 +223,15 @@ async function syncCcClubKeyStates() {
       );
 
       if (shouldEnable && !row.recovered_notified_at) {
+        const keyNotes = row.notes || '';
         await sendResetMail({
-          subject: `【CC Club Key恢复】${row.provider_name || 'ccclub'} 已到重置时间`,
+          subject: `【CC Club Key恢复】${row.provider_name || 'ccclub'}${keyNotes ? ' · ' + keyNotes : ''} 已到重置时间`,
           html: `<div style="font-family:sans-serif;line-height:1.8;">
 <h3>CC Club Key 已自动恢复启用</h3>
 <p><b>Provider:</b> ${row.provider_name || '-'}</p>
 <p><b>Base URL:</b> ${row.base_url || '-'}</p>
-<p><b>Key 指纹:</b> ${maskFingerprint(row.key_fingerprint)}</p>
+<p><b>Key 预览:</b> <code>${row.api_key ? maskApiKey(row.api_key) : maskFingerprint(row.key_fingerprint)}</code></p>
+<p><b>备注:</b> ${keyNotes || '-'}</p>
 <p><b>重置时间(Asia/Shanghai):</b> ${formatLocalTime(row.reset_at)}</p>
 <p><b>恢复时间(Asia/Shanghai):</b> ${formatLocalTime(new Date())}</p>
 </div>`
@@ -265,13 +290,15 @@ async function noteCcClubRateLimit({ providerName, baseUrl, apiKey, errorMessage
     await clearGatewayCache();
 
     if (shouldNotifyCooldown) {
+      const keyNotes = await fetchCcClubKeyNotes(apiKey);
       await sendResetMail({
-        subject: `【CC Club Key冷却】${providerName || 'ccclub'} 已记录重置时间`,
+        subject: `【CC Club Key冷却】${providerName || 'ccclub'}${keyNotes ? ' · ' + keyNotes : ''} 已记录重置时间`,
         html: `<div style="font-family:sans-serif;line-height:1.8;">
 <h3>CC Club Key 进入冷却期</h3>
 <p><b>Provider:</b> ${providerName || '-'}</p>
 <p><b>Base URL:</b> ${baseUrl || '-'}</p>
-<p><b>Key 指纹:</b> ${maskFingerprint(fp)}</p>
+<p><b>Key 预览:</b> <code>${maskApiKey(apiKey)}</code></p>
+<p><b>备注:</b> ${keyNotes || '-'}</p>
 <p><b>预计恢复时间(Asia/Shanghai):</b> ${formatLocalTime(resetAt)}</p>
 <p><b>记录时间(Asia/Shanghai):</b> ${formatLocalTime(new Date())}</p>
 </div>`

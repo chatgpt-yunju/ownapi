@@ -307,6 +307,13 @@ const GLM5_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
   maxDelayMs: 350,
 });
 
+const NVIDIA_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
+  maxRetries: 5,
+  baseDelayMs: 1000,
+  backoffFactor: 1.5,
+  maxDelayMs: 4000,
+});
+
 function getRelayRetryConfig({ model } = {}) {
   const normalizedModel = String(model || '').toLowerCase();
   if (normalizedModel.includes('claude')) {
@@ -335,11 +342,8 @@ async function getRelayRetryDecision(err) {
     return { retryable: false, message, status };
   }
 
-  const retryable = message.includes('No available')
-    || message.includes('service_unavailable')
-    || message.includes('Service temporarily');
-
-  return { retryable, message, status };
+  // 上游 500/503 一律重试，让重试循环决定是否切换上游
+  return { retryable: true, message, status };
 }
 
 async function withRelayRetry(fn, { model, debug, logger, retryConfig } = {}) {
@@ -368,20 +372,31 @@ function isGlm5Model(model) {
   return normalizedModel.includes('glm-5') || normalizedModel.includes('glm5');
 }
 
-function getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic } = {}) {
+function getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia } = {}) {
   if (stream && isGlm5Model(model) && !isUpstreamAnthropic) {
     return GLM5_STREAM_RELAY_RETRY_CONFIG;
+  }
+  if (stream && isUpstreamNvidia) {
+    return NVIDIA_STREAM_RELAY_RETRY_CONFIG;
   }
   return getRelayRetryConfig({ model });
 }
 
-function getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic } = {}) {
+function getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia } = {}) {
   if (stream && isGlm5Model(model) && !isUpstreamAnthropic) {
     return getUpstreamTimeouts({
       stream: true,
       connectTimeoutMs: 10000,
       idleTimeoutMs: 30000,
       requestTimeoutMs: 20000,
+    });
+  }
+  if (stream && isUpstreamNvidia) {
+    return getUpstreamTimeouts({
+      stream: true,
+      connectTimeoutMs: 15000,
+      idleTimeoutMs: 45000,
+      requestTimeoutMs: 30000,
     });
   }
   return getUpstreamTimeouts({ stream });
@@ -1214,8 +1229,8 @@ router.post('/embeddings', async (req, res) => {
     || lastErr?.code === 'ECONNABORTED'
     || errMsg.toLowerCase().includes('timeout');
   await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 请求失败，释放预留余额');
-  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 503 : (lastErr?.response?.status || 502));
+  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 504 : (lastErr?.response?.status || 502));
+  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode });
   return res.status(statusCode).json({
     error: { message: errMsg, type: statusCode === 503 ? 'overloaded_error' : 'upstream_error' }
   });
@@ -1978,8 +1993,8 @@ router.post('/chat/completions', async (req, res) => {
     || errMsg.toLowerCase().includes('timeout');
   await debug.step(7, 'error', { stream }, { errorMessage: errMsg });
   await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 请求失败，释放预留余额');
-  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 503 : (lastErr?.response?.status || 502));
+  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 504 : (lastErr?.response?.status || 502));
+  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode });
   return res.status(statusCode).json({
     error: { message: errMsg, type: statusCode === 503 ? 'overloaded_error' : 'upstream_error' }
   });
@@ -2126,8 +2141,10 @@ router.post('/messages', async (req, res) => {
       || baseUrl.includes('claude-code.club')
       || baseUrl.includes('anthropic.com')
     );
-    const relayRetryConfig = getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic });
-    const upstreamTimeoutConfig = getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic });
+    const isUpstreamNvidia = selectedProviderName === 'nvidia'
+      || baseUrl.includes('integrate.api.nvidia.com');
+    const relayRetryConfig = getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia });
+    const upstreamTimeoutConfig = getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia });
 
     await debug.step(5, 'success', {
       attempt: attempt + 1,
@@ -2659,8 +2676,8 @@ router.post('/messages', async (req, res) => {
     || lastErr?.code === 'ECONNABORTED'
     || errMsg.toLowerCase().includes('timeout');
   await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 请求失败，释放预留余额');
-  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 503 : (lastErr?.response?.status || 502));
+  const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 504 : (lastErr?.response?.status || 502));
+  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode });
   return res.status(statusCode).json({
     type: 'error',
     error: { type: statusCode === 503 ? 'overloaded_error' : 'upstream_error', message: errMsg }
@@ -2766,8 +2783,8 @@ async function logCall(userId, apiKeyId, model, promptTokens, completionTokens, 
     await db.query(
       `INSERT INTO openclaw_call_logs
         (user_id, api_key_id, model, prompt_tokens, completion_tokens, total_cost, ip, status, error_message, request_id,
-         token_source, billing_mode, charged_balance_type, charged_amount)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         token_source, billing_mode, charged_balance_type, charged_amount, http_status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         userId,
         apiKeyId,
@@ -2783,6 +2800,7 @@ async function logCall(userId, apiKeyId, model, promptTokens, completionTokens, 
         normalizedExtra.billingMode || 'token',
         normalizedExtra.chargedBalanceType || null,
         roundAmount(normalizedExtra.chargedAmount || 0),
+        normalizedExtra.httpStatus || null,
       ]
     );
   } catch (e) {
@@ -2805,8 +2823,8 @@ function extractUserPrompt(messages) {
   return null;
 }
 
-// 保存请求/响应内容（仅管理员可查）
-// 只保留最后 3 条消息，避免 Claude Code 长上下文撑爆数据库
+// 异步保存管理员可查的请求摘要：
+// 仅保留中文用户输入，不再持久化 system prompt 和 response。
 async function saveRequestDetail(requestId, userId, model, messages, systemPrompt, responseContent) {
   enqueueRequestDetail({
     requestId,

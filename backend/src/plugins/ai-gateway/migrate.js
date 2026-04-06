@@ -218,6 +218,8 @@ module.exports = async function migrate() {
   await db.query('ALTER TABLE openclaw_call_logs ADD COLUMN charged_amount DECIMAL(12,6) DEFAULT 0').catch(() => {});
   // 覆盖索引：加速月度 COUNT/SUM 聚合查询（user_id + created_at + status）
   await db.query('ALTER TABLE openclaw_call_logs ADD INDEX idx_user_month_status (user_id, created_at, status)').catch(() => {});
+  // HTTP 状态码：区分 503(满载)/504(超时)/502(上游错误) 等
+  await db.query('ALTER TABLE openclaw_call_logs ADD COLUMN http_status SMALLINT DEFAULT NULL').catch(() => {});
 
   // 供应商端点表：一个供应商可绑定多个 base_url + api_key
   await db.query(`CREATE TABLE IF NOT EXISTS openclaw_provider_endpoints (
@@ -397,6 +399,36 @@ module.exports = async function migrate() {
     }
   } catch (e) {
     console.error('[migrate] model billing/category backfill:', e.message);
+  }
+
+  // ── NVIDIA 端点去重：每个 API Key 保留 id 最小的一条，禁用其余 ──────────
+  try {
+    const [nvidiaEndpoints] = await db.query(`
+      SELECT id, api_key
+      FROM openclaw_model_upstreams
+      WHERE (provider_name = 'nvidia' OR base_url LIKE '%nvidia%')
+        AND status = 'active'
+      ORDER BY api_key, id ASC
+    `);
+    if (nvidiaEndpoints.length > 0) {
+      const seenKeys = new Set();
+      const toDisable = [];
+      for (const ep of nvidiaEndpoints) {
+        if (seenKeys.has(ep.api_key)) {
+          toDisable.push(ep.id);
+        } else {
+          seenKeys.add(ep.api_key);
+        }
+      }
+      if (toDisable.length > 0) {
+        await db.query(
+          `UPDATE openclaw_model_upstreams SET status = 'disabled' WHERE id IN (${toDisable.join(',')})`,
+        );
+        console.log(`[migrate] Disabled ${toDisable.length} duplicate NVIDIA endpoints, kept ${seenKeys.size}`);
+      }
+    }
+  } catch (e) {
+    console.error('[migrate] NVIDIA dedup:', e.message);
   }
 
   // ── OpenClaw 教程表 ──────────────────────────────────────────────────────

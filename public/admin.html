@@ -559,6 +559,20 @@
           </div>
         </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">NVIDIA 密钥管理</div>
+          <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.75rem;">
+            <input class="oc-input" id="nvidia-key-input" placeholder="NVIDIA API Key（nvapi-...）" style="width:360px;font-family:monospace;">
+            <input class="oc-input" id="nvidia-key-notes" placeholder="备注，如：nvidia-1号密钥" style="width:200px;">
+            <button class="btn-accent btn-sm" onclick="addNvidiaKey()">添加密钥</button>
+          </div>
+          <div id="nvidia-keys-table-wrap">
+            <table class="oc-table">
+              <thead><tr><th>ID</th><th>密钥预览</th><th>备注</th><th>状态</th><th>关联上游数</th><th>添加时间</th><th>操作</th></tr></thead>
+              <tbody id="nvidia-keys-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
             <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;">CC Club 密钥冷却状态</div>
             <div style="display:flex;gap:0.5rem;">
@@ -1358,6 +1372,25 @@
     </div>
   </div>
 
+  <div class="oc-modal-overlay" id="modal-nvidia-key">
+    <div class="oc-modal" style="min-width:380px;max-width:90vw;">
+      <h3>编辑 NVIDIA 密钥备注</h3>
+      <input type="hidden" id="nvidia-edit-api-key">
+      <div class="form-group">
+        <label>密钥预览</label>
+        <div id="nvidia-edit-key-preview" style="font-family:monospace;color:var(--text-secondary);word-break:break-all;"></div>
+      </div>
+      <div class="form-group">
+        <label>备注</label>
+        <input class="oc-input" id="nvidia-edit-notes" maxlength="255" placeholder="如：nvidia-1号密钥">
+      </div>
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1rem;">
+        <button class="btn-outline" onclick="hideModal('modal-nvidia-key')">取消</button>
+        <button class="btn-accent" onclick="saveNvidiaKeyNotes()">保存</button>
+      </div>
+    </div>
+  </div>
+
   <div class="oc-modal-overlay" id="modal-app-market">
     <div class="oc-modal" style="min-width:520px;max-width:90vw;">
       <h3 id="app-market-modal-title">添加应用</h3>
@@ -1428,7 +1461,7 @@
       else if (page === 'orders') { ordersPage = 1; loadAllOrders(); }
       else if (page === 'logs') { logsPage = 1; loadLogs(); }
       else if (page === 'debug-center') { debugPage = 1; loadDebugTraces(); }
-      else if (page === 'ccclub') { ccClubPage = 1; loadCcclubModelOptions(); loadCcclubMessages(); loadCcclubKeys(); }
+      else if (page === 'ccclub') { ccClubPage = 1; loadCcclubModelOptions(); loadCcclubMessages(); loadCcclubKeys(); loadNvidiaKeys(); }
       else if (page === 'bulk-email') toggleBulkEmailTarget();
       else if (page === 'cardkeys') loadCardKeys();
       else if (page === 'app-market') loadAppMarketAdmin();
@@ -2601,6 +2634,110 @@
       } catch (e) {
         showToast(e.message || '更新失败', 'error');
       }
+    }
+
+    // === NVIDIA 密钥管理 ===
+    let nvidiaKeysCache = [];
+
+    function makeNvidiaKeyPreview(key = '') {
+      const s = String(key || '');
+      if (s.length <= 14) return s;
+      return s.slice(0, 8) + '...' + s.slice(-6);
+    }
+
+    async function loadNvidiaKeys() {
+      const tbody = document.getElementById('nvidia-keys-tbody');
+      try {
+        const data = await api.get('/admin/nvidia/keys');
+        const keys = data.keys || [];
+        nvidiaKeysCache = keys;
+        if (!keys.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">暂无密钥</td></tr>'; return; }
+        tbody.innerHTML = keys.map((k, idx) => {
+          const preview = makeNvidiaKeyPreview(k.api_key);
+          const t = k.created_at ? new Date(k.created_at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }).replace(/\//g, '-') : '—';
+          const isDisabled = k.status === 'disabled';
+          const statusBadge = isDisabled
+            ? `<span style="background:#f44;color:#fff;border-radius:3px;padding:1px 7px;font-size:0.75rem;">已禁用</span>`
+            : `<span style="background:#2a7;color:#fff;border-radius:3px;padding:1px 7px;font-size:0.75rem;">启用</span>`;
+          const toggleLabel = isDisabled ? '启用' : '禁用';
+          const toggleStyle = isDisabled
+            ? 'background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;padding:2px 10px;'
+            : 'background:#f90;color:#fff;border:none;border-radius:4px;cursor:pointer;padding:2px 10px;';
+          return `<tr>
+            <td>${k.id}</td>
+            <td style="font-family:monospace;font-size:0.8rem;" title="${escapeHtmlText(k.api_key || '')}">${escapeHtmlText(preview)}</td>
+            <td>${escapeHtmlText(k.notes || '—')}</td>
+            <td>${statusBadge}</td>
+            <td>${k.upstream_count}</td>
+            <td>${t}</td>
+            <td style="white-space:nowrap;">
+              <button class="btn-outline btn-sm" onclick="showEditNvidiaKeyModal(${idx})">编辑</button>
+              <button class="btn-sm" style="${toggleStyle}" onclick="toggleNvidiaKeyStatus(${idx})">${toggleLabel}</button>
+              <button class="btn-sm" style="background:var(--danger);color:#fff;border:none;border-radius:4px;cursor:pointer;padding:2px 10px;" onclick="deleteNvidiaKey(${idx})">删除</button>
+            </td>
+          </tr>`;
+        }).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" style="color:var(--danger);">加载失败：${e.message}</td></tr>`;
+      }
+    }
+
+    async function addNvidiaKey() {
+      const raw = document.getElementById('nvidia-key-input').value.trim();
+      const notes = document.getElementById('nvidia-key-notes').value.trim();
+      if (!raw) { showToast('请输入密钥内容', 'error'); return; }
+      try {
+        const data = await api.post('/admin/nvidia/keys', { key_raw: raw, notes });
+        showToast(`密钥已添加，关联 ${data.upstream_rows} 个上游`, 'success');
+        document.getElementById('nvidia-key-input').value = '';
+        document.getElementById('nvidia-key-notes').value = '';
+        loadNvidiaKeys();
+      } catch (e) { showToast(e.message || '添加失败', 'error'); }
+    }
+
+    function showEditNvidiaKeyModal(idx) {
+      const row = nvidiaKeysCache[idx];
+      if (!row) { showToast('未找到密钥数据，请刷新后重试', 'error'); return; }
+      document.getElementById('nvidia-edit-api-key').value = row.api_key || '';
+      document.getElementById('nvidia-edit-key-preview').textContent = makeNvidiaKeyPreview(row.api_key);
+      document.getElementById('nvidia-edit-notes').value = row.notes || '';
+      showModal('modal-nvidia-key');
+    }
+
+    async function saveNvidiaKeyNotes() {
+      const apiKey = document.getElementById('nvidia-edit-api-key').value.trim();
+      const notes = document.getElementById('nvidia-edit-notes').value.trim();
+      if (!apiKey) { showToast('缺少密钥标识', 'error'); return; }
+      try {
+        await api.put('/admin/nvidia/keys', { api_key: apiKey, notes });
+        hideModal('modal-nvidia-key');
+        showToast('备注已更新', 'success');
+        loadNvidiaKeys();
+      } catch (e) { showToast(e.message || '更新失败', 'error'); }
+    }
+
+    async function toggleNvidiaKeyStatus(idx) {
+      const row = nvidiaKeysCache[idx];
+      if (!row) { showToast('未找到密钥数据，请刷新后重试', 'error'); return; }
+      const newStatus = row.status === 'disabled' ? 'active' : 'disabled';
+      const label = newStatus === 'disabled' ? '禁用' : '启用';
+      if (!confirm(`确认${label}该 NVIDIA 密钥？`)) return;
+      try {
+        await api.put('/admin/nvidia/keys/status', { api_key: row.api_key, status: newStatus });
+        showToast(`密钥已${label}`, 'success');
+        loadNvidiaKeys();
+      } catch (e) { showToast(e.message || `${label}失败`, 'error'); }
+    }
+
+    async function deleteNvidiaKey(idx) {
+      const row = nvidiaKeysCache[idx];
+      if (!row) { showToast('未找到密钥数据，请刷新后重试', 'error'); return; }
+      if (!confirm('确认删除该 NVIDIA 密钥及其所有上游配置？')) return;
+      try {
+        await api.request('/admin/nvidia/keys', { method: 'DELETE', body: JSON.stringify({ api_key: row.api_key }) });
+        showToast('已删除', 'success');
+        loadNvidiaKeys();
+      } catch (e) { showToast(e.message || '删除失败', 'error'); }
     }
 
     // === CC Club 密钥冷却状态 ===
