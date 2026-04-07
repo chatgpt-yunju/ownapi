@@ -51,6 +51,18 @@ db.query(`
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 `).catch(() => {});
 
+db.query(`
+  CREATE TABLE IF NOT EXISTS openclaw_blog_posts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(300) NOT NULL,
+    summary TEXT,
+    content LONGTEXT NOT NULL DEFAULT '',
+    status ENUM('draft','published') DEFAULT 'draft',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+`).catch(() => {});
+
 router.use(adminOnly);
 
 let smtpTransporter = null;
@@ -958,21 +970,53 @@ router.get('/orders', async (req, res) => {
 
 // 请求日志列表（含 prompt 预览）
 router.get('/logs', async (req, res) => {
-  const { page = 1, limit = 50, user_id, model, status, date } = req.query;
+  const { page = 1, limit = 50, user_id, user, model, status, date } = req.query;
   const offset = (page - 1) * limit;
   try {
     let where = '1=1';
     const params = [];
-    if (user_id) { where += ' AND l.user_id = ?'; params.push(Number(user_id)); }
+    if (user_id) {
+      const userIdText = String(user_id).trim();
+      const userIdNum = Number(userIdText);
+      if (Number.isInteger(userIdNum) && userIdNum > 0) {
+        where += ' AND l.user_id = ?';
+        params.push(userIdNum);
+      } else if (userIdText) {
+        // 兼容旧前端把用户名塞到 user_id 参数的情况。
+        where += ' AND (u.username = ? OR u.username LIKE ? OR LOWER(u.username) = LOWER(?) OR LOWER(u.username) LIKE LOWER(?))';
+        params.push(userIdText, `%${userIdText}%`, userIdText, `%${userIdText}%`);
+      }
+    }
+    if (user) {
+      const userText = String(user).trim();
+      if (userText) {
+        const userIdNum = Number(userText);
+        if (Number.isInteger(userIdNum) && userIdNum > 0) {
+          where += ' AND l.user_id = ?';
+          params.push(userIdNum);
+        } else {
+          // 兼容精确/包含/大小写差异匹配，避免前端输入与库中大小写不一致导致查不到。
+          where += ' AND (u.username = ? OR u.username LIKE ? OR LOWER(u.username) = LOWER(?) OR LOWER(u.username) LIKE LOWER(?))';
+          params.push(userText, `%${userText}%`, userText, `%${userText}%`);
+        }
+      }
+    }
     if (model) { where += ' AND l.model LIKE ?'; params.push(`%${model}%`); }
     if (status) { where += ' AND l.status = ?'; params.push(status); }
-    if (date) { where += ' AND DATE(l.created_at) = ?'; params.push(date); }
+    if (date) { where += ' AND DATE(DATE_ADD(l.created_at, INTERVAL 8 HOUR)) = ?'; params.push(date); }
 
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) as total FROM openclaw_call_logs l WHERE ${where}`, params);
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) as total
+       FROM openclaw_call_logs l
+       LEFT JOIN users u ON l.user_id = u.id
+       WHERE ${where}`,
+      params
+    );
     const [logs] = await db.query(
       `SELECT l.id, l.request_id, l.user_id, u.username, l.model,
         l.prompt_tokens, l.completion_tokens, l.total_cost, l.ip,
-        l.status, l.error_message, l.created_at,
+        l.status, l.error_message,
+        DATE_FORMAT(DATE_ADD(l.created_at, INTERVAL 8 HOUR), '%Y-%m-%d %H:%i:%s') as created_at,
         LEFT(r.user_prompt, 200) as user_prompt_preview,
         (r.request_id IS NOT NULL) as has_detail
        FROM openclaw_call_logs l
@@ -994,6 +1038,7 @@ router.get('/logs/:requestId', async (req, res) => {
   try {
     const [[log]] = await db.query(
       `SELECT l.*, u.username,
+        DATE_FORMAT(DATE_ADD(l.created_at, INTERVAL 8 HOUR), '%Y-%m-%d %H:%i:%s') as created_at,
         r.user_prompt, r.messages, r.system_prompt, r.response_content
        FROM openclaw_call_logs l
        LEFT JOIN users u ON l.user_id = u.id
@@ -2156,6 +2201,131 @@ router.delete('/nvidia/keys', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
+
+// ─── 技术博客管理 ────────────────────────────────────────────────────────────
+
+router.get('/blog', async (_req, res) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT id, title, summary, status, created_at, updated_at FROM openclaw_blog_posts ORDER BY id DESC'
+    );
+    res.json({ posts: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取博客列表失败' });
+  }
+});
+
+router.get('/blog/:id', async (req, res) => {
+  try {
+    const [[post]] = await db.query(
+      'SELECT id, title, summary, content, status, created_at, updated_at FROM openclaw_blog_posts WHERE id = ?',
+      [Number(req.params.id)]
+    );
+    if (!post) return res.status(404).json({ error: '文章不存在' });
+    res.json({ post });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取文章失败' });
+  }
+});
+
+router.post('/blog', async (req, res) => {
+  const title = String(req.body?.title || '').trim();
+  const summary = String(req.body?.summary || '').trim();
+  const content = String(req.body?.content || '').trim();
+  const status = req.body?.status === 'published' ? 'published' : 'draft';
+  if (!title) return res.status(400).json({ error: '标题不能为空' });
+  try {
+    const [result] = await db.query(
+      'INSERT INTO openclaw_blog_posts (title, summary, content, status) VALUES (?, ?, ?, ?)',
+      [title, summary, content, status]
+    );
+    res.json({ id: result.insertId, message: '文章已创建' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '创建文章失败' });
+  }
+});
+
+router.put('/blog/:id', async (req, res) => {
+  const title = String(req.body?.title || '').trim();
+  const summary = String(req.body?.summary || '').trim();
+  const content = String(req.body?.content || '').trim();
+  const status = req.body?.status === 'published' ? 'published' : 'draft';
+  if (!title) return res.status(400).json({ error: '标题不能为空' });
+  try {
+    const [result] = await db.query(
+      'UPDATE openclaw_blog_posts SET title = ?, summary = ?, content = ?, status = ? WHERE id = ?',
+      [title, summary, content, status, Number(req.params.id)]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: '文章不存在' });
+    res.json({ message: '文章已更新' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '更新文章失败' });
+  }
+});
+
+router.delete('/blog/:id', async (req, res) => {
+  try {
+    const [result] = await db.query(
+      'DELETE FROM openclaw_blog_posts WHERE id = ?',
+      [Number(req.params.id)]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: '文章不存在' });
+    res.json({ message: '文章已删除' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '删除文章失败' });
+  }
+});
+
+router.post('/blog/:id/ai-chat', async (req, res) => {
+  const messages = req.body?.messages;
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: '缺少 messages 参数' });
+  }
+  try {
+    const axios = require('axios');
+    const resp = await axios.post(
+      'http://localhost:3000/v1/chat/completions',
+      { model: 'step-3.5-flash', messages, stream: false },
+      { headers: { Authorization: req.headers.authorization }, timeout: 60000 }
+    );
+    const reply = resp.data?.choices?.[0]?.message?.content || '';
+    res.json({ reply });
+  } catch (err) {
+    const msg = err.response?.data?.error?.message || err.message || '调用失败';
+    res.status(500).json({ error: msg });
+  }
+});
+
+router.post('/blog/:id/ai-rewrite-sentence', async (req, res) => {
+  const sentence = String(req.body?.sentence || '').trim();
+  const instruction = String(req.body?.instruction || '').trim();
+  if (!sentence) return res.status(400).json({ error: '缺少 sentence 参数' });
+  try {
+    const axios = require('axios');
+    const resp = await axios.post(
+      'http://localhost:3000/v1/chat/completions',
+      {
+        model: 'step-3.5-flash',
+        messages: [
+          { role: 'system', content: '你是一个文字编辑助手。用户会给你一句话和改写要求，你只需要返回改写后的句子，不加任何说明、前缀或引号。' },
+          { role: 'user', content: `原句：${sentence}\n要求：${instruction || '优化表达'}` },
+        ],
+        stream: false,
+      },
+      { headers: { Authorization: req.headers.authorization }, timeout: 30000 }
+    );
+    const result = resp.data?.choices?.[0]?.message?.content || '';
+    res.json({ result });
+  } catch (err) {
+    const msg = err.response?.data?.error?.message || err.message || '调用失败';
+    res.status(500).json({ error: msg });
   }
 });
 
