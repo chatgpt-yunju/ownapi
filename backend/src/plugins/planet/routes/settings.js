@@ -22,7 +22,16 @@ const path = require('path');
     'INSERT IGNORE INTO settings (`key`, `value`) VALUES (?, ?)',
     ['popup_config', JSON.stringify({
       enabled: false,
-      text: '小龙虾系统一键部署，专业技术支持，微信：19966519194',
+      text: '小龙虾系统一键部署，专业技术支持，微信：15953077610',
+      image_url: '',
+      frequency: 'once_per_day'
+    })]
+  ).catch(() => {});
+  await db.query(
+    'INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+    ['popup_config', JSON.stringify({
+      enabled: false,
+      text: '小龙虾系统一键部署，专业技术支持，微信：15953077610',
       image_url: '',
       frequency: 'once_per_day'
     })]

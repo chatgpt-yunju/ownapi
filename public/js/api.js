@@ -1,4 +1,4 @@
-/* OpenClaw API - API Client */
+/* 云聚API - API Client */
 const API_BASE = '/api';
 function getLoginUrl() {
   const next = window.location.pathname + window.location.search;

@@ -29,6 +29,27 @@ function getInviteEligiblePaidAmount(order) {
   return Number(order.actual_paid || order.amount || 0);
 }
 
+const RECHARGE_TIERS = [
+  { min: 1999, rate: 1.55, label: '加赠55%' },
+  { min: 999, rate: 1.38, label: '加赠38%' },
+  { min: 499, rate: 1.25, label: '加赠25%' },
+  { min: 199, rate: 1.15, label: '加赠15%' },
+  { min: 99, rate: 1.18, label: '加赠18%' },
+  { min: 50, rate: 1.14, label: '加赠14%' },
+  { min: 10, rate: 1.10, label: '加赠10%' },
+  { min: 1, rate: 1.20, label: '加赠20%' },
+];
+
+function getRechargePricing(payAmount) {
+  const tier = RECHARGE_TIERS.find(t => payAmount >= t.min) || { rate: 1, label: '无赠送', min: 0 };
+  const creditAmount = Math.round(payAmount * tier.rate * 100) / 100;
+  return {
+    creditAmount,
+    bonusAmount: Math.max(0, Math.round((creditAmount - payAmount) * 100) / 100),
+    tier,
+  };
+}
+
 /**
  * POST /payment/create-package
  * 创建套餐购买订单
@@ -330,7 +351,7 @@ router.post('/alipay/notify', async (req, res) => {
               'quota',
               totalQuota,
               'booster',
-              `加油包充值成功，获得 $${totalQuota}`,
+              `额度充值成功，获得 $${totalQuota}`,
               { source: 'alipay_notify', order_type: 'recharge', out_trade_no },
               conn
             );
@@ -554,7 +575,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
         });
       }
 
-      // 加油包订单处理
+      // 额度充值订单处理
       if (order.order_type === 'recharge') {
         const totalQuota = Number(order.amount); // amount 已含 bonus_quota，不重复相加
 
@@ -563,7 +584,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
           'quota',
           totalQuota,
           'booster',
-          `加油包充值成功，获得 $${totalQuota}`,
+          `额度充值成功，获得 $${totalQuota}`,
           { source: 'payment_verify', order_type: 'recharge', out_trade_no },
           conn
         );
@@ -579,7 +600,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
 
         return res.json({
           success: true,
-          message: `加油包充值成功！已到账 $${totalQuota}`,
+          message: `额度充值成功！已到账 $${totalQuota}`,
           amount: totalQuota
         });
       }
@@ -609,7 +630,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
 
 /**
  * POST /payment/create-recharge
- * 创建加油包充值订单
+ * 创建额度充值订单
  * Body: { amount: number }
  */
 router.post('/create-recharge', async (req, res) => {
@@ -617,33 +638,14 @@ router.post('/create-recharge', async (req, res) => {
   const userId = req.user.id;
 
   try {
-    // 加油包配置：支付金额(¥) -> 获得额度($)
-    const rechargePackages = {
-      10: 10,    // 基础加油包：¥10 → $10
-      20: 20,    // 标准加油包：¥20 → $20
-      45: 50     // 超值加油包：¥45 → $50
-    };
-
     const payAmount = Number(amount);
     if (!payAmount || payAmount < 1 || payAmount > 10000 || !Number.isFinite(payAmount)) {
       return res.status(400).json({ error: '充值金额必须在 ¥1 ~ ¥10000 之间' });
     }
 
-    // 固定套餐用预设额度，自定义金额按阶梯折扣
-    let creditAmount = rechargePackages[payAmount];
-    if (!creditAmount) {
-      // 阶梯折扣：金额越大折扣越多
-      const DISCOUNT_TIERS = [
-        { min: 5001, rate: 0.60 }, // 六折
-        { min: 1001, rate: 0.70 }, // 七折
-        { min: 100,  rate: 0.80 }, // 八折
-        { min: 50,   rate: 0.85 }, // 八五折
-      ];
-      const tier = DISCOUNT_TIERS.find(t => payAmount >= t.min);
-      creditAmount = tier ? Math.round(payAmount / tier.rate * 100) / 100 : payAmount;
-    }
+    // 新阶梯：金额越高，加赠越多
+    const { creditAmount, bonusAmount, tier } = getRechargePricing(payAmount);
     const totalAmount = creditAmount;
-    const bonusAmount = Math.round((creditAmount - payAmount) * 100) / 100;
 
     // 生成订单号
     const outTradeNo = makeTradeNo(userId);
@@ -679,8 +681,8 @@ router.post('/create-recharge', async (req, res) => {
         outTradeNo: outTradeNo,
         productCode: mobile ? 'QUICK_WAP_WAY' : 'FAST_INSTANT_TRADE_PAY',
         totalAmount: payAmount.toFixed(2),
-        subject: `OpenClaw AI 加油包充值`,
-        body: `支付 ¥${payAmount}，获得 $${creditAmount} API 额度`
+        subject: `OpenClaw AI 额度充值`,
+        body: `支付 ¥${payAmount}，获得 $${creditAmount} API 额度（${tier.label}）`
       }
     };
     if (notifyUrl) bizParams.notifyUrl = notifyUrl;
@@ -690,7 +692,17 @@ router.post('/create-recharge', async (req, res) => {
     const rawResult = await alipaySdk.pageExecute(apiMethod, bizParams);
 
     if (mobile) {
-      return res.json({ mobile: true, tradeNo: outTradeNo, payUrl: rawResult.includes('<form') ? rawResult.match(/action="([^"]+)"/)[1].replace(/&amp;/g, '&') : rawResult, out_trade_no: outTradeNo, amount: payAmount, need_pay: payAmount });
+      return res.json({
+        mobile: true,
+        tradeNo: outTradeNo,
+        payUrl: rawResult.includes('<form') ? rawResult.match(/action="([^"]+)"/)[1].replace(/&amp;/g, '&') : rawResult,
+        out_trade_no: outTradeNo,
+        amount: payAmount,
+        need_pay: payAmount,
+        credit_amount: creditAmount,
+        bonus_amount: bonusAmount,
+        discount_label: tier.label
+      });
     }
 
     // PC端：提取纯 URL
@@ -704,10 +716,12 @@ router.post('/create-recharge', async (req, res) => {
       out_trade_no: outTradeNo,
       amount: totalAmount,
       bonus: bonusAmount,
+      credit_amount: creditAmount,
+      discount_label: tier.label,
       pay_url: payUrl
     });
   } catch (err) {
-    console.error('创建加油包订单失败:', err);
+    console.error('创建额度充值订单失败:', err);
     res.status(500).json({ error: '创建订单失败，请稍后重试' });
   }
 });

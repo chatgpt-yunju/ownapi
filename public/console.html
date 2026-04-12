@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>控制台 - OpenClaw API</title>
+  <title>控制台 - 云聚API</title>
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -36,6 +36,7 @@
     .dashboard-panels { display:flex; gap:1rem; flex-wrap:wrap; margin-top:1.5rem; }
     .dashboard-panel { flex:1; min-width:280px; padding:1.25rem; }
     .dashboard-mini-grid { gap:0.75rem; margin-bottom:0.75rem; }
+    .booster-grid { grid-template-columns:repeat(5, minmax(0, 1fr)); }
     .chart-card canvas { display:block; width:100%; height:250px; }
     .stats-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1.5rem; }
     .app-market-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; }
@@ -50,6 +51,7 @@
       .dashboard-panels { display:grid; grid-template-columns:1fr; }
       .dashboard-panel { min-width:0; padding:1rem; }
       .dashboard-mini-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+      .booster-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
       .stats-toolbar { align-items:flex-start; flex-direction:column; }
       #stats-grid,
       #page-statistics .oc-grid.oc-grid-4 {
@@ -77,7 +79,8 @@
       #modal-set-password .oc-modal { min-width:0 !important; width:min(100%, calc(100vw - 24px)); }
       #stats-grid,
       #page-statistics .oc-grid.oc-grid-4,
-      .dashboard-mini-grid {
+      .dashboard-mini-grid,
+      .booster-grid {
         grid-template-columns:1fr;
       }
       .chart-card canvas { height:200px; }
@@ -88,7 +91,7 @@
 <body>
   <nav class="oc-navbar">
     <button class="oc-sidebar-toggle" onclick="toggleSidebar()" style="display:none;background:none;border:none;color:var(--text-primary);font-size:1.5rem;cursor:pointer;padding:0.5rem;">☰</button>
-    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>OpenClaw API</a>
+    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>云聚API</a>
     <div class="oc-nav-links">
       <a href="/">首页</a>
       <a href="/docs.html">文档</a>
@@ -114,8 +117,8 @@
       <div class="oc-sidebar-item" onclick="window.open('/blog.html','_blank')">&#x1f4dd; 技术博客</div>
 
       <div class="oc-sidebar-section">套餐</div>
-      <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐市场</div>
-      <div class="oc-sidebar-item" data-page="booster" onclick="switchPage('booster')">&#x26a1; 加油包</div>
+      <div class="oc-sidebar-item" id="sidebar-packages-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐商城</div>
+      <div class="oc-sidebar-item" data-page="booster" onclick="switchPage('booster')">&#x26a1; 额度充值</div>
  <div class="oc-sidebar-item" data-page="orders" onclick="switchPage('orders')">&#x1f9fe; 我的订单</div>
 
       <div class="oc-sidebar-section">密钥管理</div>
@@ -202,7 +205,7 @@
 <div class="oc-card dashboard-panel">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
 <span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">每月用量限制</span>
-<a href="#" onclick="switchPage('packages');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">提高用量</a>
+<a href="#" id="dashboard-package-link" onclick="switchPage('packages');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">查看套餐</a>
 </div>
 <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.75rem;">
 当前周期：<span id="dash-week-period">-</span>
@@ -220,15 +223,15 @@
 </div>
 </div>
 <div class="surface-note" style="background:rgba(84,160,255,0.08);">
-月度用量按当前套餐窗口规则结算；超过限制后需等待窗口重置，或通过加油包补充可用余额。
+月度用量按当前套餐窗口规则结算；超过限制后需等待窗口重置，或通过额度充值补充可用余额。
 </div>
 </div>
 
-<!-- 加油包余额 -->
+<!-- 额度充值余额 -->
 <div class="oc-card dashboard-panel">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
-<span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">加油包余额</span>
-<a href="#" onclick="switchPage('booster');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">购买加油包</a>
+<span style="font-size:0.95rem;font-weight:600;color:var(--text-primary);">额度充值余额</span>
+<a href="#" id="dashboard-booster-link" onclick="switchPage('booster');return false;" style="font-size:0.75rem;color:var(--accent);text-decoration:none;">充值额度</a>
 </div>
 <div class="oc-grid oc-grid-4 dashboard-mini-grid">
 <div style="text-align:center;">
@@ -245,11 +248,11 @@
 </div>
 <div style="text-align:center;">
 <div style="font-size:1.1rem;font-weight:700;color:var(--warning);" id="dash-booster-cny">¥0.00</div>
-<div style="font-size:0.7rem;color:var(--text-muted);">总购买</div>
+<div style="font-size:0.7rem;color:var(--text-muted);">累计充值</div>
 </div>
 </div>
 <div class="surface-note" style="background:rgba(254,202,87,0.08);">
-加油包提供独立余额，具体到账与可用范围以订单结果和控制台记录为准
+额度充值提供独立余额，具体到账与可用范围以订单结果和控制台记录为准
 </div>
 </div>
 
@@ -376,44 +379,11 @@
 
       <!-- Booster Packages -->
       <div id="page-booster" class="page-content" style="display:none;">
-        <h2 style="margin-bottom:1.5rem;">加油包</h2>
-        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于补充独立余额，适合测试、突发调用或在套餐窗口外追加可用额度。实际到账与折扣以支付结果和订单记录为准。</p>
-        <div class="oc-grid oc-grid-3" id="booster-grid">
-          <div class="oc-card" style="text-align:center;padding:1.5rem;">
-            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x26a1;</div>
-            <h3 style="margin-bottom:0.5rem;">基础补充包</h3>
-            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥10</div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $10 API 额度</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合测试环境或轻量调用快速补充额度</p>
-            <button class="btn-accent" onclick="buyBooster(10)">立即购买</button>
-          </div>
-          <div class="oc-card" style="text-align:center;padding:1.5rem;border:2px solid var(--accent);">
-            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f525;</div>
-            <h3 style="margin-bottom:0.5rem;">标准补充包</h3>
-            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥20</div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $20 API 额度</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合日常开发与常规频次调用</p>
-            <button class="btn-accent" onclick="buyBooster(20)">立即购买</button>
-          </div>
-          <div class="oc-card" style="text-align:center;padding:1.5rem;">
-            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f680;</div>
-            <h3 style="margin-bottom:0.5rem;">高配补充包</h3>
-            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥45</div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $50 API 额度</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">适合较高频调用或短期集中消耗场景</p>
-            <button class="btn-accent" onclick="buyBooster(45)">立即购买</button>
-          </div>
-          <div class="oc-card" style="text-align:center;padding:1.5rem;">
-            <div style="font-size:2rem;margin-bottom:0.5rem;">&#x1f4b0;</div>
-            <h3 style="margin-bottom:0.5rem;">自定义金额</h3>
-            <div style="margin:1rem 0;display:flex;align-items:center;justify-content:center;gap:4px;">
-              <span style="font-size:1.4rem;font-weight:700;color:var(--accent);">¥</span>
-              <input type="number" id="custom-amount" min="1" max="10000" step="1" placeholder="输入金额" style="width:100px;font-size:1.4rem;font-weight:700;text-align:center;border:2px solid var(--border-color);border-radius:8px;padding:6px;background:var(--bg-secondary);color:var(--text-primary);outline:none;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border-color)'" oninput="updateDiscountHint(this.value)" />
-            </div>
-            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;" id="custom-discount-hint">按阶梯折扣兑换</p>
-            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">¥50起享八五折，¥100起八折，¥1000起七折</p>
-            <button class="btn-accent" onclick="buyCustomBooster()">立即购买</button>
-          </div>
+        <h2 style="margin-bottom:1.5rem;">额度充值</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">固定档位采用带 9 的价格，金额越高加赠越多；任意金额都会有赠送，自定义金额会自动按同一阶梯计算赠送额度。</p>
+        <div class="oc-grid booster-grid" id="booster-grid"></div>
+        <div class="surface-note" style="margin-top:1rem;background:rgba(84,160,255,0.08);">
+          固定档位：¥99 / ¥199 / ¥499 / ¥999 / ¥1999；任意金额都会加赠，大额档位优惠更明显。
         </div>
       </div>
  <!-- Orders -->
@@ -459,11 +429,11 @@
           <div style="display:grid;gap:0.75rem;">
             <div style="padding:0.9rem 1rem;border:1px solid var(--border-color);border-radius:10px;background:rgba(255,255,255,0.02);">
               <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.35rem;">注册成功奖励</div>
-              <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.7;">被邀请人注册成功后，邀请人奖励 <strong>$1 加油包</strong>，被邀请人奖励 <strong>$1 加油包</strong>。</div>
+              <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.7;">被邀请人注册成功后，邀请人奖励 <strong>$1 额度充值</strong>，被邀请人奖励 <strong>$1 额度充值</strong>。</div>
             </div>
             <div style="padding:0.9rem 1rem;border:1px solid var(--border-color);border-radius:10px;background:rgba(255,255,255,0.02);">
               <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.35rem;">首次付费奖励</div>
-              <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.7;">被邀请人首次充值加油包或首次购买套餐，且实付满 <strong>¥10</strong>，邀请人可获得该笔实付金额 <strong>10%</strong> 的返现奖励。</div>
+              <div style="font-size:0.85rem;color:var(--text-secondary);line-height:1.7;">被邀请人首次额度充值或首次购买套餐，且实付满 <strong>¥10</strong>，邀请人可获得该笔实付金额 <strong>10%</strong> 的返现奖励。</div>
             </div>
             <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.7;">邀请奖励会在财富中心展示；通过专属链接访问注册页时，系统会自动带入邀请码。</div>
           </div>
@@ -690,8 +660,94 @@
     let userInfo = null;
     let playgroundModels = [];
     let appMarketLoaded = false;
+    let boosterRendered = false;
+    const PACKAGE_MARKET_MIN_SPEND = 1000;
+    const RECHARGE_PACKAGES = [99, 199, 499, 999, 1999];
+    const RECHARGE_TIERS = [
+      { min: 1999, rate: 1.55, label: '加赠55%' },
+      { min: 999, rate: 1.38, label: '加赠38%' },
+      { min: 499, rate: 1.25, label: '加赠25%' },
+      { min: 199, rate: 1.15, label: '加赠15%' },
+      { min: 99, rate: 1.18, label: '加赠18%' },
+      { min: 50, rate: 1.14, label: '加赠14%' },
+      { min: 10, rate: 1.10, label: '加赠10%' },
+      { min: 1, rate: 1.20, label: '加赠20%' },
+    ];
+
+    function canAccessPackageMarket() {
+      if (!userInfo) return false;
+      if (userInfo.role === 'admin') return true;
+      if (userInfo.package_market_visible != null) return !!userInfo.package_market_visible;
+      return Number(userInfo.total_paid_cny || 0) >= PACKAGE_MARKET_MIN_SPEND;
+    }
+
+    function getRechargePricing(amount) {
+      const tier = RECHARGE_TIERS.find(t => amount >= t.min) || { rate: 1, label: '无赠送', min: 0 };
+      const creditAmount = Math.round(amount * tier.rate * 100) / 100;
+      const bonusAmount = Math.max(0, Math.round((creditAmount - amount) * 100) / 100);
+      return { tier, creditAmount, bonusAmount };
+    }
+
+    function getDiscountCredit(amount) {
+      return getRechargePricing(Number(amount) || 0).creditAmount;
+    }
+
+    function renderBoosterCards() {
+      const grid = document.getElementById('booster-grid');
+      if (!grid) return;
+      grid.innerHTML = RECHARGE_PACKAGES.map((amount, index) => {
+        const { tier, creditAmount, bonusAmount } = getRechargePricing(amount);
+        const titleMap = ['新客超值起步档', '标准充值包', '进阶充值包', '超值充值包', '旗舰充值包'];
+        const iconMap = ['⚡', '🔥', '🚀', '💎', '👑'];
+        const highlight = index === 3;
+        return `
+          <div class="oc-card${highlight ? ' popular' : ''}" style="text-align:center;padding:1.5rem;${highlight ? 'border:2px solid var(--accent);box-shadow:0 14px 34px rgba(99,102,241,0.18);' : ''}">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">${iconMap[index]}</div>
+            <h3 style="margin-bottom:0.5rem;">${titleMap[index]}</h3>
+            <div style="font-size:1.8rem;font-weight:700;color:var(--accent);margin:1rem 0;">¥${amount}</div>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;">获得 $${creditAmount.toFixed(2)} API 额度</p>
+            <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">加赠 $${bonusAmount.toFixed(2)} · ${tier.label}</p>
+            <button class="btn-accent" onclick="buyBooster(${amount})">立即充值</button>
+          </div>
+        `;
+      }).join('') + `
+        <div class="oc-card" style="text-align:center;padding:1.5rem;">
+          <div style="font-size:2rem;margin-bottom:0.5rem;">💳</div>
+          <h3 style="margin-bottom:0.5rem;">自定义金额</h3>
+          <div style="margin:1rem 0;display:flex;align-items:center;justify-content:center;gap:4px;">
+            <span style="font-size:1.4rem;font-weight:700;color:var(--accent);">¥</span>
+            <input type="number" id="custom-amount" min="1" max="10000" step="1" placeholder="输入金额" style="width:100px;font-size:1.4rem;font-weight:700;text-align:center;border:2px solid var(--border-color);border-radius:8px;padding:6px;background:var(--bg-secondary);color:var(--text-primary);outline:none;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border-color)'" oninput="updateDiscountHint(this.value)" />
+          </div>
+          <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:0.5rem;" id="custom-discount-hint">按阶梯自动加赠</p>
+          <p style="color:var(--text-muted);font-size:0.75rem;margin-bottom:1rem;">金额越高，加赠越多</p>
+          <button class="btn-accent" onclick="buyCustomBooster()">立即充值</button>
+        </div>
+      `;
+      boosterRendered = true;
+    }
+
+    function syncPackageMarketVisibility(forceVisible) {
+      const visible = typeof forceVisible === 'boolean' ? forceVisible : canAccessPackageMarket();
+      const packageItem = document.getElementById('sidebar-packages-item');
+      const packageLink = document.getElementById('dashboard-package-link');
+
+      if (packageItem) packageItem.style.display = visible ? '' : 'none';
+      if (packageLink) packageLink.style.display = visible ? '' : 'none';
+
+      if (!visible && currentPage === 'packages') {
+        currentPage = 'dashboard';
+        document.querySelectorAll('.page-content').forEach(el => el.style.display = 'none');
+        const dashboard = document.getElementById('page-dashboard');
+        if (dashboard) dashboard.style.display = 'block';
+        document.querySelectorAll('.oc-sidebar-item').forEach(el => el.classList.toggle('active', el.dataset.page === 'dashboard'));
+      }
+    }
 
     function switchPage(page) {
+      if (page === 'packages' && !canAccessPackageMarket()) {
+        showToast('累计实付达到 ¥1000 后可查看套餐商城', 'info');
+        return;
+      }
       currentPage = page;
       document.querySelectorAll('.page-content').forEach(el => el.style.display = 'none');
       document.getElementById('page-' + page).style.display = 'block';
@@ -858,6 +914,7 @@
         document.body.style.visibility = 'visible';
         document.getElementById('nav-username').textContent = userInfo.username;
         if (userInfo.role === 'admin') document.getElementById('admin-nav').style.display = '';
+        syncPackageMarketVisibility();
         loadDashboard();
       } catch(e) {
         document.body.style.visibility = 'visible';
@@ -871,7 +928,7 @@
       try {
         const [info, stats] = await Promise.all([api.getUserInfo(), api.getStats()]);
 
-      // 总额度摘要（套餐 + 加油包）
+      // 总额度摘要（套餐 + 额度充值）
       const totalQuotaRemaining = info.total_quota_remaining != null
         ? parseFloat(info.total_quota_remaining)
         : parseFloat(info.quota_balance ?? info.balance ?? 0);
@@ -970,11 +1027,12 @@
           }
         }
 
-        // 加油包余额
+        // 额度充值余额
         document.getElementById('dash-booster-balance').textContent = `$${(info.booster_balance || 0).toFixed(2)}`;
         document.getElementById('dash-booster-used').textContent = `$${(info.booster_used || 0).toFixed(2)}`;
         document.getElementById('dash-booster-total').textContent = `$${(info.booster_total || 0).toFixed(2)}`;
-        document.getElementById('dash-booster-cny').innerHTML = `&#165;${(info.booster_total_purchased_cny || 0).toFixed(2)}`;
+        document.getElementById('dash-booster-cny').innerHTML = `&#165;${(info.total_paid_cny || 0).toFixed(2)}`;
+        syncPackageMarketVisibility(info.package_market_visible ?? (Number(info.total_paid_cny || 0) >= 1000));
 
         // Chart
         if (stats.daily && stats.daily.length > 0) drawChart(stats.daily);
@@ -1225,6 +1283,10 @@
 
     // Packages
     async function loadPackages() {
+      if (!canAccessPackageMarket()) {
+        showToast('累计实付达到 ¥1000 后可查看套餐商城', 'info');
+        return;
+      }
       try {
         const [pkgsData, myPkgsData] = await Promise.all([api.getPackages(), api.getMyPackages()]);
         const pkgs = pkgsData.packages || pkgsData; // 兼容两种数据格式
@@ -1916,28 +1978,19 @@
 
     // Booster
     function loadBooster() {
-      // 加油包页面已经是静态的，不需要加载数据
+      if (!boosterRendered) renderBoosterCards();
     }
 
     function updateDiscountHint(val) {
       const hint = document.getElementById('custom-discount-hint');
       const amt = parseInt(val);
-      if (!amt || amt < 1) { hint.textContent = '按阶梯折扣兑换'; return; }
-      const credit = getDiscountCredit(amt);
-      if (credit > amt) {
-        const discount = amt >= 5001 ? '六折' : amt >= 1001 ? '七折' : amt >= 100 ? '八折' : '八五折';
-        hint.innerHTML = `<span style="color:var(--success);">支付 ¥${amt} → 获得 $${credit.toFixed(2)}（${discount}）</span>`;
+      if (!amt || amt < 1) { hint.textContent = '按阶梯自动加赠'; return; }
+      const pricing = getRechargePricing(amt);
+      if (pricing.creditAmount > amt) {
+        hint.innerHTML = `<span style="color:var(--success);">支付 ¥${amt} → 获得 $${pricing.creditAmount.toFixed(2)}（${pricing.tier.label}）</span>`;
       } else {
-        hint.textContent = `支付 ¥${amt} → 获得 $${amt}`;
+        hint.textContent = `支付 ¥${amt} → 获得 $${amt.toFixed(2)}`;
       }
-    }
-
-    function getDiscountCredit(amount) {
-      if (amount >= 5001) return Math.round(amount / 0.60 * 100) / 100;
-      if (amount >= 1001) return Math.round(amount / 0.70 * 100) / 100;
-      if (amount >= 100) return Math.round(amount / 0.80 * 100) / 100;
-      if (amount >= 50) return Math.round(amount / 0.85 * 100) / 100;
-      return amount;
     }
 
     function buyCustomBooster() {
@@ -1951,10 +2004,10 @@
     }
 
     async function buyBooster(amount) {
-      const credit = getDiscountCredit(amount);
-      const msg = credit > amount
-        ? `确认支付 ¥${amount}？将获得 $${credit.toFixed(2)} API 额度（赠送 $${(credit - amount).toFixed(2)}）`
-        : `确认购买 ¥${amount} 加油包？`;
+      const pricing = getRechargePricing(Number(amount) || 0);
+      const msg = pricing.creditAmount > amount
+        ? `确认进行 ¥${amount} 额度充值？将获得 $${pricing.creditAmount.toFixed(2)} API 额度（${pricing.tier.label}）`
+        : `确认进行 ¥${amount} 额度充值？`;
       if (!confirm(msg)) return;
       try {
         const result = await api.post('/payment/create-recharge', { amount });
@@ -1991,7 +2044,7 @@
  }
 
  tbody.innerHTML = orders.map(o => {
- const typeLabel = o.order_type === 'package' ? '套餐' : '加油包';
+ const typeLabel = o.order_type === 'package' ? '套餐' : '额度充值';
  const statusBadge = o.status === 'paid'
  ? '<span class="badge-active">已完成</span>'
  : '<span class="badge-disabled">待支付</span>';
@@ -2088,7 +2141,7 @@
       if (!code || code === '暂无邀请码' || !link || link === '暂无邀请链接') {
         return showToast('邀请信息未准备好', 'error');
       }
-      const text = `邀请你一起使用 OpenClaw API，注册成功即可获得邀请奖励。\n\n奖励规则：邀请人 $1 加油包，被邀请人 $1 加油包\n\n注册链接：${link}\n邀请码：${code}`;
+      const text = `邀请你一起使用 云聚API，注册成功即可获得邀请奖励。\n\n奖励规则：邀请人 $1 额度充值，被邀请人 $1 额度充值\n\n注册链接：${link}\n邀请码：${code}`;
       copyText(text);
     }
 

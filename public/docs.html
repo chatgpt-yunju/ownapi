@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>开发者文档 - OpenClaw API Gateway</title>
+  <title>开发者文档 - 云聚API 网关</title>
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -215,7 +215,7 @@
   <nav class="oc-navbar nav-collapsible">
     <a href="/" class="oc-logo">
       <div class="oc-logo-icon">&gt;_</div>
-      OpenClaw API
+      云聚API
     </a>
     <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
     <div class="oc-nav-links">
@@ -269,7 +269,7 @@
       <section class="oc-card docs-hero">
         <div class="docs-kicker">Developer Portal</div>
         <h1>开发者文档与接入规范</h1>
-        <p>本页用于说明 OpenClaw API Gateway 的统一接入方式，包括协议兼容、认证要求、示例请求、CLI / GUI 客户端配置与运行边界。文档提供接入指引；实际可用模型、价格、套餐权益、频率限制与运行状态，以控制台、模型目录和接口返回为准。</p>
+        <p>本页用于说明 云聚API 网关 的统一接入方式，包括协议兼容、认证要求、示例请求、CLI / GUI 客户端配置与运行边界。文档提供接入指引；实际可用模型、价格、套餐权益、频率限制与运行状态，以控制台、模型目录和接口返回为准。</p>
         <div class="docs-hero-actions">
           <a href="/console.html" class="btn-accent">进入控制台创建 Key</a>
           <a href="#quickstart" class="btn-outline">查看快速接入</a>
@@ -343,7 +343,7 @@
       </section>
       <div class="doc-section" id="intro">
         <h2>简介</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API Gateway 提供统一模型接入层，用于在同一账户体系下承载多协议调用、访问控制、计费记录、模型目录与平台级治理能力。平台负责认证、配额、计费与路由转换；具体模型能力、上下文限制、工具支持、稳定性与响应行为，由所选模型及其上游服务共同决定。</p>
+        <p style="color:var(--text-secondary);">云聚API 网关 提供统一模型接入层，用于在同一账户体系下承载多协议调用、访问控制、计费记录、模型目录与平台级治理能力。平台负责认证、配额、计费与路由转换；具体模型能力、上下文限制、工具支持、稳定性与响应行为，由所选模型及其上游服务共同决定。</p>
         <div style="margin-top:1rem;display:flex;gap:1rem;flex-wrap:wrap;">
           <div class="oc-card" style="flex:1;min-width:200px;padding:1rem;">
             <div style="font-size:0.8rem;color:var(--text-muted);">统一入口</div>
@@ -444,7 +444,7 @@ openclaw dashboard</pre></div>
           </p>
         </div>
 
-        <h3>B. 本站 OpenClaw API（api.yunjunet.cn）接入</h3>
+        <h3>B. 本站 云聚API（api.yunjunet.cn）接入</h3>
         <p style="color:var(--text-secondary);">如果你不使用 OpenClaw 配置目录，可直接在 SDK、CLI、第三方客户端或 IDE 插件中填写本站网关地址与 API Key。平台会在已启用模型与已开放协议范围内提供统一接入能力。</p>
 
         <h3>1. 获取 API Key</h3>
@@ -881,7 +881,7 @@ model = "claude-sonnet-4-6"
 model_provider = "openclaw"
 
 [model_providers.openclaw]
-name = "OpenClaw API"
+name = "云聚API"
 base_url = "https://api.yunjunet.cn/v1"
 wire_api = "responses"
 env_key = "OPENCLAW_API_KEY"</pre></div>
@@ -918,7 +918,7 @@ echo 'export OPENCLAW_API_KEY=sk-your-api-key' >> ~/.zshrc && source ~/.zshrc</p
 
       <div class="doc-section" id="gemini-cli">
         <h2>Gemini CLI 接入</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 提供与 <a href="https://github.com/google-gemini/gemini-cli" style="color:var(--accent-light);">Gemini CLI</a> 的兼容接入能力，可使用平台 API Key 替代 Google API Key。实际可调用模型范围与多模态能力，以当前启用状态和接口返回为准。</p>
+        <p style="color:var(--text-secondary);">云聚API 提供与 <a href="https://github.com/google-gemini/gemini-cli" style="color:var(--accent-light);">Gemini CLI</a> 的兼容接入能力，可使用平台 API Key 替代 Google API Key。实际可调用模型范围与多模态能力，以当前启用状态和接口返回为准。</p>
 
         <h3>环境变量配置</h3>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># 设置环境变量
@@ -1090,7 +1090,7 @@ openclaw models set lmstudio/minimax-m2.5-gs32</pre></div>
 
       <div class="doc-section" id="claude-code">
         <h2>Claude Code CLI 接入</h2>
-        <p style="color:var(--text-secondary);">OpenClaw API 提供与 <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent-light);">Claude Code CLI</a> 的兼容接入能力，可使用平台 API Key 进行身份认证。实际可用模型范围与运行效果，请以当前控制台和运行时返回为准。</p>
+        <p style="color:var(--text-secondary);">云聚API 提供与 <a href="https://docs.anthropic.com/en/docs/claude-code" style="color:var(--accent-light);">Claude Code CLI</a> 的兼容接入能力，可使用平台 API Key 进行身份认证。实际可用模型范围与运行效果，请以当前控制台和运行时返回为准。</p>
 
         <h3>环境变量配置</h3>
         <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;"># 在终端中设置环境变量（注意：不要加 /v1，CLI 会自动拼接）
@@ -1224,7 +1224,7 @@ for chunk in stream:
           <li>点击 <strong>添加服务商</strong>，类型选择 <strong>OpenAI</strong>（兼容格式）</li>
           <li>填写以下信息：</li>
         </ol>
-        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">服务商名称: OpenClaw API
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">服务商名称: 云聚API
 API 地址:   https://api.yunjunet.cn/v1
 API Key:    sk-your-api-key</pre></div>
         <ol start="4" style="color:var(--text-secondary);padding-left:1.5rem;font-size:0.9rem;line-height:2.2;">
@@ -1444,7 +1444,7 @@ Model:          claude-sonnet-4-6</pre></div>
   </section>
 
   <footer class="oc-footer">
-    <p>&copy; 2024-2026 OpenClaw API &middot; Powered by yunjunet.cn</p>
+    <p>&copy; 2024-2026 云聚API &middot; Powered by yunjunet.cn</p>
   </footer>
 
   <script src="/js/api.js"></script>

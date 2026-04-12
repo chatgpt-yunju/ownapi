@@ -320,7 +320,7 @@ openclaw gateway restart</code></pre>
       如遇到问题，请查看：<br>
       • 详细日志: <code>openclaw logs --follow</code><br>
       • 配置诊断: <code>openclaw doctor</code><br>
-      • 联系邮箱: <a href="mailto:2743319061@qq.com">2743319061@qq.com</a>
+      • 联系邮箱: <a href="mailto:cyjlnk@foxmail.com">cyjlnk@foxmail.com</a>
     </div>
 
     <div class="footer">

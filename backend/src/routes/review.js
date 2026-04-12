@@ -4,7 +4,7 @@ const { auth, requireReviewer } = require('../middleware/auth');
 const { getSetting, getSettingCached } = require('./quota');
 const nodemailer = require('nodemailer');
 
-const NOTIFY_EMAIL = '2743319061@qq.com'; // fallback default, overridden by getSettingCached('contact_email')
+const NOTIFY_EMAIL = 'cyjlnk@foxmail.com'; // fallback default, overridden by getSettingCached('contact_email')
 
 async function sendRejectMail(content, note) {
   const host = await getSetting('smtp_host') || 'smtp.qq.com';
@@ -15,7 +15,7 @@ async function sendRejectMail(content, note) {
   const transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } });
   await transporter.sendMail({
     from: user,
-    to: await getSettingCached('contact_email', '2743319061@qq.com'),
+    to: await getSettingCached('contact_email', 'cyjlnk@foxmail.com'),
     subject: `【审核不通过】${content.title}`,
     html: `
       <h3>视频审核未通过通知</h3>

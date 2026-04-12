@@ -67,6 +67,21 @@ router.get('/info', async (req, res) => {
       [req.user.id, monthStart]
     );
 
+    // 累计实付金额：用于控制台套餐商城的开放门槛
+    const [[spendStats]] = await db.query(
+      `
+        SELECT COALESCE(SUM(
+          CASE
+            WHEN order_type = 'recharge' THEN GREATEST(COALESCE(actual_paid, amount - COALESCE(bonus_quota, 0), amount), 0)
+            ELSE GREATEST(COALESCE(actual_paid, amount), 0)
+          END
+        ), 0) AS total_paid_cny
+        FROM recharge_orders
+        WHERE user_id = ? AND status = 'paid'
+      `,
+      [req.user.id]
+    );
+
     // 加油包：统计充值记录总额（只计type='booster'，排除套餐自动发放的recharge）
     const [[boosterStats]] = await db.query(
       `SELECT COALESCE(SUM(amount), 0) as total_purchased_cny
@@ -81,6 +96,7 @@ router.get('/info', async (req, res) => {
     const monthlyCallLimit = myPkg?.daily_limit ? myPkg.daily_limit * 30 : null;
     const monthCalls = monthUsage.calls || 0;
     const monthCost = parseFloat(monthUsage.cost || 0);
+    const totalPaidCny = parseFloat(spendStats?.total_paid_cny ?? 0);
     const boosterPurchasedCNY = parseFloat(boosterStats?.total_purchased_cny ?? 0);
     const monthlyQuotaRemaining = monthlyQuota != null ? Math.max(0, monthlyQuota - monthCost) : null;
 
@@ -130,6 +146,8 @@ router.get('/info', async (req, res) => {
       today_cost: todayUsage.cost,
       package_name: myPkg?.package_name ?? null,
       package_type: myPkg?.type ?? null,
+      total_paid_cny: totalPaidCny,
+      package_market_visible: totalPaidCny >= 1000,
       window_start: windowStart,
       window_end: windowEnd,
       month_start: monthStart,

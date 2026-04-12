@@ -61,13 +61,13 @@ const defaultSettings = [
   ['new_user_quota', '1'],
   ['new_user_wallet', '0'],
   // 联系信息
-  ['contact_wechat', '19966519194'],
-  ['contact_email', '2743319061@qq.com'],
+  ['contact_wechat', '15953077610'],
+  ['contact_email', 'cyjlnk@foxmail.com'],
   ['feedback_email', 'zy123456789_0211@qq.com'],
   // VIP
   ['vip_duration_options', '[7,30,90,180,365]'],
   ['vip_benefits', '[{"label":"每日搜索次数","weekly":"10 次","yearly":"100 次"}]'],
-  ['permanent_vip_benefits', '永久会员专属特权：免费安装部署Openclaw、Openclaw相关技术知识永久免费答疑、Openclaw专属会员群。将订单截图发到微信19966519194即享以上会员权益'],
+  ['permanent_vip_benefits', '永久会员专属特权：免费安装部署Openclaw、Openclaw相关技术知识永久免费答疑、Openclaw专属会员群。将订单截图发到微信15953077610即享以上会员权益'],
   // 后台导航
   ['admin_nav_items', '[{"key":"planet","name":"星球管理","visible":true},{"key":"content","name":"内容列表","visible":true},{"key":"batch-upload","name":"批量上传","visible":true},{"key":"stats","name":"数据分析","visible":true},{"key":"categories","name":"分类管理","visible":true},{"key":"cardkeys","name":"卡密管理","visible":true},{"key":"users","name":"用户管理","visible":true},{"key":"shop","name":"积分商城","visible":true},{"key":"requirements","name":"需求管理","visible":true},{"key":"benchmark","name":"对标投稿","visible":true},{"key":"batch-watermark","name":"批量去水印","visible":true},{"key":"ai-employees","name":"AI员工","visible":true},{"key":"settings","name":"系统设置","visible":true}]'],
   // QQ 登录
@@ -103,7 +103,7 @@ const defaultSettings = [
   // 弹窗公告
   ['popup_config', JSON.stringify({
     enabled: false,
-    text: '小龙虾系统一键部署，专业技术支持，微信：19966519194',
+    text: '小龙虾系统一键部署，专业技术支持，微信：15953077610',
     image_url: '',
     frequency: 'once_per_day'
   })],
@@ -138,6 +138,29 @@ const defaultSettings = [
   for (const [key, value] of defaultSettings) {
     await db.query('INSERT IGNORE INTO settings (`key`, `value`) VALUES (?, ?)', [key, value]).catch(() => {});
   }
+  const supportWechat = '15953077610';
+  const supportEmail = 'cyjlnk@foxmail.com';
+  await db.query(
+    'INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+    ['contact_wechat', supportWechat]
+  ).catch(() => {});
+  await db.query(
+    'INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+    ['contact_email', supportEmail]
+  ).catch(() => {});
+  await db.query(
+    'INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+    ['permanent_vip_benefits', `永久会员专属特权：免费安装部署Openclaw、Openclaw相关技术知识永久免费答疑、Openclaw专属会员群。将订单截图发到微信${supportWechat}即享以上会员权益`]
+  ).catch(() => {});
+  await db.query(
+    'INSERT INTO settings (`key`, `value`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
+    ['popup_config', JSON.stringify({
+      enabled: false,
+      text: `小龙虾系统一键部署，专业技术支持，微信：${supportWechat}`,
+      image_url: '',
+      frequency: 'once_per_day'
+    })]
+  ).catch(() => {});
   // 强制更新新用户初始余额到正确默认值（迁移修正）
   await db.query("UPDATE settings SET `value` = '1' WHERE `key` = 'new_user_quota' AND `value` = '0'").catch(() => {});
 })();
