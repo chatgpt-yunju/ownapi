@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>应用市场 - OpenClaw API</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+  <style>
+    .market-shell { max-width: 1180px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .market-hero { padding: 1.8rem; border: 1px solid var(--border-color); border-radius: 24px; background: linear-gradient(135deg, rgba(9, 28, 44, 0.94), rgba(4, 16, 31, 0.92)); box-shadow: var(--shadow-soft); }
+    .market-hero h1 { margin: 0 0 0.6rem; font-size: 2rem; color: var(--text-primary); }
+    .market-hero p { margin: 0; max-width: 760px; color: var(--text-secondary); line-height: 1.8; }
+    .market-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .market-card { display: flex; flex-direction: column; gap: 0.9rem; padding: 1.2rem; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-card); box-shadow: var(--shadow-soft); }
+    .market-card h3 { margin: 0; color: var(--text-primary); font-size: 1.02rem; }
+    .market-card p { margin: 0; color: var(--text-secondary); font-size: 0.86rem; line-height: 1.75; }
+    .market-url { font-family: var(--font-mono); font-size: 0.76rem; color: var(--accent-light); word-break: break-all; }
+    .market-empty { margin-top: 1.5rem; text-align: center; padding: 2rem; color: var(--text-muted); }
+    @media (max-width: 640px) {
+      .market-shell { padding: 1rem 1rem 2rem; }
+      .market-hero { padding: 1.25rem; }
+      .market-hero h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="oc-navbar nav-collapsible">
+    <a href="/" class="oc-logo">
+      <div class="oc-logo-icon">&gt;_</div>
+      OpenClaw API
+    </a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <div class="oc-nav-links">
+      <a href="/">首页</a>
+      <a href="/pipeline.html">路由能力</a>
+      <a href="/docs.html">文档</a>
+      <a href="/app-market.html" class="active">应用市场</a>
+      <a href="/console.html">控制台</a>
+    </div>
+    <div class="oc-nav-right">
+      <a href="/console.html" class="btn-accent">进入控制台</a>
+    </div>
+  </nav>
+
+  <main class="market-shell">
+    <section class="market-hero">
+      <h1>应用市场</h1>
+      <p>查看管理员维护的应用入口。你可以直接跳转到对应站点，也可以把链接分发给团队成员作为常用工具导航。</p>
+    </section>
+    <section id="market-grid" class="market-grid" style="display:none;"></section>
+    <section id="market-empty" class="market-empty oc-card">当前还没有上架应用。</section>
+  </main>
+
+  <script>
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function copyLink(url) {
+      navigator.clipboard.writeText(url).catch(() => {});
+    }
+
+    async function loadAppMarket() {
+      try {
+        const res = await fetch('/api/app-market');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '加载失败');
+        const apps = data.apps || [];
+        const grid = document.getElementById('market-grid');
+        const empty = document.getElementById('market-empty');
+        if (!apps.length) {
+          empty.style.display = 'block';
+          grid.style.display = 'none';
+          return;
+        }
+        empty.style.display = 'none';
+        grid.style.display = 'grid';
+        grid.innerHTML = apps.map(app => `
+          <article class="market-card">
+            <div>
+              <h3>${escapeHtml(app.name)}</h3>
+              <p style="margin-top:0.55rem;">${escapeHtml(app.description)}</p>
+            </div>
+            <div class="market-url">${escapeHtml(app.url)}</div>
+            <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-top:auto;">
+              <a class="btn-accent btn-sm" href="${escapeHtml(app.url)}" target="_blank" rel="noopener noreferrer">打开应用</a>
+              <button class="btn-outline btn-sm" data-url="${escapeHtml(app.url)}" onclick="copyLink(this.dataset.url)">复制链接</button>
+            </div>
+          </article>
+        `).join('');
+      } catch (e) {
+        document.getElementById('market-empty').textContent = '加载应用市场失败';
+      }
+    }
+
+    loadAppMarket();
+  </script>
+</body>
+</html>

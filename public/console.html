@@ -38,6 +38,11 @@
     .dashboard-mini-grid { gap:0.75rem; margin-bottom:0.75rem; }
     .chart-card canvas { display:block; width:100%; height:250px; }
     .stats-toolbar { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1.5rem; }
+    .app-market-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:1rem; }
+    .app-market-card { display:flex; flex-direction:column; gap:0.85rem; padding:1.15rem; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); box-shadow:var(--shadow-soft); }
+    .app-market-card h3 { margin:0; color:var(--text-primary); font-size:1rem; }
+    .app-market-card p { margin:0; color:var(--text-secondary); font-size:0.84rem; line-height:1.7; }
+    .app-market-url { font-family:var(--font-mono); font-size:0.76rem; color:var(--accent-light); word-break:break-all; }
     @media (max-width: 768px) {
       .console-title { font-size: 1.5rem; }
       .filter-bar > * { width: 100% !important; }
@@ -87,6 +92,8 @@
     <div class="oc-nav-links">
       <a href="/">首页</a>
       <a href="/docs.html">文档</a>
+      <a href="/app-market.html">应用市场</a>
+      <a href="/blog.html">技术博客</a>
       <a href="/console.html" class="active">控制台</a>
     </div>
     <div class="oc-nav-right">
@@ -103,6 +110,8 @@
       <div class="oc-sidebar-section">概览</div>
       <div class="oc-sidebar-item active" data-page="dashboard" onclick="switchPage('dashboard')">&#x1f9ed; 仪表盘</div>
       <div class="oc-sidebar-item" data-page="statistics" onclick="switchPage('statistics')">&#x1f4ca; 数据统计</div>
+      <div class="oc-sidebar-item" data-page="app-market" onclick="switchPage('app-market')">&#x1f6d2; 应用市场</div>
+      <div class="oc-sidebar-item" onclick="window.open('/blog.html','_blank')">&#x1f4dd; 技术博客</div>
 
       <div class="oc-sidebar-section">套餐</div>
       <div class="oc-sidebar-item" data-page="packages" onclick="switchPage('packages')">&#x1f4e6; 套餐市场</div>
@@ -256,6 +265,18 @@
             <div id="recent-logs" style="max-height:250px;overflow-y:auto;"></div>
           </div>
         </div>
+      </div>
+
+      <!-- App Market -->
+      <div id="page-app-market" class="page-content" style="display:none;">
+        <div class="console-head">
+          <div>
+            <div class="console-title" style="font-size:1.55rem;">应用市场</div>
+            <div class="console-subtitle">浏览管理员维护的常用应用入口，快速跳转到对应站点。</div>
+          </div>
+        </div>
+        <div id="app-market-grid" class="app-market-grid"></div>
+        <div id="app-market-empty" class="oc-card" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);">当前还没有上架应用。</div>
       </div>
 
       <!-- API Keys -->
@@ -668,6 +689,7 @@
     let logsPage = 1;
     let userInfo = null;
     let playgroundModels = [];
+    let appMarketLoaded = false;
 
     function switchPage(page) {
       currentPage = page;
@@ -681,6 +703,7 @@
       }
 
       if (page === 'dashboard') loadDashboard();
+      else if (page === 'app-market') loadAppMarket();
       else if (page === 'apikeys') loadApiKeys();
       else if (page === 'logs') loadLogs();
       else if (page === 'packages') loadPackages();
@@ -717,6 +740,48 @@
     }
 
     function logout() { api.clearToken(); window.location.href = '/'; }
+
+    function escapeHtml(text) {
+      return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    async function loadAppMarket(force = false) {
+      if (appMarketLoaded && !force) return;
+      try {
+        const data = await api.getAppMarket();
+        const apps = data.apps || [];
+        const grid = document.getElementById('app-market-grid');
+        const empty = document.getElementById('app-market-empty');
+        if (!apps.length) {
+          grid.innerHTML = '';
+          empty.style.display = 'block';
+          appMarketLoaded = true;
+          return;
+        }
+        empty.style.display = 'none';
+        grid.innerHTML = apps.map(app => `
+          <div class="app-market-card">
+            <div>
+              <h3>${escapeHtml(app.name)}</h3>
+              <p style="margin-top:0.55rem;">${escapeHtml(app.description)}</p>
+            </div>
+            <div class="app-market-url">${escapeHtml(app.url)}</div>
+            <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-top:auto;">
+              <a class="btn-accent btn-sm" href="${escapeHtml(app.url)}" target="_blank" rel="noopener noreferrer">打开应用</a>
+              <button class="btn-outline btn-sm" data-url="${escapeHtml(app.url)}" onclick="copyText(this.dataset.url)">复制链接</button>
+            </div>
+          </div>
+        `).join('');
+        appMarketLoaded = true;
+      } catch (e) {
+        showToast('加载应用市场失败', 'error');
+      }
+    }
 
     // Toggle sidebar for mobile
     function toggleSidebar() {
@@ -1280,6 +1345,7 @@
       if (playgroundModels.length > 0) return updatePlaygroundModelMeta();
       playgroundModels = await api.getModels();
       const categoryLabel = {
+        smart_route: '智能路由模型',
         language: '语言模型',
         coding: '编程模型',
         vision: '视觉模型',
@@ -1322,6 +1388,7 @@
       }
 
       const categoryLabel = {
+        smart_route: '智能路由',
         language: '语言',
         coding: '编程',
         vision: '视觉',
@@ -1342,6 +1409,8 @@
         messageEl.placeholder = '输入需要生成向量的文本内容。';
       } else if (modelMeta.model_category === 'vision') {
         messageEl.placeholder = '输入视觉模型提示词，可选填写图片 URL。';
+      } else if (modelMeta.model_category === 'smart_route') {
+        messageEl.placeholder = '智能路由模型通常按聊天模型调试。';
       } else if (modelMeta.model_category === 'image') {
         messageEl.placeholder = '图片模型调试端点待接入，当前仅展示模型信息。';
       } else if (modelMeta.model_category === 'audio') {

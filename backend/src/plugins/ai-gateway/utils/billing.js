@@ -27,7 +27,7 @@ function normalizeBalanceType(balanceType) {
 
 function normalizeModelCategory(category) {
   const normalized = String(category || '').toLowerCase();
-  if (['language', 'image', 'vision', 'audio', 'coding'].includes(normalized)) {
+  if (['language', 'image', 'vision', 'audio', 'coding', 'smart_route'].includes(normalized)) {
     return normalized;
   }
   return 'language';
@@ -36,6 +36,9 @@ function normalizeModelCategory(category) {
 function classifyModelCategory(modelId, provider = '') {
   const target = `${modelId || ''} ${provider || ''}`.toLowerCase();
 
+  if (/(doubao-smart-router|doubaosmartrouter|smart[-_ ]?route)/.test(target)) {
+    return 'smart_route';
+  }
   if (/(audio|whisper|tts|speech|transcribe|transcription|asr|realtime-audio)/.test(target)) {
     return 'audio';
   }

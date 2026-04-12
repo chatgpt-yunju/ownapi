@@ -12,8 +12,13 @@ const {
 } = require('../utils/billing');
 const cache = require('../utils/cache');
 const { noteCcClubRateLimit } = require('../utils/ccClubKeyGuard');
-const { createDebugRecorder } = require('../utils/requestDebug');
+const { noteHuoshanRateLimit } = require('../utils/huoshanKeyGuard');
+const { createDebugRecorder, enqueueDebugStepRecord } = require('../utils/requestDebug');
 const { extractUpstreamErrorMessage } = require('../utils/upstreamError');
+const {
+  resolveAnthropicCompatibleUpstreamUrl,
+  resolveOpenAICompatibleUpstreamUrl,
+} = require('../utils/upstreamUrl');
 const { enqueueRequestDetail } = require('../utils/requestDetailLogger');
 const { recordMessagesStageTiming } = require('../utils/metrics');
 const { applyStreamIdleTimeout, axiosInstance, getUpstreamTimeouts } = require('../utils/upstreamHttp');
@@ -40,8 +45,60 @@ const DEFAULT_GLM5_FAST_START_CONFIG = Object.freeze({
   pingTimeoutMs: 4000,
 });
 
-let settingsCacheLoadedAt = 0;
-let settingsCache = { ...DEFAULT_GLM5_FAST_START_CONFIG };
+const DEFAULT_NVIDIA_FAST_CONFIG = Object.freeze({
+  enabled: true,
+  maxTokens: 256,
+  temperature: 0.2,
+  topP: 0.8,
+  connectTimeoutMs: 8000,
+  idleTimeoutMs: 25000,
+  requestTimeoutMs: 20000,
+  pingIntervalMs: 250,
+  pingTimeoutMs: 2500,
+});
+
+const DEFAULT_NVIDIA_DEEPSEEK_FAST_CONFIG = Object.freeze({
+  ...DEFAULT_NVIDIA_FAST_CONFIG,
+  maxTokens: 256,
+  temperature: 0.2,
+  topP: 0.85,
+  connectTimeoutMs: 7000,
+  idleTimeoutMs: 22000,
+  requestTimeoutMs: 18000,
+  pingIntervalMs: 220,
+  pingTimeoutMs: 2200,
+});
+
+const DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG = Object.freeze({
+  ...DEFAULT_NVIDIA_FAST_CONFIG,
+  maxTokens: 128,
+  temperature: 0.2,
+  topP: 0.8,
+  connectTimeoutMs: 6500,
+  idleTimeoutMs: 20000,
+  requestTimeoutMs: 15000,
+  pingIntervalMs: 200,
+  pingTimeoutMs: 2200,
+});
+
+const DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG = Object.freeze({
+  ...DEFAULT_NVIDIA_FAST_CONFIG,
+  maxTokens: 80,
+  temperature: 0.12,
+  topP: 0.68,
+  connectTimeoutMs: 4200,
+  idleTimeoutMs: 12000,
+  requestTimeoutMs: 9000,
+  pingIntervalMs: 120,
+  pingTimeoutMs: 1500,
+});
+
+let glm5SettingsCacheLoadedAt = 0;
+let glm5SettingsCache = { ...DEFAULT_GLM5_FAST_START_CONFIG };
+let nvidiaFastSettingsCacheLoadedAt = 0;
+let nvidiaFastSettingsCache = { ...DEFAULT_NVIDIA_FAST_CONFIG };
+let nvidiaDeepseekSettingsCacheLoadedAt = 0;
+let nvidiaDeepseekSettingsCache = { ...DEFAULT_NVIDIA_DEEPSEEK_FAST_CONFIG };
 let getSettingCachedFn = null;
 
 function hasQuotaCoverageAfterMonthlyLimit(billingContext) {
@@ -63,7 +120,7 @@ function getSettingFn() {
 
 async function getGlm5FastStartConfig() {
   const now = Date.now();
-  if ((now - settingsCacheLoadedAt) < SETTINGS_REFRESH_TTL_MS) return settingsCache;
+  if ((now - glm5SettingsCacheLoadedAt) < SETTINGS_REFRESH_TTL_MS) return glm5SettingsCache;
 
   try {
     const getSettingCached = getSettingFn();
@@ -73,17 +130,109 @@ async function getGlm5FastStartConfig() {
       getSettingCached('gateway_glm5_fast_start_ping_timeout_ms', String(DEFAULT_GLM5_FAST_START_CONFIG.pingTimeoutMs)),
     ]);
 
-    settingsCache = {
+    glm5SettingsCache = {
       enabled: String(enabledRaw).trim().toLowerCase() === 'true',
       pingIntervalMs: Math.max(250, parseInt(pingIntervalRaw, 10) || DEFAULT_GLM5_FAST_START_CONFIG.pingIntervalMs),
       pingTimeoutMs: Math.max(500, parseInt(pingTimeoutRaw, 10) || DEFAULT_GLM5_FAST_START_CONFIG.pingTimeoutMs),
     };
   } catch {
-    settingsCache = { ...DEFAULT_GLM5_FAST_START_CONFIG };
+    glm5SettingsCache = { ...DEFAULT_GLM5_FAST_START_CONFIG };
   }
 
-  settingsCacheLoadedAt = now;
-  return settingsCache;
+  glm5SettingsCacheLoadedAt = now;
+  return glm5SettingsCache;
+}
+
+function normalizeModelIdForLatency(model) {
+  return String(model || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function isNvidiaModelConfig(modelConfig) {
+  return String(modelConfig?.provider || '').trim().toLowerCase() === 'nvidia';
+}
+
+function isNvidiaLanguageOrCodingModel(modelConfig) {
+  const category = String(modelConfig?.model_category || '').trim().toLowerCase();
+  return isNvidiaModelConfig(modelConfig) && (category === 'language' || category === 'coding');
+}
+
+function isNvidiaLatencyCriticalModel(model, modelConfig) {
+  if (!isNvidiaModelConfig(modelConfig)) return false;
+  if (isNvidiaLanguageOrCodingModel(modelConfig)) return true;
+  const normalized = normalizeModelIdForLatency(model);
+  return normalized.includes('step35flash')
+    || normalized.includes('minimaxm25')
+    || normalized.includes('minimaxm27')
+    || normalized.includes('deepseekv32')
+    || normalized.includes('deepseekv3251201');
+}
+
+function getNvidiaLatencyProfileName(model) {
+  const normalized = normalizeModelIdForLatency(model);
+  if (normalized.includes('step35flash')) return 'nvidia_step_35_flash';
+  if (normalized.includes('minimaxm27')) return 'nvidia_minimax_m27_fast';
+  if (normalized.includes('minimaxm25')) return 'nvidia_minimax_m25';
+  if (normalized.includes('deepseekv32') || normalized.includes('deepseekv3251201')) return 'nvidia_deepseek_v32';
+  if (/(405b|675b|253b|120b|90b|70b|51b|49b|36b|32b|27b|24b|22b)/.test(normalized)) return 'nvidia_large';
+  if (/(1b|2b|3b|4b|5b|6b|7b|8b|9b|10b|11b|12b|13b|14b|15b|16b)/.test(normalized)) return 'nvidia_small';
+  return 'nvidia_fast';
+}
+
+async function getNvidiaFastConfig() {
+  const now = Date.now();
+  if ((now - nvidiaFastSettingsCacheLoadedAt) < SETTINGS_REFRESH_TTL_MS) return nvidiaFastSettingsCache;
+
+  try {
+    const getSettingCached = getSettingFn();
+    const [enabledRaw, maxTokensRaw, temperatureRaw, topPRaw, connectTimeoutRaw, idleTimeoutRaw, requestTimeoutRaw, pingIntervalRaw, pingTimeoutRaw] = await Promise.all([
+      getSettingCached('gateway_nvidia_fast_enabled', String(DEFAULT_NVIDIA_FAST_CONFIG.enabled)),
+      getSettingCached('gateway_nvidia_fast_max_tokens', String(DEFAULT_NVIDIA_FAST_CONFIG.maxTokens)),
+      getSettingCached('gateway_nvidia_fast_temperature', String(DEFAULT_NVIDIA_FAST_CONFIG.temperature)),
+      getSettingCached('gateway_nvidia_fast_top_p', String(DEFAULT_NVIDIA_FAST_CONFIG.topP)),
+      getSettingCached('gateway_nvidia_fast_connect_timeout_ms', String(DEFAULT_NVIDIA_FAST_CONFIG.connectTimeoutMs)),
+      getSettingCached('gateway_nvidia_fast_idle_timeout_ms', String(DEFAULT_NVIDIA_FAST_CONFIG.idleTimeoutMs)),
+      getSettingCached('gateway_nvidia_fast_request_timeout_ms', String(DEFAULT_NVIDIA_FAST_CONFIG.requestTimeoutMs)),
+      getSettingCached('gateway_nvidia_fast_ping_interval_ms', String(DEFAULT_NVIDIA_FAST_CONFIG.pingIntervalMs)),
+      getSettingCached('gateway_nvidia_fast_ping_timeout_ms', String(DEFAULT_NVIDIA_FAST_CONFIG.pingTimeoutMs)),
+    ]);
+
+    nvidiaFastSettingsCache = {
+      enabled: String(enabledRaw).trim().toLowerCase() !== 'false',
+      maxTokens: Math.max(1, parseInt(maxTokensRaw, 10) || DEFAULT_NVIDIA_FAST_CONFIG.maxTokens),
+      temperature: Math.min(2, Math.max(0, Number(temperatureRaw))),
+      topP: Math.min(1, Math.max(0, Number(topPRaw))),
+      connectTimeoutMs: Math.max(1000, parseInt(connectTimeoutRaw, 10) || DEFAULT_NVIDIA_FAST_CONFIG.connectTimeoutMs),
+      idleTimeoutMs: Math.max(1000, parseInt(idleTimeoutRaw, 10) || DEFAULT_NVIDIA_FAST_CONFIG.idleTimeoutMs),
+      requestTimeoutMs: Math.max(1000, parseInt(requestTimeoutRaw, 10) || DEFAULT_NVIDIA_FAST_CONFIG.requestTimeoutMs),
+      pingIntervalMs: Math.max(100, parseInt(pingIntervalRaw, 10) || DEFAULT_NVIDIA_FAST_CONFIG.pingIntervalMs),
+      pingTimeoutMs: Math.max(500, parseInt(pingTimeoutRaw, 10) || DEFAULT_NVIDIA_FAST_CONFIG.pingTimeoutMs),
+    };
+
+    if (!Number.isFinite(nvidiaFastSettingsCache.temperature)) {
+      nvidiaFastSettingsCache.temperature = DEFAULT_NVIDIA_FAST_CONFIG.temperature;
+    }
+    if (!Number.isFinite(nvidiaFastSettingsCache.topP) || nvidiaFastSettingsCache.topP <= 0) {
+      nvidiaFastSettingsCache.topP = DEFAULT_NVIDIA_FAST_CONFIG.topP;
+    }
+  } catch {
+    nvidiaFastSettingsCache = { ...DEFAULT_NVIDIA_FAST_CONFIG };
+  }
+
+  nvidiaFastSettingsCacheLoadedAt = now;
+  return nvidiaFastSettingsCache;
+}
+
+async function getNvidiaDeepseekFastConfig() {
+  return getNvidiaFastConfig();
+}
+
+async function getNvidiaMinimaxFastConfig(model) {
+  const normalized = normalizeModelIdForLatency(model);
+  if (normalized.includes('minimaxm27')) return { ...DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG };
+  return { ...DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG };
 }
 
 // ========== 模型 & 上游缓存查询 ==========
@@ -183,12 +332,33 @@ async function getMonthlyUsageStats(userId, monthStart) {
 }
 
 async function getAvailableUpstreams(modelConfig) {
+  const modelOverride = buildExplicitModelEndpoint(modelConfig);
+  if (modelOverride) return [modelOverride];
+
   const providerEndpoints = await getProviderEndpoints(modelConfig);
   if (providerEndpoints.length > 0) return providerEndpoints;
   return getModelUpstreams(modelConfig.id);
 }
 
+function buildExplicitModelEndpoint(modelConfig) {
+  const baseUrl = modelConfig?.upstream_endpoint;
+  const apiKey = modelConfig?.upstream_key;
+  if (!baseUrl || !apiKey) return null;
+  return {
+    id: null,
+    schedulerKey: `model:${modelConfig.id}`,
+    provider_name: modelConfig.provider || null,
+    base_url: baseUrl,
+    api_key: apiKey,
+    upstream_model_id: modelConfig.upstream_model_id || null,
+    weight: 10,
+  };
+}
+
 function buildFallbackEndpoint(modelConfig) {
+  const modelOverride = buildExplicitModelEndpoint(modelConfig);
+  if (modelOverride) return modelOverride;
+
   const provider = PROVIDERS.getProviderConfig
     ? PROVIDERS.getProviderConfig(modelConfig.provider)
     : (PROVIDERS[modelConfig.provider] || {});
@@ -308,10 +478,31 @@ const GLM5_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
 });
 
 const NVIDIA_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
-  maxRetries: 5,
-  baseDelayMs: 1000,
-  backoffFactor: 1.5,
-  maxDelayMs: 4000,
+  maxRetries: 3,
+  baseDelayMs: 300,
+  backoffFactor: 1.3,
+  maxDelayMs: 900,
+});
+
+const NVIDIA_FAST_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
+  maxRetries: 2,
+  baseDelayMs: 180,
+  backoffFactor: 1.15,
+  maxDelayMs: 600,
+});
+
+const NVIDIA_MINIMAX_M27_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
+  maxRetries: 1,
+  baseDelayMs: 120,
+  backoffFactor: 1,
+  maxDelayMs: 120,
+});
+
+const NVIDIA_MINIMAX_M25_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
+  maxRetries: 2,
+  baseDelayMs: 180,
+  backoffFactor: 1.2,
+  maxDelayMs: 500,
 });
 
 function getRelayRetryConfig({ model } = {}) {
@@ -367,14 +558,79 @@ async function withRelayRetry(fn, { model, debug, logger, retryConfig } = {}) {
   throw lastErr;
 }
 
+// 部分上游（如 gitcode GLM-5）对非流式请求也返回 SSE 格式（Content-Type: text/event-stream，body: data:{...}）
+// 此函数负责从 SSE 格式中提取 JSON，兼容这类非标准行为
+function parseUpstreamResponseData(upstreamRes) {
+  const raw = upstreamRes.data;
+  if (raw && typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    const lines = raw.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line.startsWith('data:') && !line.includes('[DONE]')) {
+        const jsonStr = line.slice(5).trim();
+        try { return JSON.parse(jsonStr); } catch (_) { /* try previous line */ }
+      }
+    }
+  }
+  return raw;
+}
+
 function isGlm5Model(model) {
   const normalizedModel = String(model || '').toLowerCase();
   return normalizedModel.includes('glm-5') || normalizedModel.includes('glm5');
 }
 
-function getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia } = {}) {
+function isDeepseekV32Model(model) {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+  return normalized.includes('deepseekv32') || normalized.includes('deepseekv3251201');
+}
+
+function isNvidiaMinimaxM25Model(model) {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+  return normalized.includes('minimaxm25') || normalized.includes('minimaxm27');
+}
+
+function isNvidiaMinimaxM27Model(model) {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+  return normalized.includes('minimaxm27');
+}
+
+// GLM-5 不支持 JSON Schema 的 additionalProperties / $schema / $defs 等扩展字段
+// 递归清理，避免 "Invalid tool parameters" 错误
+function sanitizeSchemaForGlm5(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema)) return schema.map(sanitizeSchemaForGlm5);
+  const UNSUPPORTED = new Set(['additionalProperties', '$schema', '$defs', '$id', 'unevaluatedProperties']);
+  const result = {};
+  for (const [k, v] of Object.entries(schema)) {
+    if (UNSUPPORTED.has(k)) continue;
+    result[k] = sanitizeSchemaForGlm5(v);
+  }
+  return result;
+}
+
+function getMessagesRelayRetryConfig({ model, modelConfig, stream, isUpstreamAnthropic, isUpstreamNvidia, isMinimaxM27Model } = {}) {
   if (stream && isGlm5Model(model) && !isUpstreamAnthropic) {
     return GLM5_STREAM_RELAY_RETRY_CONFIG;
+  }
+  if (stream && isUpstreamNvidia && isMinimaxM27Model) {
+    return NVIDIA_MINIMAX_M27_STREAM_RELAY_RETRY_CONFIG;
+  }
+  if (stream && isUpstreamNvidia && isNvidiaMinimaxM25Model(model)) {
+    return NVIDIA_MINIMAX_M25_STREAM_RELAY_RETRY_CONFIG;
+  }
+  if (stream && isUpstreamNvidia && isNvidiaLatencyCriticalModel(model, modelConfig)) {
+    return NVIDIA_FAST_STREAM_RELAY_RETRY_CONFIG;
   }
   if (stream && isUpstreamNvidia) {
     return NVIDIA_STREAM_RELAY_RETRY_CONFIG;
@@ -382,21 +638,55 @@ function getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic, isUps
   return getRelayRetryConfig({ model });
 }
 
-function getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia } = {}) {
+function getMessagesUpstreamTimeoutConfig({
+  model,
+  modelConfig,
+  stream,
+  isUpstreamAnthropic,
+  isUpstreamNvidia,
+  nvidiaFastConfig,
+  nvidiaMinimaxFastConfig,
+  isMinimaxM27Model,
+} = {}) {
   if (stream && isGlm5Model(model) && !isUpstreamAnthropic) {
     return getUpstreamTimeouts({
       stream: true,
-      connectTimeoutMs: 10000,
-      idleTimeoutMs: 30000,
-      requestTimeoutMs: 20000,
+      connectTimeoutMs: 30000,
+      idleTimeoutMs: 60000,
+      requestTimeoutMs: 60000,
+    });
+  }
+  if (stream && isUpstreamNvidia && isMinimaxM27Model) {
+    const config = nvidiaMinimaxFastConfig || DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG;
+    return getUpstreamTimeouts({
+      stream: true,
+      connectTimeoutMs: config.connectTimeoutMs,
+      idleTimeoutMs: config.idleTimeoutMs,
+      requestTimeoutMs: config.requestTimeoutMs,
+    });
+  }
+  if (stream && isUpstreamNvidia && isNvidiaMinimaxM25Model(model)) {
+    return getUpstreamTimeouts({
+      stream: true,
+      connectTimeoutMs: 6500,
+      idleTimeoutMs: 20000,
+      requestTimeoutMs: 15000,
+    });
+  }
+  if (stream && isUpstreamNvidia && isNvidiaLatencyCriticalModel(model, modelConfig)) {
+    return getUpstreamTimeouts({
+      stream: true,
+      connectTimeoutMs: nvidiaFastConfig?.connectTimeoutMs || DEFAULT_NVIDIA_FAST_CONFIG.connectTimeoutMs,
+      idleTimeoutMs: nvidiaFastConfig?.idleTimeoutMs || DEFAULT_NVIDIA_FAST_CONFIG.idleTimeoutMs,
+      requestTimeoutMs: nvidiaFastConfig?.requestTimeoutMs || DEFAULT_NVIDIA_FAST_CONFIG.requestTimeoutMs,
     });
   }
   if (stream && isUpstreamNvidia) {
     return getUpstreamTimeouts({
       stream: true,
-      connectTimeoutMs: 15000,
-      idleTimeoutMs: 45000,
-      requestTimeoutMs: 30000,
+      connectTimeoutMs: 8000,
+      idleTimeoutMs: 25000,
+      requestTimeoutMs: 20000,
     });
   }
   return getUpstreamTimeouts({ stream });
@@ -407,6 +697,12 @@ function createMessagesLatencyTracker(req, model) {
     model,
     routeStartedAt: Date.now(),
     queueWaitMs: Math.max(0, Number(req.aiGatewayQueueWaitMs) || 0),
+    modelLoadedAt: 0,
+    endpointsLoadedAt: 0,
+    billingReservedAt: 0,
+    endpointSelectedAt: 0,
+    requestPreparedAt: 0,
+    upstreamDispatchedAt: 0,
     dispatchFinishedAt: 0,
     headersFlushedAt: 0,
     firstCommentPingAt: 0,
@@ -414,9 +710,37 @@ function createMessagesLatencyTracker(req, model) {
     upstreamConnectedAt: 0,
     firstRealEventAt: 0,
     firstChunkAt: 0,
+    responseCompletedAt: 0,
+    settleFinishedAt: 0,
+    leaseReleasedAt: 0,
     fastStartEnabled: false,
     fastStartCommentSent: false,
+    latencyProfile: 'default',
   };
+}
+
+function markMessagesModelLoaded(tracker) {
+  if (tracker && !tracker.modelLoadedAt) tracker.modelLoadedAt = Date.now();
+}
+
+function markMessagesEndpointsLoaded(tracker) {
+  if (tracker && !tracker.endpointsLoadedAt) tracker.endpointsLoadedAt = Date.now();
+}
+
+function markMessagesBillingReserved(tracker) {
+  if (tracker && !tracker.billingReservedAt) tracker.billingReservedAt = Date.now();
+}
+
+function markMessagesEndpointSelected(tracker) {
+  if (tracker && !tracker.endpointSelectedAt) tracker.endpointSelectedAt = Date.now();
+}
+
+function markMessagesRequestPrepared(tracker) {
+  if (tracker && !tracker.requestPreparedAt) tracker.requestPreparedAt = Date.now();
+}
+
+function markMessagesUpstreamDispatched(tracker) {
+  if (tracker && !tracker.upstreamDispatchedAt) tracker.upstreamDispatchedAt = Date.now();
 }
 
 function markMessagesDispatchComplete(tracker) {
@@ -452,6 +776,50 @@ function markMessagesFirstChunk(tracker) {
   if (tracker && !tracker.firstChunkAt) tracker.firstChunkAt = Date.now();
 }
 
+function markMessagesResponseCompleted(tracker) {
+  if (tracker && !tracker.responseCompletedAt) tracker.responseCompletedAt = Date.now();
+}
+
+function markMessagesSettleFinished(tracker) {
+  if (tracker && !tracker.settleFinishedAt) tracker.settleFinishedAt = Date.now();
+}
+
+function markMessagesLeaseReleased(tracker) {
+  if (tracker && !tracker.leaseReleasedAt) tracker.leaseReleasedAt = Date.now();
+}
+
+function buildMessagesStepTimings(tracker, endedAt = Date.now()) {
+  if (!tracker) return [];
+  const routeStartedAt = tracker.routeStartedAt || endedAt;
+  const queueWaitMs = Math.max(0, Number(tracker.queueWaitMs) || 0);
+  const dispatchAt = tracker.dispatchFinishedAt || 0;
+  const headersFlushedAt = tracker.headersFlushedAt || 0;
+  const firstCommentPingAt = tracker.firstCommentPingAt || 0;
+  const upstreamStartedAt = tracker.upstreamStartedAt || 0;
+  const upstreamConnectedAt = tracker.upstreamConnectedAt || 0;
+  const firstRealEventAt = tracker.firstRealEventAt || 0;
+  const firstChunkAt = tracker.firstChunkAt || 0;
+  const points = [
+    { key: 'entry', name: '入口接入', start: routeStartedAt, end: routeStartedAt + queueWaitMs },
+    { key: 'model_lookup', name: '模型加载', start: routeStartedAt, end: tracker.modelLoadedAt || endedAt },
+    { key: 'endpoints_load', name: '端点加载', start: routeStartedAt, end: tracker.endpointsLoadedAt || endedAt },
+    { key: 'billing_reserve', name: '预扣费', start: routeStartedAt, end: tracker.billingReservedAt || endedAt },
+    { key: 'endpoint_select', name: '端点调度', start: routeStartedAt, end: tracker.endpointSelectedAt || endedAt },
+    { key: 'request_prepare', name: '请求组装', start: routeStartedAt, end: tracker.requestPreparedAt || endedAt },
+    { key: 'upstream_dispatch', name: '上游发起', start: routeStartedAt, end: dispatchAt || endedAt },
+    { key: 'upstream_connect', name: '上游连接', start: upstreamStartedAt || routeStartedAt, end: upstreamConnectedAt || endedAt },
+    { key: 'headers_flushed', name: '首包刷出', start: routeStartedAt, end: headersFlushedAt || endedAt },
+    { key: 'first_comment_ping', name: '保活首响', start: routeStartedAt, end: firstCommentPingAt || endedAt },
+    { key: 'first_real_event', name: '首个事件', start: routeStartedAt, end: firstRealEventAt || endedAt },
+    { key: 'first_chunk', name: '首个数据块', start: routeStartedAt, end: firstChunkAt || endedAt },
+  ];
+  return points.map((item) => ({
+    key: item.key,
+    name: item.name,
+    durationMs: Math.max(0, Number(item.end || endedAt) - Number(item.start || endedAt)),
+  }));
+}
+
 function buildMessagesLatencyPayload(tracker, endedAt = Date.now()) {
   if (!tracker) {
     return {
@@ -463,8 +831,10 @@ function buildMessagesLatencyPayload(tracker, endedAt = Date.now()) {
       firstRealEventMs: 0,
       firstChunkMs: 0,
       totalStreamMs: 0,
+      stepTimings: [],
       fastStartEnabled: false,
       fastStartCommentSent: false,
+      latencyProfile: 'default',
     };
   }
   const routeStartedAt = tracker.routeStartedAt || endedAt;
@@ -485,8 +855,10 @@ function buildMessagesLatencyPayload(tracker, endedAt = Date.now()) {
     firstRealEventMs,
     firstChunkMs,
     totalStreamMs: Math.max(0, endedAt - routeStartedAt),
+    stepTimings: buildMessagesStepTimings(tracker, endedAt),
     fastStartEnabled: Boolean(tracker.fastStartEnabled),
     fastStartCommentSent: Boolean(tracker.fastStartCommentSent),
+    latencyProfile: tracker.latencyProfile || 'default',
   };
 }
 
@@ -497,6 +869,55 @@ function recordMessagesLatency(tracker, endedAt = Date.now()) {
     ...payload,
   });
   return payload;
+}
+
+function scheduleMessagesTimingLog(tracker, res, extra = {}) {
+  if (!tracker || tracker._timingLogged) return;
+  tracker._timingLogged = true;
+  const endedAt = Date.now();
+  const payload = buildMessagesLatencyPayload(tracker, endedAt);
+  setImmediate(() => {
+    enqueueDebugStepRecord({
+      requestId: tracker.requestId,
+      traceType: tracker.traceType || 'live',
+      routeName: 'messages',
+      requestPath: tracker.requestPath || '/v1/messages',
+      model: tracker.model,
+      userId: tracker.userId || null,
+      apiKeyId: tracker.apiKeyId || null,
+      stepNo: 9,
+      stepKey: 'timing',
+      stepName: '耗时统计',
+      status: res.statusCode >= 400 ? 'error' : 'info',
+      durationMs: payload.totalStreamMs,
+      attemptNo: Math.max(1, Number(tracker.attempts || 1)),
+      upstreamId: tracker.selectedUpstreamId || null,
+      upstreamProvider: tracker.selectedProviderName || null,
+      upstreamBaseUrl: tracker.selectedBaseUrl || null,
+      errorMessage: extra.errorMessage || null,
+      detailJson: {
+        queueWaitMs: payload.queueWaitMs,
+        dispatchMs: payload.dispatchMs,
+        headersFlushedMs: payload.headersFlushedMs,
+        firstCommentPingMs: payload.firstCommentPingMs,
+        upstreamConnectMs: payload.upstreamConnectMs,
+        firstRealEventMs: payload.firstRealEventMs,
+        firstChunkMs: payload.firstChunkMs,
+        totalStreamMs: payload.totalStreamMs,
+        stepTimings: payload.stepTimings,
+        fastStartEnabled: payload.fastStartEnabled,
+        fastStartCommentSent: payload.fastStartCommentSent,
+        latencyProfile: payload.latencyProfile,
+        attempts: tracker.attempts || 0,
+        final_attempt: tracker.finalAttempt || tracker.attempts || 0,
+        selected_upstream_id: tracker.selectedUpstreamId || null,
+        selected_provider: tracker.selectedProviderName || null,
+        selected_base_url: tracker.selectedBaseUrl || null,
+        selected_upstream_model_id: tracker.selectedUpstreamModelId || null,
+        status_code: res.statusCode,
+      },
+    });
+  });
 }
 
 function flushMessagesStreamHeaders(res, requestId, tracker, { fastStartEnabled = false } = {}) {
@@ -514,7 +935,7 @@ function flushMessagesStreamHeaders(res, requestId, tracker, { fastStartEnabled 
   markMessagesHeadersFlushed(tracker);
 }
 
-function startGlm5FastStartPing({ res, tracker, config }) {
+function startStreamFastStartPing({ res, tracker, config }) {
   if (!res || !tracker || !config?.enabled) return { stop: () => {} };
 
   let stopped = false;
@@ -883,7 +1304,10 @@ async function reserveRequestCharge(req, modelConfig, requestId, debug, model, e
       required_amount: billing.billingMode === 'per_call' ? billing.perCallPrice : PRE_RESERVE,
       current_balance: billingContext.balance || 0,
     }, { errorMessage: '余额不足' });
-    await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, 0));
+    fireAndForget(
+      () => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, 0)),
+      '[messages] logCall failed'
+    );
     return {
       ok: false,
       response: errorFactory(billing),
@@ -919,19 +1343,6 @@ async function releasePendingCharge(req, modelConfig, billingContext, requestId,
   billingContext.finalized = true;
 }
 
-function buildOpenAIUpstreamUrl(baseUrl, suffix) {
-  const trimmedBase = String(baseUrl || '').replace(/\/+$/, '');
-  if (trimmedBase.endsWith(`/${suffix}`)) return trimmedBase;
-  const cleanBaseUrl = trimmedBase
-    .replace(/\/v1\/messages\/?$/, '')
-    .replace(/\/v1\/chat\/completions\/?$/, '')
-    .replace(/\/v1\/responses\/?$/, '')
-    .replace(/\/v1\/embeddings\/?$/, '')
-    .replace(/\/v1\/?$/, '')
-    .replace(/\/+$/, '');
-  return `${cleanBaseUrl}/v1/${suffix}`;
-}
-
 // POST /v1/embeddings — OpenAI Embeddings API 兼容端点
 router.post('/embeddings', async (req, res) => {
   const requestId = req.aiGatewayRequestId || `embd_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
@@ -952,6 +1363,7 @@ router.post('/embeddings', async (req, res) => {
   let modelConfig;
   try {
     modelConfig = await getModelConfig(model);
+    markMessagesModelLoaded(latencyTracker);
     if (!modelConfig) {
       await debug.step(5, 'error', { reason: 'model_not_found' }, { errorMessage: `Model '${model}' not found or disabled` });
       return res.status(400).json({ error: { message: `Model '${model}' not found or disabled`, type: 'invalid_request_error' } });
@@ -975,7 +1387,7 @@ router.post('/embeddings', async (req, res) => {
         package_models_allowed: allowedProviders,
         provider: modelProvider,
       }, { errorMessage: '当前套餐不支持使用此模型' });
-      await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'model_forbidden', '模型不在套餐允许范围内', requestId, getLogExtra(modelConfig, 0));
+      fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'model_forbidden', '模型不在套餐允许范围内', requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
       return res.status(403).json({ error: { message: '当前套餐不支持使用此模型，请升级套餐', type: 'permission_error' } });
     }
   }
@@ -1019,7 +1431,7 @@ router.post('/embeddings', async (req, res) => {
         if (monthlyStats.cnt >= monthlyCallLimit) {
           await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: monthlyStats.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
           await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 调用次数超限，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0));
+          fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
           return res.status(429).json({ error: { message: `月度调用次数已达上限（${monthlyStats.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以继续使用。`, type: 'rate_limit_error' } });
         }
       }
@@ -1029,7 +1441,7 @@ router.post('/embeddings', async (req, res) => {
         if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext)) {
           await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
           await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 月度配额超限，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
+          fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
           return res.status(429).json({ error: { message: `月度配额已用尽（$${used.toFixed(4)}/$${quota.toFixed(2)}）。请购买加油包或升级套餐以增加配额。`, type: 'rate_limit_error' } });
         }
       }
@@ -1050,7 +1462,11 @@ router.post('/embeddings', async (req, res) => {
 
   for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
     const leaseToken = `${requestId}:${attempt + 1}`;
-    const picked = await acquireBestEndpoint(remaining, leaseToken);
+    const picked = await acquireBestEndpoint(
+      remaining,
+      leaseToken,
+      isMinimaxM27Model ? { latencyCritical: true } : {},
+    );
     const selected = picked.endpoint;
     if (!selected) {
       lastErr = createUpstreamSaturatedError();
@@ -1066,7 +1482,7 @@ router.post('/embeddings', async (req, res) => {
     const selectedUpstreamId = selected.id || null;
     const selectedProviderName = selected.provider_name || modelConfig.provider || null;
     const upstreamModel = selected.upstream_model_id || modelConfig.upstream_model_id || model;
-    const upstreamUrl = buildOpenAIUpstreamUrl(baseUrl, 'embeddings');
+    const upstreamUrl = resolveOpenAICompatibleUpstreamUrl(baseUrl, 'embeddings');
     const upstreamBody = { model: upstreamModel, input };
     if (encoding_format !== undefined) upstreamBody.encoding_format = encoding_format;
     if (dimensions !== undefined) upstreamBody.dimensions = dimensions;
@@ -1157,7 +1573,7 @@ router.post('/embeddings', async (req, res) => {
           charged_amount: billingContext.reservedAmount || 0,
         }, { errorMessage: 'Insufficient balance for this request' });
         await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, tokenCost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
+        fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, tokenCost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0)), '[chat] logCall failed');
         return res.status(402).json({
           error: { message: 'Insufficient balance for this request', type: 'billing_error' }
         });
@@ -1172,7 +1588,7 @@ router.post('/embeddings', async (req, res) => {
       });
       await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
       await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-      await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, tokenCost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, chargedAmount));
+      fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, tokenCost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, chargedAmount)), '[chat] logCall failed');
       return res.json(upstreamRes.data);
     } catch (err) {
       lastErr = err;
@@ -1181,14 +1597,24 @@ router.post('/embeddings', async (req, res) => {
       const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
 
       if (is429) {
-        await noteCcClubRateLimit({
-          providerName: selectedProviderName,
-          baseUrl,
-          apiKey,
-          errorMessage: errMsg,
-          statusCode: err.response?.status || 429,
-          source: 'embeddings'
-        });
+        fireAndForget(() => Promise.allSettled([
+          noteCcClubRateLimit({
+            providerName: selectedProviderName,
+            baseUrl,
+            apiKey,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'embeddings'
+          }),
+          noteHuoshanRateLimit({
+            providerName: selectedProviderName,
+            baseUrl,
+            apiKey,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'embeddings'
+          })
+        ]), '[chat] rate-limit telemetry failed');
       }
 
       console.error(`Upstream error [embeddings model=${model}, upstream=${baseUrl}]:`, errMsg);
@@ -1230,7 +1656,7 @@ router.post('/embeddings', async (req, res) => {
     || errMsg.toLowerCase().includes('timeout');
   await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'embeddings 请求失败，释放预留余额');
   const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 504 : (lastErr?.response?.status || 502));
-  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode });
+  fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode }), '[chat] logCall failed');
   return res.status(statusCode).json({
     error: { message: errMsg, type: statusCode === 503 ? 'overloaded_error' : 'upstream_error' }
   });
@@ -1282,7 +1708,7 @@ router.post('/chat/completions', async (req, res) => {
        package_models_allowed: allowedProviders,
        provider: modelProvider,
      }, { errorMessage: '当前套餐不支持使用此模型' });
-     await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, "model_forbidden", "模型不在套餐允许范围内", requestId, getLogExtra(modelConfig, 0));
+     fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, "model_forbidden", "模型不在套餐允许范围内", requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
      return res.status(403).json({ error: { message: `当前套餐不支持使用此模型，请升级套餐`, type: "permission_error" } });
    }
  }
@@ -1320,7 +1746,7 @@ router.post('/chat/completions', async (req, res) => {
           if (monthlyStats.cnt >= monthlyCallLimit) {
             await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: monthlyStats.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
             await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 调用次数超限，释放预留余额');
-            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0));
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
             return res.status(429).json({ error: { message: `月度调用次数已达上限（${monthlyStats.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以提升限额。`, type: 'rate_limit_error' } });
           }
         }
@@ -1331,7 +1757,7 @@ router.post('/chat/completions', async (req, res) => {
           if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext)) {
             await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
             await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 月度配额超限，释放预留余额');
-            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
             return res.status(429).json({ error: { message: `月度配额已用尽（$${used.toFixed(4)}/$${quota.toFixed(2)}）。请购买加油包或升级套餐以增加配额。`, type: 'rate_limit_error' } });
           }
         }
@@ -1354,7 +1780,11 @@ router.post('/chat/completions', async (req, res) => {
 
   for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
     const leaseToken = `${requestId}:${attempt + 1}`;
-    const picked = await acquireBestEndpoint(remaining, leaseToken);
+    const picked = await acquireBestEndpoint(
+      remaining,
+      leaseToken,
+      isMinimaxM27Model ? { latencyCritical: true } : {},
+    );
     const selected = picked.endpoint;
     if (!selected) {
       lastErr = createUpstreamSaturatedError();
@@ -1373,6 +1803,23 @@ router.post('/chat/completions', async (req, res) => {
     const upstreamApiFormat = detectUpstreamApiFormat(model, selectedProviderName || modelConfig.provider, baseUrl);
     const isAnthropicAPI = upstreamApiFormat === 'anthropic';
     const isGoogleNativeAPI = upstreamApiFormat === 'google_native';
+    const isUpstreamNvidia = selectedProviderName === 'nvidia'
+      || baseUrl.includes('integrate.api.nvidia.com');
+    const useNvidiaFastProfile = Boolean(
+      isUpstreamNvidia && isNvidiaLatencyCriticalModel(model, modelConfig)
+    );
+    const nvidiaFastConfig = useNvidiaFastProfile ? await getNvidiaFastConfig() : null;
+    const nvidiaLatencyProfile = useNvidiaFastProfile
+      ? getNvidiaLatencyProfileName(model)
+      : 'default';
+    const streamTimeoutConfig = useNvidiaFastProfile
+      ? getUpstreamTimeouts({
+        stream: true,
+        connectTimeoutMs: nvidiaFastConfig.connectTimeoutMs,
+        idleTimeoutMs: nvidiaFastConfig.idleTimeoutMs,
+        requestTimeoutMs: nvidiaFastConfig.requestTimeoutMs,
+      })
+      : getUpstreamTimeouts({ stream });
 
     let upstreamUrl;
     const trimmedBase = baseUrl.replace(/\/+$/, '');
@@ -1383,12 +1830,9 @@ router.post('/chat/completions', async (req, res) => {
     } else if (isAnthropicAPI && trimmedBase.match(/\/messages$/)) {
       upstreamUrl = trimmedBase;
     } else {
-      const cleanBaseUrl = trimmedBase
-        .replace(/\/v1\/messages\/?$/, '')
-        .replace(/\/v1\/chat\/completions\/?$/, '')
-        .replace(/\/v1\/?$/, '')
-        .replace(/\/+$/, '');
-      upstreamUrl = isAnthropicAPI ? `${cleanBaseUrl}/v1/messages` : `${cleanBaseUrl}/v1/chat/completions`;
+      upstreamUrl = isAnthropicAPI
+        ? resolveAnthropicCompatibleUpstreamUrl(baseUrl)
+        : resolveOpenAICompatibleUpstreamUrl(baseUrl, 'chat/completions');
     }
 
     let upstreamBody;
@@ -1419,8 +1863,19 @@ router.post('/chat/completions', async (req, res) => {
       if (stream) upstreamBody.stream_options = { include_usage: true };
       if (temperature !== undefined) upstreamBody.temperature = temperature;
       if (max_tokens !== undefined) upstreamBody.max_tokens = max_tokens;
+      else if (useNvidiaFastProfile) upstreamBody.max_tokens = nvidiaFastConfig.maxTokens;
       if (top_p !== undefined) upstreamBody.top_p = top_p;
-      if (tools) upstreamBody.tools = tools;
+      else if (useNvidiaFastProfile) upstreamBody.top_p = nvidiaFastConfig.topP;
+      if (tools) {
+        upstreamBody.tools = isGlm5Model(model)
+          ? tools.map((t) => {
+              if (t?.function?.parameters) {
+                return { ...t, function: { ...t.function, parameters: sanitizeSchemaForGlm5(t.function.parameters) } };
+              }
+              return t;
+            })
+          : tools;
+      }
       if (tool_choice) upstreamBody.tool_choice = tool_choice;
 
       headers = {
@@ -1428,6 +1883,19 @@ router.post('/chat/completions', async (req, res) => {
         'Content-Type': 'application/json'
       };
       headers = withForwardedOpenAIClientHeaders(req, headers);
+    }
+
+    if (useNvidiaFastProfile && upstreamBody && typeof upstreamBody === 'object') {
+      latencyTracker.latencyProfile = nvidiaLatencyProfile;
+      if (upstreamBody.temperature === undefined && nvidiaFastConfig.temperature !== undefined) {
+        upstreamBody.temperature = nvidiaFastConfig.temperature;
+      }
+      if (upstreamBody.max_tokens === undefined && nvidiaFastConfig.maxTokens !== undefined) {
+        upstreamBody.max_tokens = nvidiaFastConfig.maxTokens;
+      }
+      if (upstreamBody.top_p === undefined && nvidiaFastConfig.topP !== undefined) {
+        upstreamBody.top_p = nvidiaFastConfig.topP;
+      }
     }
 
     await debug.step(5, 'success', {
@@ -1463,14 +1931,30 @@ router.post('/chat/completions', async (req, res) => {
           provider: selectedProviderName,
         });
         const upstreamRes = await withRelayRetry(
-          () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, responseType: 'stream', timeout: 120000 }),
-          { model, debug }
+          () => axiosInstance.post(upstreamUrl, upstreamBody, {
+            headers,
+            responseType: 'stream',
+            timeout: useNvidiaFastProfile ? nvidiaFastConfig.connectTimeoutMs : 120000,
+          }),
+          {
+            model,
+            debug,
+            retryConfig: useNvidiaFastProfile ? NVIDIA_FAST_STREAM_RELAY_RETRY_CONFIG : undefined,
+          }
         );
+        applyStreamIdleTimeout(upstreamRes.data, streamTimeoutConfig.idleTimeoutMs, () => {
+          const error = new Error('Upstream stream idle timeout');
+          error.code = 'ECONNABORTED';
+          return error;
+        });
 
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Request-Id', requestId);
+        if (useNvidiaFastProfile) {
+          res.setHeader('X-Accel-Buffering', 'no');
+        }
 
         let fullContent = '';
         let promptTokens = 0;
@@ -1585,8 +2069,8 @@ router.post('/chat/completions', async (req, res) => {
 
             for (const rawLine of lines) {
               const line = rawLine.trim();
-              if (!line.startsWith('data: ')) continue;
-              const data = line.slice(6).trim();
+              if (!line.startsWith('data:')) continue;
+              const data = line.slice(5).trim();
               if (data === '[DONE]') {
                 if (!sawGeminiNativeOpenAIStream) res.write('data: [DONE]\n\n');
                 continue;
@@ -1631,7 +2115,7 @@ router.post('/chat/completions', async (req, res) => {
                   completionTokens = parsed.usage.completion_tokens || completionTokens;
                   cachedTokens = parsed.usage.prompt_tokens_details?.cached_tokens || cachedTokens;
                 }
-                const delta = parsed.choices?.[0]?.delta?.content;
+                const delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.delta?.reasoning;
                 if (delta) fullContent += delta;
               } catch (e) {
                 const ok = res.write(`${rawLine}\n`);
@@ -1716,8 +2200,8 @@ router.post('/chat/completions', async (req, res) => {
             });
             await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
             await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost), tokenSource));
-            await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost), tokenSource)), '[chat] logCall failed');
+            fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent), '[chat] saveRequestDetail failed');
           } else {
             await debug.step(7, 'error', {
               stream: true,
@@ -1726,8 +2210,8 @@ router.post('/chat/completions', async (req, res) => {
               total_cost: cost,
             }, { errorMessage: '余额不足（流式响应后扣款失败）' });
             await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0, tokenSource));
-            await saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent);
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0, tokenSource)), '[chat] logCall failed');
+            fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, null, fullContent), '[chat] saveRequestDetail failed');
             console.error(`[Billing] Stream billing failed for user ${req.apiUserId}, cost: ${cost}, balance: ${result.balance}`);
           }
         });
@@ -1742,8 +2226,14 @@ router.post('/chat/completions', async (req, res) => {
             selected_upstream_id: selectedUpstreamId,
           }, { errorMessage: errMsg });
           await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 流式上游错误，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, null, null);
+          fireAndForget(
+            () => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0)),
+            '[messages] logCall failed'
+          );
+          fireAndForget(
+            () => saveRequestDetail(requestId, req.apiUserId, model, messages, null, null),
+            '[messages] saveRequestDetail failed'
+          );
         });
 
         return;
@@ -1757,11 +2247,18 @@ router.post('/chat/completions', async (req, res) => {
         provider: selectedProviderName,
       });
       const upstreamRes = await withRelayRetry(
-        () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: 120000 }),
-        { model, debug }
+        () => axiosInstance.post(upstreamUrl, upstreamBody, {
+          headers,
+          timeout: useNvidiaFastProfile ? nvidiaFastConfig.requestTimeoutMs : 120000,
+        }),
+        {
+          model,
+          debug,
+          retryConfig: useNvidiaFastProfile ? NVIDIA_FAST_STREAM_RELAY_RETRY_CONFIG : undefined,
+        }
       );
 
-      const data = upstreamRes.data;
+      const data = parseUpstreamResponseData(upstreamRes);
       let promptTokens;
       let completionTokens;
       let responseContent;
@@ -1796,7 +2293,7 @@ router.post('/chat/completions', async (req, res) => {
             total_cost: cost,
           }, { errorMessage: '额度已用尽' });
           await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
+          fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0)), '[chat] logCall failed');
           return res.status(402).json({ error: { message: '额度已用尽', type: 'billing_error' } });
         }
 
@@ -1808,9 +2305,8 @@ router.post('/chat/completions', async (req, res) => {
         });
         await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
         await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
-        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, responseContent);
-
+        fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost))), '[chat] logCall failed');
+        fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, null, responseContent), '[chat] saveRequestDetail failed');
         return res.json({
           id: requestId,
           object: 'chat.completion',
@@ -1851,7 +2347,7 @@ router.post('/chat/completions', async (req, res) => {
             total_cost: cost,
           }, { errorMessage: 'Insufficient balance for this request' });
           await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
+          fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0)), '[chat] logCall failed');
           return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
         }
 
@@ -1871,9 +2367,8 @@ router.post('/chat/completions', async (req, res) => {
         });
         await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
         await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
-        await saveRequestDetail(requestId, req.apiUserId, model, messages, null, geminiText);
-
+        fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost))), '[chat] logCall failed');
+        fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, null, geminiText), '[chat] saveRequestDetail failed');
         const geminiFinish = candidate?.finishReason === 'MAX_TOKENS' ? 'length' : 'stop';
         return res.json({
           id: requestId,
@@ -1907,7 +2402,7 @@ router.post('/chat/completions', async (req, res) => {
           total_cost: cost,
         }, { errorMessage: 'Insufficient balance for this request' });
         await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0));
+        fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext.reservedAmount || 0)), '[chat] logCall failed');
         return res.status(402).json({ error: { message: 'Insufficient balance for this request', type: 'billing_error' } });
       }
 
@@ -1927,9 +2422,8 @@ router.post('/chat/completions', async (req, res) => {
       });
       await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
       await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-      await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
-      await saveRequestDetail(requestId, req.apiUserId, model, messages, null, data.choices?.[0]?.message?.content || '');
-
+      fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost))), '[chat] logCall failed');
+      fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, null, data.choices?.[0]?.message?.content || ''), '[chat] saveRequestDetail failed');
       return res.json({
         id: requestId,
         object: 'chat.completion',
@@ -1944,14 +2438,24 @@ router.post('/chat/completions', async (req, res) => {
       const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
 
       if (is429) {
-        await noteCcClubRateLimit({
-          providerName: selectedProviderName,
-          baseUrl,
-          apiKey,
-          errorMessage: errMsg,
-          statusCode: err.response?.status || 429,
-          source: 'chat.completions'
-        });
+        fireAndForget(() => Promise.allSettled([
+          noteCcClubRateLimit({
+            providerName: selectedProviderName,
+            baseUrl,
+            apiKey,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'chat.completions'
+          }),
+          noteHuoshanRateLimit({
+            providerName: selectedProviderName,
+            baseUrl,
+            apiKey,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'chat.completions'
+          })
+        ]), '[chat] rate-limit telemetry failed');
       }
 
       console.error(`Upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
@@ -1994,7 +2498,7 @@ router.post('/chat/completions', async (req, res) => {
   await debug.step(7, 'error', { stream }, { errorMessage: errMsg });
   await releasePendingCharge(req, modelConfig, billingContext, requestId, model, 'chat.completions 请求失败，释放预留余额');
   const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 504 : (lastErr?.response?.status || 502));
-  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode });
+  fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode }), '[chat] logCall failed');
   return res.status(statusCode).json({
     error: { message: errMsg, type: statusCode === 503 ? 'overloaded_error' : 'upstream_error' }
   });
@@ -2009,11 +2513,20 @@ router.post('/messages', async (req, res) => {
   const { model, messages, system, max_tokens, stream = false, temperature, top_p, top_k, tools, tool_choice, stop_sequences, thinking, metadata, betas } = req.body;
   const debug = createRouteRecorder(req, requestId, model);
   const latencyTracker = createMessagesLatencyTracker(req, model);
-  const glm5FastStartConfig = isGlm5Model(model) && stream
-    ? await getGlm5FastStartConfig()
-    : DEFAULT_GLM5_FAST_START_CONFIG;
-  latencyTracker.fastStartEnabled = Boolean(glm5FastStartConfig?.enabled);
+  latencyTracker.requestId = requestId;
+  latencyTracker.requestPath = req.originalUrl || req.path || '/v1/messages';
+  latencyTracker.traceType = req.aiGatewayTraceType || 'live';
+  latencyTracker.userId = req.apiUserId || null;
+  latencyTracker.apiKeyId = req.apiKeyId || null;
   res.setHeader('X-Request-Id', requestId);
+  let timingLogged = false;
+  const finalizeTiming = (extra = {}) => {
+    if (timingLogged) return;
+    timingLogged = true;
+    scheduleMessagesTimingLog(latencyTracker, res, extra);
+  };
+  res.once('finish', () => finalizeTiming());
+  res.once('close', () => finalizeTiming());
 
   if (!model || !messages) {
     await debug.step(1, 'error', {
@@ -2035,6 +2548,27 @@ router.post('/messages', async (req, res) => {
     console.error('Model lookup error:', err);
     await debug.step(5, 'error', { reason: 'model_lookup_failed' }, { errorMessage: err.message });
     return res.status(500).json({ type: 'error', error: { type: 'server_error', message: 'Internal server error' } });
+  }
+
+  const isMinimaxM27Model = isNvidiaMinimaxM27Model(model);
+  const isMinimaxM25Model = isNvidiaMinimaxM25Model(model);
+  const nvidiaFastProfileEnabled = isNvidiaLatencyCriticalModel(model, modelConfig);
+  const nvidiaFastConfig = nvidiaFastProfileEnabled
+    ? await getNvidiaFastConfig()
+    : DEFAULT_NVIDIA_FAST_CONFIG;
+  const nvidiaMinimaxFastConfig = (isMinimaxM25Model || isMinimaxM27Model)
+    ? await getNvidiaMinimaxFastConfig(model)
+    : null;
+  const glm5FastStartConfig = isGlm5Model(model) && stream
+    ? await getGlm5FastStartConfig()
+    : DEFAULT_GLM5_FAST_START_CONFIG;
+  latencyTracker.fastStartEnabled = Boolean(
+    glm5FastStartConfig?.enabled || nvidiaMinimaxFastConfig?.enabled || nvidiaFastProfileEnabled
+  );
+  const useNvidiaFastProfile = nvidiaFastProfileEnabled;
+  const nvidiaLatencyProfile = useNvidiaFastProfile ? getNvidiaLatencyProfileName(model) : 'default';
+  if (useNvidiaFastProfile) {
+    latencyTracker.latencyProfile = nvidiaLatencyProfile;
   }
 
   const reservation = await reserveRequestCharge(req, modelConfig, requestId, debug, model, (billing) => ({
@@ -2070,6 +2604,7 @@ router.post('/messages', async (req, res) => {
     await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 上游预取失败，释放预留余额');
     return res.status(503).json({ type: 'error', error: { type: 'server_error', message: 'Model provider not configured' } });
   }
+  markMessagesEndpointsLoaded(latencyTracker);
 
   // 检查月度配额限制（套餐字段缓存 10 分钟，聚合查询缓存 5 分钟，与 chat.completions 共享缓存）
   try {
@@ -2086,7 +2621,7 @@ router.post('/messages', async (req, res) => {
           if (monthlyStats.cnt >= monthlyCallLimit) {
             await debug.step(3, 'error', { reason: 'monthly_call_limit_exceeded', used_calls: monthlyStats.cnt, limit: monthlyCallLimit }, { errorMessage: '月度调用次数已达上限' });
             await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 调用次数超限，释放预留余额');
-            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0));
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'call_limit_exceeded', `月度调用次数已达上限 ${monthlyCallLimit}`, requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
             return res.status(429).json({ type: 'error', error: { type: 'rate_limit_error', message: `月度调用次数已达上限（${monthlyStats.cnt}/${monthlyCallLimit} 次）。请购买加油包或升级套餐以提升限额。` } });
           }
         }
@@ -2097,7 +2632,7 @@ router.post('/messages', async (req, res) => {
           if (used >= quota && !hasQuotaCoverageAfterMonthlyLimit(billingContext2)) {
             await debug.step(3, 'error', { reason: 'monthly_quota_exceeded', used_cost: used, quota }, { errorMessage: '月度配额已用尽' });
             await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 月度配额超限，释放预留余额');
-            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0));
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'quota_exceeded', `月度配额已用尽 $${used.toFixed(4)}/$${quota.toFixed(2)}`, requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
             return res.status(429).json({ type: 'error', error: { type: 'rate_limit_error', message: `月度配额已用尽（$${used.toFixed(4)}/$${quota.toFixed(2)}）。请购买加油包或升级套餐以增加配额。` } });
           }
         }
@@ -2112,13 +2647,18 @@ router.post('/messages', async (req, res) => {
     await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 未配置上游，释放预留余额');
     return res.status(503).json({ type: 'error', error: { type: 'server_error', message: 'Model provider not configured' } });
   }
+  markMessagesBillingReserved(latencyTracker);
 
   let remaining = [...allEndpoints];
   let lastErr = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
     const leaseToken = `${requestId}:${attempt + 1}`;
-    const picked = await acquireBestEndpoint(remaining, leaseToken);
+    const picked = await acquireBestEndpoint(
+      remaining,
+      leaseToken,
+      isMinimaxM27Model ? { latencyCritical: true } : {},
+    );
     const selected = picked.endpoint;
     if (!selected) {
       lastErr = createUpstreamSaturatedError();
@@ -2143,8 +2683,24 @@ router.post('/messages', async (req, res) => {
     );
     const isUpstreamNvidia = selectedProviderName === 'nvidia'
       || baseUrl.includes('integrate.api.nvidia.com');
-    const relayRetryConfig = getMessagesRelayRetryConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia });
-    const upstreamTimeoutConfig = getMessagesUpstreamTimeoutConfig({ model, stream, isUpstreamAnthropic, isUpstreamNvidia });
+    const relayRetryConfig = getMessagesRelayRetryConfig({
+      model,
+      modelConfig,
+      stream,
+      isUpstreamAnthropic,
+      isUpstreamNvidia,
+      isMinimaxM27Model,
+    });
+    const upstreamTimeoutConfig = getMessagesUpstreamTimeoutConfig({
+      model,
+      modelConfig,
+      stream,
+      isUpstreamAnthropic,
+      isUpstreamNvidia,
+      nvidiaFastConfig,
+      nvidiaMinimaxFastConfig,
+      isMinimaxM27Model,
+    });
 
     await debug.step(5, 'success', {
       attempt: attempt + 1,
@@ -2159,7 +2715,15 @@ router.post('/messages', async (req, res) => {
       api_format: isUpstreamAnthropic ? 'anthropic' : 'openai_compatible',
     });
     markMessagesDispatchComplete(latencyTracker);
+    latencyTracker.attempts = attempt + 1;
+    latencyTracker.finalAttempt = attempt + 1;
+    latencyTracker.selectedUpstreamId = selectedUpstreamId;
+    latencyTracker.selectedProviderName = selectedProviderName;
+    latencyTracker.selectedBaseUrl = baseUrl;
+    latencyTracker.selectedUpstreamModelId = upstreamModel;
+    markMessagesEndpointSelected(latencyTracker);
 
+    let latencyDetail = {};
     try {
       if (attempt > 0) {
         console.log(`[Messages Retry] attempt ${attempt + 1}, endpoint ${selectedUpstreamId || getEndpointIdentity(selected)}`);
@@ -2171,7 +2735,10 @@ router.post('/messages', async (req, res) => {
       }
 
       if (isUpstreamAnthropic) {
-        const upstreamUrl = baseUrl.includes('/messages') ? baseUrl : `${baseUrl.replace(/\/+$/, '')}/v1/messages`;
+        const upstreamUrl = baseUrl.includes('/messages')
+          ? baseUrl
+          : resolveAnthropicCompatibleUpstreamUrl(baseUrl);
+        markMessagesRequestPrepared(latencyTracker);
         const upstreamBody = { model: upstreamModel, messages, max_tokens: max_tokens || 4096 };
         if (system) upstreamBody.system = system;
         if (temperature !== undefined) upstreamBody.temperature = temperature;
@@ -2194,6 +2761,7 @@ router.post('/messages', async (req, res) => {
             upstream_url: upstreamUrl,
             provider: selectedProviderName,
           });
+          markMessagesUpstreamDispatched(latencyTracker);
           markMessagesUpstreamStart(latencyTracker);
           const upstreamRes = await withRelayRetry(
             () => axiosInstance.post(upstreamUrl, upstreamBody, {
@@ -2279,8 +2847,14 @@ router.post('/messages', async (req, res) => {
                 total_cost: cost,
               }, { errorMessage: '余额不足（流式响应后扣款失败）' });
               await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-              await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
-              await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
+              fireAndForget(
+                () => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0)),
+                '[messages] logCall failed'
+              );
+              fireAndForget(
+                () => saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent),
+                '[messages] saveRequestDetail failed'
+              );
               return;
             }
             await debug.step(7, 'success', {
@@ -2291,8 +2865,14 @@ router.post('/messages', async (req, res) => {
             });
             await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
             await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
-            await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
+            fireAndForget(
+              () => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost))),
+              '[messages] logCall failed'
+            );
+            fireAndForget(
+              () => saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent),
+              '[messages] saveRequestDetail failed'
+            );
           });
 
           upstreamRes.data.on('error', async (err) => {
@@ -2303,8 +2883,8 @@ router.post('/messages', async (req, res) => {
             await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl, ...latencyDetail }, { errorMessage: errMsg });
             await debug.step(8, 'error', { reason: 'stream_upstream_error', selected_upstream_id: selectedUpstreamId }, { errorMessage: errMsg });
             await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages Anthropic stream error，释放预留余额');
-            await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-            await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0)), '[chat] logCall failed');
+            fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, system, null), '[chat] saveRequestDetail failed');
           });
 
           return;
@@ -2317,6 +2897,8 @@ router.post('/messages', async (req, res) => {
           upstream_url: upstreamUrl,
           provider: selectedProviderName,
         });
+        markMessagesRequestPrepared(latencyTracker);
+        markMessagesUpstreamDispatched(latencyTracker);
         markMessagesUpstreamStart(latencyTracker);
         const upstreamRes = await withRelayRetry(
           () => axiosInstance.post(upstreamUrl, upstreamBody, { headers, timeout: upstreamTimeoutConfig.requestTimeoutMs }),
@@ -2324,7 +2906,7 @@ router.post('/messages', async (req, res) => {
         );
         markMessagesUpstreamConnected(latencyTracker);
         markMessagesFirstChunk(latencyTracker);
-        const data = upstreamRes.data;
+        const data = parseUpstreamResponseData(upstreamRes);
         const latencyDetail = recordMessagesLatency(latencyTracker);
 
         const promptTokens = data.usage?.input_tokens || estimateTokens(messages);
@@ -2344,7 +2926,7 @@ router.post('/messages', async (req, res) => {
         if (!result.success) {
           await debug.step(7, 'error', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost }, { errorMessage: '额度已用尽' });
           await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
+          fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0)), '[chat] logCall failed');
           return res.status(402).json({ type: 'error', error: { type: 'billing_error', message: '额度已用尽' } });
         }
 
@@ -2352,37 +2934,87 @@ router.post('/messages', async (req, res) => {
         await debug.step(7, 'success', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost });
         await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
         await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
-        await saveRequestDetail(requestId, req.apiUserId, model, messages, system, extractTextFromContent(data.content));
-
+        fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost))), '[chat] logCall failed');
+        fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, system, extractTextFromContent(data.content)), '[chat] saveRequestDetail failed');
         data.id = requestId;
         data.model = model;
         return res.json(data);
       }
 
-      const cleanBase = baseUrl
-        .replace(/\/v1\/messages\/?$/, '')
-        .replace(/\/v1\/chat\/completions\/?$/, '')
-        .replace(/\/v1\/?$/, '')
-        .replace(/\/+$/, '');
-      const upstreamUrl = `${cleanBase}/v1/chat/completions`;
+      const upstreamUrl = resolveOpenAICompatibleUpstreamUrl(baseUrl, 'chat/completions');
       const openaiMessages = convertAnthropicToOpenAIMessages(system, messages);
       const openaiBody = { model: upstreamModel, messages: openaiMessages, stream };
+      markMessagesRequestPrepared(latencyTracker);
+      const useNvidiaMinimaxFastProfile = Boolean(
+        nvidiaMinimaxFastConfig?.enabled
+        && isUpstreamNvidia
+        && (isMinimaxM25Model || isMinimaxM27Model)
+      );
+      const useNvidiaOpenAIFastProfile = Boolean(useNvidiaFastProfile && isUpstreamNvidia);
+      if (useNvidiaOpenAIFastProfile) {
+        latencyTracker.latencyProfile = nvidiaLatencyProfile;
+      }
+      if (useNvidiaMinimaxFastProfile) {
+        latencyTracker.latencyProfile = isMinimaxM27Model ? 'nvidia_minimax_m27_fast' : 'nvidia_minimax_m25_fast';
+      }
       if (stream) openaiBody.stream_options = { include_usage: true };
-      if (temperature !== undefined) openaiBody.temperature = temperature;
-      if (max_tokens !== undefined) openaiBody.max_tokens = max_tokens;
-      if (top_p !== undefined) openaiBody.top_p = top_p;
+      openaiBody.temperature = temperature !== undefined
+        ? temperature
+        : (useNvidiaMinimaxFastProfile
+          ? nvidiaMinimaxFastConfig.temperature
+          : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.temperature : undefined));
+      openaiBody.max_tokens = max_tokens !== undefined
+        ? max_tokens
+        : (useNvidiaMinimaxFastProfile
+          ? nvidiaMinimaxFastConfig.maxTokens
+          : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.maxTokens : undefined));
+      openaiBody.top_p = top_p !== undefined
+        ? top_p
+        : (useNvidiaMinimaxFastProfile
+          ? nvidiaMinimaxFastConfig.topP
+          : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.topP : undefined));
+      if (openaiBody.temperature === undefined) delete openaiBody.temperature;
+      if (openaiBody.max_tokens === undefined) delete openaiBody.max_tokens;
+      if (openaiBody.top_p === undefined) delete openaiBody.top_p;
       if (stop_sequences) openaiBody.stop = stop_sequences;
       if (tools && tools.length > 0) {
-        openaiBody.tools = tools.map((t) => ({
-          type: 'function',
-          function: { name: t.name, description: t.description || '', parameters: t.input_schema || {} }
-        }));
+        openaiBody.tools = tools.map((t) => {
+          const params = t.input_schema || {};
+          const sanitizedParams = isGlm5Model(model) ? sanitizeSchemaForGlm5(params) : params;
+          return { type: 'function', function: { name: t.name, description: t.description || '', parameters: sanitizedParams } };
+        });
       }
 
       const headers = withForwardedOpenAIClientHeaders(req, { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' });
 
       if (stream) {
+        const fastStartEnabled = Boolean(
+          (glm5FastStartConfig?.enabled && isGlm5Model(model))
+          || useNvidiaMinimaxFastProfile
+          || useNvidiaFastProfile
+        );
+        const fastStartConfig = useNvidiaFastProfile
+          ? nvidiaFastConfig
+          : (useNvidiaMinimaxFastProfile
+            ? nvidiaMinimaxFastConfig
+            : glm5FastStartConfig);
+        let fastStartPing = { stop: () => {} };
+        const earlyFastStart = Boolean(useNvidiaMinimaxFastProfile && isMinimaxM27Model);
+        let messageStartSentEarly = false;
+        const messageStart = {
+          type: 'message_start',
+          message: {
+            id: requestId,
+            type: 'message',
+            role: 'assistant',
+            model,
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 0, output_tokens: 0 }
+          }
+        };
+
         await debug.step(6, 'pending', {
           attempt: attempt + 1,
           stream: true,
@@ -2390,6 +3022,15 @@ router.post('/messages', async (req, res) => {
           upstream_url: upstreamUrl,
           provider: selectedProviderName,
         });
+        markMessagesUpstreamDispatched(latencyTracker);
+        if (earlyFastStart) {
+          flushMessagesStreamHeaders(res, requestId, latencyTracker, { fastStartEnabled: true });
+          fastStartPing = startStreamFastStartPing({ res, tracker: latencyTracker, config: fastStartConfig });
+          messageStartSentEarly = true;
+          markMessagesFirstRealEvent(latencyTracker);
+          res.write(`event: message_start\ndata: ${JSON.stringify(messageStart)}\n\n`);
+          fastStartPing.stop();
+        }
         markMessagesUpstreamStart(latencyTracker);
         const upstreamRes = await withRelayRetry(
           () => axiosInstance.post(upstreamUrl, openaiBody, {
@@ -2406,11 +3047,10 @@ router.post('/messages', async (req, res) => {
           return error;
         });
 
-        const fastStartEnabled = Boolean(glm5FastStartConfig?.enabled && isGlm5Model(model));
         flushMessagesStreamHeaders(res, requestId, latencyTracker, { fastStartEnabled });
-        const fastStartPing = fastStartEnabled
-          ? startGlm5FastStartPing({ res, tracker: latencyTracker, config: glm5FastStartConfig })
-          : { stop: () => {} };
+        if (!earlyFastStart && fastStartEnabled) {
+          fastStartPing = startStreamFastStartPing({ res, tracker: latencyTracker, config: fastStartConfig });
+        }
 
         let promptTokens = 0;
         let completionTokens = 0;
@@ -2419,23 +3059,11 @@ router.post('/messages', async (req, res) => {
         let sseBuffer = '';
         let contentBlockStarted = false;
         const toolCallBuffers = {};
-
-        const messageStart = {
-          type: 'message_start',
-          message: {
-            id: requestId,
-            type: 'message',
-            role: 'assistant',
-            model,
-            content: [],
-            stop_reason: null,
-            stop_sequence: null,
-            usage: { input_tokens: 0, output_tokens: 0 }
-          }
-        };
-        fastStartPing.stop();
-        markMessagesFirstRealEvent(latencyTracker);
-        res.write(`event: message_start\ndata: ${JSON.stringify(messageStart)}\n\n`);
+        if (!messageStartSentEarly) {
+          fastStartPing.stop();
+          markMessagesFirstRealEvent(latencyTracker);
+          res.write(`event: message_start\ndata: ${JSON.stringify(messageStart)}\n\n`);
+        }
 
         upstreamRes.data.on('data', (chunk) => {
           markMessagesFirstChunk(latencyTracker);
@@ -2444,8 +3072,8 @@ router.post('/messages', async (req, res) => {
           sseBuffer = lines.pop() || '';
 
           for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
+            if (!line.startsWith('data:')) continue;
+            const data = line.slice(5).trim();
             if (data === '[DONE]') continue;
 
             try {
@@ -2459,7 +3087,7 @@ router.post('/messages', async (req, res) => {
               const choice = parsed.choices?.[0];
               if (!choice) continue;
 
-              const deltaContent = choice.delta?.content;
+              const deltaContent = choice.delta?.content || choice.delta?.reasoning;
               if (deltaContent) {
                 if (!contentBlockStarted) {
                   contentBlockStarted = true;
@@ -2529,15 +3157,15 @@ router.post('/messages', async (req, res) => {
           if (!result.success) {
             await debug.step(7, 'error', { stream: true, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost }, { errorMessage: '余额不足（流式响应后扣款失败）' });
             await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-            await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
-            await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
+            fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0)), '[chat] logCall failed');
+            fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent), '[chat] saveRequestDetail failed');
             return;
           }
           await debug.step(7, 'success', { stream: true, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost });
           await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
           await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-          await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent);
+          fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost))), '[chat] logCall failed');
+          fireAndForget(() => saveRequestDetail(requestId, req.apiUserId, model, messages, system, fullContent), '[chat] saveRequestDetail failed');
         });
 
         upstreamRes.data.on('error', async (err) => {
@@ -2549,8 +3177,14 @@ router.post('/messages', async (req, res) => {
           await debug.step(6, 'error', { stream: true, upstream_id: selectedUpstreamId, upstream_url: upstreamUrl, ...latencyDetail }, { errorMessage: errMsg });
           await debug.step(8, 'error', { reason: 'stream_upstream_error', selected_upstream_id: selectedUpstreamId }, { errorMessage: errMsg });
           await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages OpenAI stream error，释放预留余额');
-          await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0));
-          await saveRequestDetail(requestId, req.apiUserId, model, messages, system, null);
+          fireAndForget(
+            () => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, getLogExtra(modelConfig, 0)),
+            '[messages] logCall failed'
+          );
+          fireAndForget(
+            () => saveRequestDetail(requestId, req.apiUserId, model, messages, system, null),
+            '[messages] saveRequestDetail failed'
+          );
         });
 
         return;
@@ -2563,6 +3197,7 @@ router.post('/messages', async (req, res) => {
         upstream_url: upstreamUrl,
         provider: selectedProviderName,
       });
+      markMessagesUpstreamDispatched(latencyTracker);
       markMessagesUpstreamStart(latencyTracker);
       const upstreamRes = await withRelayRetry(
         () => axiosInstance.post(upstreamUrl, openaiBody, { headers, timeout: upstreamTimeoutConfig.requestTimeoutMs }),
@@ -2570,7 +3205,7 @@ router.post('/messages', async (req, res) => {
       );
       markMessagesUpstreamConnected(latencyTracker);
       markMessagesFirstChunk(latencyTracker);
-      const data = upstreamRes.data;
+      const data = parseUpstreamResponseData(upstreamRes);
       const latencyDetail = recordMessagesLatency(latencyTracker);
       const promptTokens = data.usage?.prompt_tokens || estimateTokens(messages);
       const completionTokens = data.usage?.completion_tokens || 0;
@@ -2589,7 +3224,10 @@ router.post('/messages', async (req, res) => {
       if (!result.success) {
         await debug.step(7, 'error', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost }, { errorMessage: '额度已用尽' });
         await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-        await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0));
+        fireAndForget(
+          () => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, getLogExtra(modelConfig, billingContext2.reservedAmount || 0)),
+          '[messages] logCall failed'
+        );
         return res.status(402).json({ type: 'error', error: { type: 'billing_error', message: '额度已用尽' } });
       }
 
@@ -2600,8 +3238,14 @@ router.post('/messages', async (req, res) => {
       await debug.step(7, 'success', { stream: false, prompt_tokens: promptTokens, completion_tokens: completionTokens, total_cost: cost });
       await debug.step(8, 'skipped', { reason: 'no_recovery_needed' });
       await markEndpointSuccess(selected, attemptMeta, upstreamRes.status);
-      await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost)));
-      await saveRequestDetail(requestId, req.apiUserId, model, messages, system, choice?.message?.content || '');
+      fireAndForget(
+        () => logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'success', null, requestId, getLogExtra(modelConfig, getChargedAmountForLog(modelConfig, cost))),
+        '[messages] logCall failed'
+      );
+      fireAndForget(
+        () => saveRequestDetail(requestId, req.apiUserId, model, messages, system, choice?.message?.content || ''),
+        '[messages] saveRequestDetail failed'
+      );
 
       if (choice?.message?.content) {
         content.push({ type: 'text', text: choice.message.content });
@@ -2630,14 +3274,24 @@ router.post('/messages', async (req, res) => {
       const is429 = err.response?.status === 429 || errMsg.includes('429') || errMsg.toLowerCase().includes('rate limit');
 
       if (is429) {
-        await noteCcClubRateLimit({
-          providerName: selectedProviderName,
-          baseUrl,
-          apiKey,
-          errorMessage: errMsg,
-          statusCode: err.response?.status || 429,
-          source: 'messages'
-        });
+        fireAndForget(() => Promise.allSettled([
+          noteCcClubRateLimit({
+            providerName: selectedProviderName,
+            baseUrl,
+            apiKey,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'messages'
+          }),
+          noteHuoshanRateLimit({
+            providerName: selectedProviderName,
+            baseUrl,
+            apiKey,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'messages'
+          })
+        ]), '[chat] rate-limit telemetry failed');
       }
 
       console.error(`Messages API upstream error [model=${model}, upstream=${baseUrl}]:`, errMsg);
@@ -2677,7 +3331,7 @@ router.post('/messages', async (req, res) => {
     || errMsg.toLowerCase().includes('timeout');
   await releasePendingCharge(req, modelConfig, billingContext2, requestId, model, 'messages 请求失败，释放预留余额');
   const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (isTimeout ? 504 : (lastErr?.response?.status || 502));
-  await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode });
+  fireAndForget(() => logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, { ...getLogExtra(modelConfig, 0), httpStatus: statusCode }), '[chat] logCall failed');
   return res.status(statusCode).json({
     type: 'error',
     error: { type: statusCode === 503 ? 'overloaded_error' : 'upstream_error', message: errMsg }
@@ -2759,6 +3413,14 @@ function convertFinishReason(reason) {
     case 'content_filter': return 'end_turn';
     default: return 'end_turn';
   }
+}
+
+function fireAndForget(task, label) {
+  setImmediate(() => {
+    Promise.resolve()
+      .then(task)
+      .catch((error) => console.error(label, error));
+  });
 }
 
 // 获取模型列表（公开）

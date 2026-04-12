@@ -1014,6 +1014,9 @@ textarea.oc-input:-webkit-autofill:focus {
     left: -300px;
     width: 280px;
     height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     z-index: 500;
     transition: left 0.25s ease;
     box-shadow: var(--shadow);

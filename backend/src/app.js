@@ -87,6 +87,11 @@ const backendPublicDir = path.join(__dirname, '../public');
 app.use(express.static(rootPublicDir));
 app.use(express.static(backendPublicDir));
 
+// 博客文章 SEO 友好 URL：/blog/:id.html → 返回 blog.html（前端 JS 解析路径中的 id）
+app.get(/^\/blog\/(\d+)\.html$/, (req, res) => {
+  res.sendFile(path.join(rootPublicDir, 'blog.html'));
+});
+
 app.use('/api/captcha', require('./routes/captcha'));
 app.use('/api/email-code', require('./routes/emailCode'));
 // Start scheduler
@@ -139,6 +144,14 @@ try {
   console.error('[ccclub-key-guard] 启动失败:', e.message);
 }
 
+// 火山引擎 key 自动禁启守护：记录限流重置时间并按时间自动恢复
+try {
+  const { startHuoshanKeyGuard } = require('./plugins/ai-gateway/utils/huoshanKeyGuard');
+  startHuoshanKeyGuard();
+} catch (e) {
+  console.error('[huoshan-key-guard] 启动失败:', e.message);
+}
+
 // AI 网关兼容直出：恢复 /v1/*、/v1beta/*、/api/models 入口
 // 插件系统仍保留 /api/plugins/ai-gateway 前缀，此处仅做外部兼容路由桥接
 try {
@@ -157,6 +170,8 @@ try {
       p.startsWith('/api/payment') ||
       p.startsWith('/api/user-extend') ||
       p.startsWith('/api/admin') ||
+      p === '/api/app-market' ||
+      p.startsWith('/api/blog') ||
       p === '/api/models' ||
       p === '/api/health' ||
       p === '/api/package/list' ||

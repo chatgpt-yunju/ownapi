@@ -222,6 +222,7 @@
       <a href="/">首页</a>
       <a href="/pipeline.html">路由能力</a>
       <a href="/docs.html" class="active">文档</a>
+      <a href="/app-market.html">应用市场</a>
       <a href="/console.html">控制台</a>
     </div>
     <div class="oc-nav-right">
@@ -994,6 +995,18 @@ source ~/.zshrc</pre></div>
           <strong style="color:var(--accent-light);">填写建议：</strong>
           `Provider ID` 用来标识供应商，例如 `my-local-model`；`Compatibility` 一般选择 `openai` 或 `anthropic`；如果你的服务不需要认证，API Key 可以先填占位值。
         </div>
+
+        <h3>火山引擎智能路由</h3>
+        <p style="color:var(--text-secondary);">火山引擎在本平台仅保留智能路由入口，建议把它单独作为一个 Provider 管理，显示名称直接写成 <code>Doubao-Smart-Router</code>，不要再新增普通 Ark 直连模型。</p>
+        <div class="oc-code"><button class="copy-btn" onclick="copyText(this.parentElement.querySelector('pre').textContent)">复制</button><pre style="margin:0;">Provider ID: doubao-smart-router
+Display Name: Doubao-Smart-Router
+Base URL: https://ark.cn-beijing.volces.com/api/v3
+Model upstream_model_id: 你的 Endpoint ID</pre></div>
+        <div class="quickstart-note" style="margin-top:0.85rem;">
+          <strong style="color:var(--accent-light);">关键点：</strong>
+          Endpoint ID 建议写入模型的 <code>upstream_model_id</code>；请求会自动走 <code>/api/v3</code>，不需要手工拼 <code>/v1</code>，也不要再配置其他火山直连模型。
+        </div>
+        <p style="color:var(--text-secondary);margin-top:0.65rem;">Smart-Route 的展示价格按当前国产模型平均价自动计算，本平台不再展示其他火山模型的独立定价。</p>
 
         <h3>方式二：手动编辑 `openclaw.json`</h3>
         <p style="color:var(--text-secondary);">如果你需要更细的控制，例如在同一个 Provider 下定义多个模型、设置上下文窗口、最大输出 Token、模型能力和成本字段，直接编辑 `~/.openclaw/openclaw.json` 会更灵活。</p>

@@ -7,6 +7,11 @@ const { authMiddleware } = require('./middleware/auth');
 const { apiKeyAuth } = require('./middleware/apiKeyAuth');
 const { internalAuth } = require('./middleware/internalAuth');
 const { requestQueueMiddleware, getQueueStats } = require('./middleware/requestQueue');
+const {
+  applySmartRouterAveragePricing,
+  getDomesticAveragePricing,
+  isSmartRouterModel,
+} = require('./utils/smartRouterPricing');
 const { createDebugRecorder, detectRequestedModel, detectRouteName } = require('./utils/requestDebug');
 const { getSchedulerSummary } = require('./utils/upstreamScheduler');
 const {
@@ -107,6 +112,7 @@ function requireInternalSecret(req, res, next) {
 // 公开：模型列表
 router.get('/api/models', async (req, res) => {
   try {
+    const smartRouterPricing = await getDomesticAveragePricing();
     const [models] = await db.query(
       `SELECT model_id, display_name, provider,
               input_price_per_1k, output_price_per_1k, price_currency,
@@ -115,7 +121,16 @@ router.get('/api/models', async (req, res) => {
        WHERE status = "active"
        ORDER BY sort_order`
     );
-    res.json(models);
+    const normalizedModels = models.map((model) => (
+      isSmartRouterModel(model)
+        ? applySmartRouterAveragePricing(model, smartRouterPricing)
+        : model
+    )).map((model) => (
+      isSmartRouterModel(model)
+        ? { ...model, model_category: 'smart_route' }
+        : model
+    ));
+    res.json(normalizedModels);
   } catch { res.status(500).json({ error: '获取模型失败' }); }
 });
 
@@ -125,6 +140,44 @@ router.get('/api/package/list', async (req, res) => {
     const [packages] = await db.query('SELECT * FROM openclaw_packages WHERE status = "active" ORDER BY price');
     res.json({ packages });
   } catch { res.status(500).json({ error: '获取套餐失败' }); }
+});
+
+router.get('/api/app-market', async (_req, res) => {
+  try {
+    const [apps] = await db.query(
+      'SELECT id, name, description, url FROM openclaw_app_market ORDER BY id DESC'
+    );
+    res.json({ apps });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取应用市场失败' });
+  }
+});
+
+router.get('/api/blog', async (_req, res) => {
+  try {
+    const [posts] = await db.query(
+      'SELECT id, title, summary, created_at, updated_at FROM openclaw_blog_posts WHERE status = "published" ORDER BY id DESC'
+    );
+    res.json({ posts });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取博客列表失败' });
+  }
+});
+
+router.get('/api/blog/:id', async (req, res) => {
+  try {
+    const [[post]] = await db.query(
+      'SELECT id, title, summary, content, created_at, updated_at FROM openclaw_blog_posts WHERE id = ? AND status = "published"',
+      [Number(req.params.id)]
+    );
+    if (!post) return res.status(404).json({ error: '文章不存在' });
+    res.json({ post });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取文章失败' });
+  }
 });
 
 // SSO 鉴权路由

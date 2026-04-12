@@ -7,11 +7,18 @@ const cache = require('../utils/cache');
 const { getSettingCached } = require('../../../routes/quota');
 const { getQueueStats } = require('../middleware/requestQueue');
 const {
+  applySmartRouterAveragePricing,
+  getDomesticAveragePricing,
+  isSmartRouterModel,
+} = require('../utils/smartRouterPricing');
+const {
   adjustBalance,
   normalizeBillingMode,
   normalizeModelCategory,
   roundAmount,
 } = require('../utils/billing');
+const { parseResetAt } = require('../utils/ccClubKeyGuard');
+const { resolveAnthropicCompatibleUpstreamUrl } = require('../utils/upstreamUrl');
 
 // 运行时迁移：CC Club 密钥注册表（含备注）
 db.query(`
@@ -23,6 +30,26 @@ db.query(`
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 `).catch(() => {});
 db.query(`ALTER TABLE openclaw_ccclub_keys ADD COLUMN status ENUM('active','disabled') DEFAULT 'active'`).catch(() => {});
+db.query(`
+  CREATE TABLE IF NOT EXISTS openclaw_huoshan_key_resets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    key_fingerprint CHAR(64) NOT NULL UNIQUE,
+    provider_name VARCHAR(100) DEFAULT '',
+    base_url VARCHAR(500) DEFAULT '',
+    reset_at DATETIME NOT NULL,
+    status ENUM('cooldown','ready') DEFAULT 'cooldown',
+    last_status_code INT DEFAULT NULL,
+    last_error_message TEXT,
+    last_seen_at DATETIME DEFAULT NOW(),
+    cooldown_notified_at DATETIME DEFAULT NULL,
+    recovered_notified_at DATETIME DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status_reset (status, reset_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+`).catch(() => {});
+db.query(`ALTER TABLE openclaw_huoshan_key_resets ADD COLUMN cooldown_notified_at DATETIME DEFAULT NULL`).catch(() => {});
+db.query(`ALTER TABLE openclaw_huoshan_key_resets ADD COLUMN recovered_notified_at DATETIME DEFAULT NULL`).catch(() => {});
 
 // 运行时迁移：创建模型直连端点表
 db.query(`
@@ -123,6 +150,7 @@ async function runHttpJsonTest({ url, headers, body, timeoutMs = 45000 }) {
       status: resp.status,
       duration_ms: durationMs,
       error: resp.ok ? null : preview,
+      response_json: parsed,
       response_preview: preview
     };
   } catch (err) {
@@ -135,6 +163,66 @@ async function runHttpJsonTest({ url, headers, body, timeoutMs = 45000 }) {
         ? `请求超时（>${timeoutMs}ms）`
         : (err?.message || '请求异常'),
       response_preview: null
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runHttpFirstChunkTest({ url, headers, body, timeoutMs = 15000 }) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let firstChunkMs = null;
+  let preview = '';
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(headers || {}) },
+      body: JSON.stringify(body || {}),
+      signal: controller.signal
+    });
+
+    const reader = resp.body?.getReader?.();
+    if (reader) {
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value && value.length) {
+          firstChunkMs = Date.now() - startedAt;
+          preview += decoder.decode(value, { stream: true });
+          break;
+        }
+      }
+      try { await reader.cancel(); } catch (_) {}
+    } else {
+      preview = await resp.text();
+      firstChunkMs = Date.now() - startedAt;
+    }
+
+    const durationMs = Date.now() - startedAt;
+    return {
+      ok: resp.ok,
+      status: resp.status,
+      duration_ms: durationMs,
+      first_chunk_ms: firstChunkMs,
+      error: resp.ok ? null : trimForLog(preview || '', 1200),
+      response_preview: trimForLog(preview || '', 1200),
+    };
+  } catch (err) {
+    const durationMs = Date.now() - startedAt;
+    return {
+      ok: false,
+      status: 0,
+      duration_ms: durationMs,
+      first_chunk_ms: firstChunkMs,
+      error: err?.name === 'AbortError'
+        ? `请求超时（>${timeoutMs}ms）`
+        : (err?.message || '请求异常'),
+      response_json: null,
+      response_preview: preview ? trimForLog(preview, 1200) : null,
     };
   } finally {
     clearTimeout(timer);
@@ -612,6 +700,7 @@ router.post('/charge', async (req, res) => {
 // 模型管理 - 列表
 router.get('/models', async (req, res) => {
   try {
+    const smartRouterPricing = await getDomesticAveragePricing();
     const [models] = await db.query('SELECT * FROM openclaw_models ORDER BY sort_order');
     const [allUpstreams] = await db.query('SELECT * FROM openclaw_model_upstreams ORDER BY model_id, sort_order, id');
     const upstreamMap = {};
@@ -621,6 +710,14 @@ router.get('/models', async (req, res) => {
     }
     for (const m of models) {
       m.upstreams = upstreamMap[m.id] || [];
+      if (isSmartRouterModel(m)) {
+        const priced = applySmartRouterAveragePricing(m, smartRouterPricing);
+        m.input_price_per_1k = priced.input_price_per_1k;
+        m.output_price_per_1k = priced.output_price_per_1k;
+        m.price_currency = priced.price_currency;
+        m.per_call_price = priced.per_call_price;
+        m.model_category = priced.model_category;
+      }
     }
     res.json(models);
   } catch (err) {
@@ -636,25 +733,36 @@ router.post('/models', async (req, res) => {
     upstreams, model_category, billing_mode, per_call_price,
   } = req.body;
   try {
+    const isSmartRouter = isSmartRouterModel({ model_id, provider });
+    const smartRouterPricing = isSmartRouter ? await getDomesticAveragePricing() : null;
+    const effectiveInputPrice = isSmartRouter
+      ? smartRouterPricing.input_price_per_1k
+      : input_price_per_1k;
+    const effectiveOutputPrice = isSmartRouter
+      ? smartRouterPricing.output_price_per_1k
+      : output_price_per_1k;
+    const effectiveCurrency = isSmartRouter ? 'CNY' : (price_currency || 'CNY');
+    const effectivePerCallPrice = isSmartRouter ? null : (per_call_price == null || per_call_price === '' ? null : roundAmount(per_call_price));
+    const effectiveCategory = isSmartRouter ? 'smart_route' : normalizeModelCategory(model_category);
     const [result] = await db.query(
       `INSERT INTO openclaw_models
         (model_id, display_name, provider, input_price_per_1k, output_price_per_1k, price_currency,
          sort_order, upstream_model_id, upstream_endpoint, upstream_key, model_category, billing_mode, per_call_price)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [
+        [
         model_id,
         display_name,
         provider,
-        input_price_per_1k,
-        output_price_per_1k,
-        price_currency || 'CNY',
+        effectiveInputPrice,
+        effectiveOutputPrice,
+        effectiveCurrency,
         sort_order || 0,
         upstream_model_id || null,
         upstream_endpoint || null,
         upstream_key || null,
-        normalizeModelCategory(model_category),
+        effectiveCategory,
         normalizeBillingMode(billing_mode),
-        per_call_price == null || per_call_price === '' ? null : roundAmount(per_call_price),
+        effectivePerCallPrice,
       ]
     );
     const newModelId = result.insertId;
@@ -685,6 +793,17 @@ router.put('/models/:id', async (req, res) => {
   } = req.body;
   const modelId = req.params.id;
   try {
+    const isSmartRouter = isSmartRouterModel({ model_id: req.body?.model_id, provider });
+    const smartRouterPricing = isSmartRouter ? await getDomesticAveragePricing() : null;
+    const effectiveInputPrice = isSmartRouter
+      ? smartRouterPricing.input_price_per_1k
+      : input_price_per_1k;
+    const effectiveOutputPrice = isSmartRouter
+      ? smartRouterPricing.output_price_per_1k
+      : output_price_per_1k;
+    const effectiveCurrency = isSmartRouter ? 'CNY' : (price_currency || 'CNY');
+    const effectivePerCallPrice = isSmartRouter ? null : (per_call_price == null || per_call_price === '' ? null : roundAmount(per_call_price));
+    const effectiveCategory = isSmartRouter ? 'smart_route' : normalizeModelCategory(model_category);
     await db.query(
       `UPDATE openclaw_models
        SET display_name=?, provider=?, input_price_per_1k=?, output_price_per_1k=?, price_currency=?,
@@ -694,17 +813,17 @@ router.put('/models/:id', async (req, res) => {
       [
         display_name,
         provider,
-        input_price_per_1k,
-        output_price_per_1k,
-        price_currency || 'CNY',
+        effectiveInputPrice,
+        effectiveOutputPrice,
+        effectiveCurrency,
         sort_order || 0,
         status,
         upstream_model_id || null,
         upstream_endpoint || null,
         upstream_key || null,
-        normalizeModelCategory(model_category),
+        effectiveCategory,
         normalizeBillingMode(billing_mode),
-        per_call_price == null || per_call_price === '' ? null : roundAmount(per_call_price),
+        effectivePerCallPrice,
         modelId,
       ]
     );
@@ -1711,6 +1830,91 @@ router.post('/models/health-check', async (req, res) => {
   }
 });
 
+// 模型首包测速 — 并发测试所有 active NVIDIA 聊天/代码模型
+router.post('/models/ttft-check', async (req, res) => {
+  const GATEWAY_URL = process.env.AI_GATEWAY_URL || 'http://localhost:3000/api/plugins/ai-gateway';
+  const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET || '';
+
+  try {
+    const [models] = await db.query(
+      "SELECT id, model_id, display_name, provider, model_category FROM openclaw_models WHERE status = 'active' AND provider = 'nvidia' AND model_category IN ('language', 'coding') ORDER BY sort_order"
+    );
+
+    const { model_ids, prompt = '请回复pong', timeout_ms = 15000 } = req.body || {};
+    const testModels = model_ids?.length
+      ? models.filter(m => model_ids.includes(m.model_id))
+      : models;
+
+    const results = await Promise.allSettled(
+      testModels.map(async (m) => {
+        const requestStart = Date.now();
+        try {
+          const result = await runHttpFirstChunkTest({
+            url: `${GATEWAY_URL}/v1/internal/chat/completions`,
+            headers: {
+              'X-Internal-Secret': INTERNAL_SECRET,
+              'X-User-Id': '1',
+            },
+            body: {
+              model: m.model_id,
+              messages: [{ role: 'user', content: String(prompt || '请回复pong') }],
+              max_tokens: 1,
+              stream: true,
+            },
+            timeoutMs: Number(timeout_ms) > 0 ? Number(timeout_ms) : 15000,
+          });
+
+          const firstChunkMs = Number.isFinite(result.first_chunk_ms) ? result.first_chunk_ms : null;
+          return {
+            model_id: m.model_id,
+            display_name: m.display_name,
+            provider: m.provider,
+            model_category: m.model_category,
+            status: result.ok ? 'ok' : 'error',
+            first_chunk_ms: firstChunkMs,
+            duration_ms: result.duration_ms,
+            error: result.ok ? null : result.error,
+            response_preview: result.response_preview,
+          };
+        } catch (err) {
+          return {
+            model_id: m.model_id,
+            display_name: m.display_name,
+            provider: m.provider,
+            model_category: m.model_category,
+            status: 'error',
+            first_chunk_ms: null,
+            duration_ms: Date.now() - requestStart,
+            error: err.message,
+          };
+        }
+      })
+    );
+
+    const items = results.map(r => r.status === 'fulfilled' ? r.value : { status: 'error', error: r.reason?.message });
+    const ranking = [...items].sort((a, b) => {
+      const aMs = Number.isFinite(a.first_chunk_ms) ? a.first_chunk_ms : Number.POSITIVE_INFINITY;
+      const bMs = Number.isFinite(b.first_chunk_ms) ? b.first_chunk_ms : Number.POSITIVE_INFINITY;
+      if (aMs !== bMs) return aMs - bMs;
+      return String(a.model_id || '').localeCompare(String(b.model_id || ''));
+    });
+    const ok = items.filter(i => i.status === 'ok').length;
+    const fail = items.filter(i => i.status === 'error').length;
+
+    res.json({
+      total: items.length,
+      ok,
+      fail,
+      models: items,
+      ranking,
+      target_ms: 1000,
+      note: 'first_chunk_ms measures first bytes received from the streaming response',
+    });
+  } catch (err) {
+    res.status(500).json({ error: `首包测速失败: ${err.message}` });
+  }
+});
+
 // ── CC Club 密钥管理 ──────────────────────────────────────────────
 
 // GET /admin/ccclub/keys — 列出所有 CC Club 密钥（以 upstreams 为主，注册表补充备注）
@@ -1875,7 +2079,20 @@ router.get('/ccclub/key-resets', async (req, res) => {
       k.api_key,
       k.notes,
       COALESCE(k.status, 'active')  AS key_status,
-      COALESCE(r.status, 'ready')   AS status,
+      CASE
+        WHEN COALESCE(k.status, 'active') = 'disabled' THEN 'disabled'
+        WHEN EXISTS (
+          SELECT 1
+          FROM openclaw_model_upstreams u
+          WHERE u.api_key = k.api_key
+            AND u.base_url LIKE '%claude-code.club%'
+            AND u.status = 'disabled'
+        ) THEN 'cooldown'
+        WHEN r.key_fingerprint IS NULL THEN 'ready'
+        WHEN COALESCE(r.status, 'ready') = 'cooldown'
+          AND (r.reset_at IS NULL OR r.reset_at > NOW()) THEN 'cooldown'
+        ELSE 'ready'
+      END AS status,
       r.reset_at,
       r.last_status_code,
       r.last_error_message,
@@ -1883,10 +2100,18 @@ router.get('/ccclub/key-resets', async (req, res) => {
       FROM openclaw_ccclub_keys k
       LEFT JOIN openclaw_ccclub_key_resets r ON r.key_fingerprint = SHA2(k.api_key, 256)
       ORDER BY
-      CASE COALESCE(r.status, 'ready')
-      WHEN 'cooldown' THEN 0
-      WHEN 'ready' THEN 1
-      ELSE 2
+      CASE
+        WHEN COALESCE(k.status, 'active') = 'disabled' THEN 2
+        WHEN EXISTS (
+          SELECT 1
+          FROM openclaw_model_upstreams u
+          WHERE u.api_key = k.api_key
+            AND u.base_url LIKE '%claude-code.club%'
+            AND u.status = 'disabled'
+        ) THEN 0
+        WHEN COALESCE(r.status, 'ready') = 'cooldown'
+          AND (r.reset_at IS NULL OR r.reset_at > NOW()) THEN 0
+        ELSE 1
       END ASC,
       r.reset_at ASC,
       k.id ASC`
@@ -1982,14 +2207,31 @@ router.post('/ccclub/key-resets/send-email', async (req, res) => {
     if (!transporter) return res.status(500).json({ error: 'SMTP未配置，无法发送邮件' });
     const from = await getSettingCached('smtp_user', '');
     if (!from) return res.status(500).json({ error: 'SMTP发件人未配置' });
-    const to = process.env.ALERT_EMAIL || process.env.ADMIN_EMAIL || '2743319061@qq.com';
+    const requestedTo = String(req.body?.to || '').trim();
+    const to = requestedTo || process.env.ALERT_EMAIL || process.env.ADMIN_EMAIL || '2743319061@qq.com';
+    if (requestedTo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requestedTo)) {
+      return res.status(400).json({ error: '收件人邮箱格式不正确' });
+    }
 
     const [rows] = await db.query(
       `SELECT
          k.id AS reg_id,
          k.api_key,
          k.notes,
-         COALESCE(r.status, 'ready') AS status,
+         CASE
+           WHEN COALESCE(k.status, 'active') = 'disabled' THEN 'disabled'
+           WHEN EXISTS (
+             SELECT 1
+             FROM openclaw_model_upstreams u
+             WHERE u.api_key = k.api_key
+               AND u.base_url LIKE '%claude-code.club%'
+               AND u.status = 'disabled'
+           ) THEN 'cooldown'
+           WHEN r.key_fingerprint IS NULL THEN 'ready'
+           WHEN COALESCE(r.status, 'ready') = 'cooldown'
+             AND (r.reset_at IS NULL OR r.reset_at > NOW()) THEN 'cooldown'
+           ELSE 'ready'
+         END AS status,
          r.reset_at,
          r.last_status_code,
          r.last_error_message,
@@ -1997,10 +2239,18 @@ router.post('/ccclub/key-resets/send-email', async (req, res) => {
        FROM openclaw_ccclub_keys k
        LEFT JOIN openclaw_ccclub_key_resets r ON r.key_fingerprint = SHA2(k.api_key, 256)
        ORDER BY
-         CASE COALESCE(r.status, 'ready')
-           WHEN 'cooldown' THEN 0
-           WHEN 'ready' THEN 1
-           ELSE 2
+         CASE
+           WHEN COALESCE(k.status, 'active') = 'disabled' THEN 2
+           WHEN EXISTS (
+             SELECT 1
+             FROM openclaw_model_upstreams u
+             WHERE u.api_key = k.api_key
+               AND u.base_url LIKE '%claude-code.club%'
+               AND u.status = 'disabled'
+           ) THEN 0
+           WHEN COALESCE(r.status, 'ready') = 'cooldown'
+             AND (r.reset_at IS NULL OR r.reset_at > NOW()) THEN 0
+           ELSE 1
          END ASC,
          r.reset_at ASC,
          k.id ASC`
@@ -2050,6 +2300,487 @@ router.post('/ccclub/key-resets/send-email', async (req, res) => {
       from,
       to,
       subject: `[CC Club] 密钥冷却状态报告 — ${rows.filter(r => r.status === 'cooldown').length} 个冷却中`,
+      html
+    });
+
+    res.json({ ok: true, to, count: rows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: `发送失败: ${err.message}` });
+  }
+});
+
+// CC Club 密钥冷却状态刷新：先做一次轻量直连探测，再返回最新结果
+router.post('/ccclub/key-resets/refresh', async (req, res) => {
+  try {
+    const requestedKey = String(req.body?.api_key || '').trim();
+    const [rows] = await db.query(
+      `SELECT
+         k.api_key,
+         COALESCE(k.status, 'active') AS key_status,
+         u.id AS upstream_id,
+         u.model_id,
+         u.base_url,
+         u.api_key AS upstream_api_key,
+         u.upstream_model_id,
+         u.provider_name,
+         u.status AS upstream_status,
+         r.reset_at AS current_reset_at,
+         r.status AS current_reset_status,
+         COALESCE(m.model_id, '') AS gateway_model_id,
+         COALESCE(m.upstream_model_id, '') AS gateway_upstream_model_id
+       FROM openclaw_ccclub_keys k
+       JOIN openclaw_model_upstreams u
+         ON u.api_key = k.api_key
+        AND u.base_url LIKE '%claude-code.club%'
+       LEFT JOIN openclaw_ccclub_key_resets r
+         ON r.key_fingerprint = SHA2(k.api_key, 256)
+       LEFT JOIN openclaw_models m ON m.id = u.model_id
+       WHERE (? = '' OR k.api_key = ?)
+       ORDER BY k.id ASC,
+         CASE WHEN u.status = 'active' THEN 0 ELSE 1 END ASC,
+         u.sort_order ASC,
+         u.id ASC`,
+      [requestedKey, requestedKey]
+    );
+
+    const targetMap = new Map();
+    for (const row of rows) {
+      if (!targetMap.has(row.api_key)) targetMap.set(row.api_key, row);
+    }
+
+    let probed = 0;
+    let cooled = 0;
+    let recovered = 0;
+    let skipped = 0;
+
+    for (const row of targetMap.values()) {
+      if (row.key_status === 'disabled') {
+        skipped += 1;
+        continue;
+      }
+
+      const upstreamUrl = resolveAnthropicCompatibleUpstreamUrl(String(row.base_url || ''));
+      const upstreamModel = String(row.upstream_model_id || row.gateway_upstream_model_id || row.gateway_model_id || '').trim();
+      if (!upstreamUrl || !upstreamModel) {
+        skipped += 1;
+        continue;
+      }
+
+      probed += 1;
+      const probe = await runHttpJsonTest({
+        url: upstreamUrl,
+        headers: { Authorization: `Bearer ${row.upstream_api_key || row.api_key}` },
+        body: {
+          model: upstreamModel,
+          messages: [{ role: 'user', content: '请只回复 pong' }],
+          max_tokens: 1,
+        },
+        timeoutMs: 12000,
+      });
+
+      const fingerprint = crypto.createHash('sha256').update(row.api_key).digest('hex');
+      const probeError = String(probe.error || probe.response_preview || '').trim();
+      const parsedResetAt = probe.response_json?.resetAt
+        ? new Date(probe.response_json.resetAt)
+        : parseResetAt(probeError);
+      const hasValidParsedResetAt = parsedResetAt instanceof Date && !Number.isNaN(parsedResetAt.getTime());
+
+      if (probe.ok) {
+        recovered += 1;
+        await db.query(
+          `INSERT INTO openclaw_ccclub_key_resets
+           (key_fingerprint, provider_name, base_url, reset_at, status, last_status_code, last_error_message, last_seen_at, recovered_notified_at)
+           VALUES (?, ?, ?, NOW(), 'ready', ?, NULL, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             provider_name = VALUES(provider_name),
+             base_url = VALUES(base_url),
+             reset_at = VALUES(reset_at),
+             status = 'ready',
+             last_status_code = VALUES(last_status_code),
+             last_error_message = NULL,
+             last_seen_at = NOW(),
+             recovered_notified_at = COALESCE(recovered_notified_at, NOW()),
+             updated_at = NOW()`,
+          [fingerprint, String(row.provider_name || ''), String(row.base_url || ''), probe.status || 200]
+        );
+
+        await db.query(
+          `UPDATE openclaw_model_upstreams
+           SET status = 'active'
+           WHERE api_key = ?
+             AND base_url LIKE '%claude-code.club%'`,
+          [row.api_key]
+        );
+        await db.query(
+          `UPDATE openclaw_provider_endpoints
+           SET status = 'active'
+           WHERE api_key = ?
+             AND base_url LIKE '%claude-code.club%'`,
+          [row.api_key]
+        ).catch(() => {});
+        await db.query(
+          `UPDATE openclaw_providers
+           SET status = 'active'
+           WHERE api_key = ?
+             AND base_url LIKE '%claude-code.club%'`,
+          [row.api_key]
+        ).catch(() => {});
+        continue;
+      }
+
+      if (probe.status === 429 || hasValidParsedResetAt) {
+        cooled += 1;
+        const resetAt = hasValidParsedResetAt ? parsedResetAt : (row.current_reset_at || new Date());
+        const errorMessage = probeError || `HTTP ${probe.status || 429}`;
+
+        await db.query(
+          `INSERT INTO openclaw_ccclub_key_resets
+           (key_fingerprint, provider_name, base_url, reset_at, status, last_status_code, last_error_message, last_seen_at, cooldown_notified_at)
+           VALUES (?, ?, ?, ?, 'cooldown', ?, ?, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             provider_name = VALUES(provider_name),
+             base_url = VALUES(base_url),
+             reset_at = VALUES(reset_at),
+             status = 'cooldown',
+             last_status_code = VALUES(last_status_code),
+             last_error_message = VALUES(last_error_message),
+             last_seen_at = NOW(),
+             cooldown_notified_at = CASE
+               WHEN cooldown_notified_at IS NULL THEN NOW()
+               ELSE cooldown_notified_at
+             END,
+             recovered_notified_at = NULL,
+             updated_at = NOW()`,
+          [
+            fingerprint,
+            String(row.provider_name || ''),
+            String(row.base_url || ''),
+            resetAt,
+            probe.status || 429,
+            errorMessage.slice(0, 1000),
+          ]
+        );
+
+        await db.query(
+          `UPDATE openclaw_model_upstreams
+           SET status = 'disabled'
+           WHERE api_key = ?
+             AND base_url LIKE '%claude-code.club%'`,
+          [row.api_key]
+        );
+        await db.query(
+          `UPDATE openclaw_provider_endpoints
+           SET status = 'disabled'
+           WHERE api_key = ?
+             AND base_url LIKE '%claude-code.club%'`,
+          [row.api_key]
+        ).catch(() => {});
+        await db.query(
+          `UPDATE openclaw_providers
+           SET status = 'disabled'
+           WHERE api_key = ?
+             AND base_url LIKE '%claude-code.club%'`,
+          [row.api_key]
+        ).catch(() => {});
+        continue;
+      }
+
+      await db.query(
+        `UPDATE openclaw_ccclub_key_resets
+         SET last_status_code = ?,
+             last_error_message = ?,
+             last_seen_at = NOW(),
+             updated_at = NOW()
+         WHERE key_fingerprint = ?`,
+        [probe.status || null, probeError || `HTTP ${probe.status || 'unknown'}`, fingerprint]
+      );
+    }
+
+    if (probed > 0) {
+      await cache.delByPrefix('model:');
+      await cache.delByPrefix('upstreams:');
+      await cache.delByPrefix('provider-endpoints:');
+    }
+
+    res.json({ ok: true, probed, cooled, recovered, skipped });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '刷新密钥冷却状态失败: ' + err.message });
+  }
+});
+
+// 火山引擎密钥冷却状态查询
+router.get('/huoshan/key-resets', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT
+         r.key_fingerprint,
+         COALESCE((
+           SELECT u.api_key
+           FROM openclaw_model_upstreams u
+           WHERE SHA2(u.api_key, 256) = r.key_fingerprint
+           LIMIT 1
+         ), '') AS api_key,
+         COALESCE(r.provider_name, '') AS provider_name,
+         COALESCE(r.base_url, '') AS base_url,
+         COALESCE(r.status, 'ready') AS status,
+         r.reset_at,
+         r.last_status_code,
+         r.last_error_message,
+         r.last_seen_at
+       FROM openclaw_huoshan_key_resets r
+       ORDER BY
+         CASE COALESCE(r.status, 'ready')
+           WHEN 'cooldown' THEN 0
+           WHEN 'ready' THEN 1
+           ELSE 2
+         END ASC,
+         r.reset_at ASC,
+         r.id ASC`
+    );
+    res.json({ rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '获取火山引擎密钥冷却状态失败' });
+  }
+});
+
+// 手动将指定火山引擎密钥从冷却状态恢复为可用
+router.post('/huoshan/key-resets/recover', async (req, res) => {
+  try {
+    const apiKey = String(req.body?.api_key || '').trim();
+    if (!apiKey) return res.status(400).json({ error: '缺少 api_key 参数' });
+
+    const [[upstreamRow]] = await db.query(
+      `SELECT provider_name, base_url
+       FROM openclaw_model_upstreams
+       WHERE api_key = ?
+         AND (
+           LOWER(COALESCE(provider_name, '')) LIKE '%doubao-smart-router%'
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%doubao smart router%'
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%doubao-smart-router%'
+         )
+       LIMIT 1`,
+      [apiKey]
+    );
+    if (!upstreamRow) {
+      return res.status(404).json({ error: '未找到该火山引擎密钥对应的上游记录' });
+    }
+
+    const keyFingerprint = crypto.createHash('sha256').update(apiKey).digest('hex');
+    await db.query(
+      `INSERT INTO openclaw_huoshan_key_resets
+       (key_fingerprint, provider_name, base_url, reset_at, status, last_seen_at, recovered_notified_at)
+       VALUES (?, ?, ?, NOW(), 'ready', NOW(), NOW())
+       ON DUPLICATE KEY UPDATE
+         provider_name = VALUES(provider_name),
+         base_url = VALUES(base_url),
+         status = 'ready',
+         reset_at = NOW(),
+         last_seen_at = NOW(),
+         recovered_notified_at = COALESCE(recovered_notified_at, NOW()),
+         updated_at = NOW()`,
+      [keyFingerprint, String(upstreamRow.provider_name || ''), String(upstreamRow.base_url || '')]
+    );
+
+    await db.query(
+      `UPDATE openclaw_model_upstreams
+       SET status = 'active'
+       WHERE SHA2(api_key, 256) = ?
+         AND (
+           LOWER(COALESCE(provider_name, '')) LIKE '%doubao-smart-router%'
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%doubao smart router%'
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%doubao-smart-router%'
+         )`,
+      [keyFingerprint]
+    );
+    await db.query(
+      `UPDATE openclaw_model_endpoints
+       SET status = 'active'
+       WHERE SHA2(api_key, 256) = ?
+         AND LOWER(COALESCE(upstream_provider, '')) LIKE '%doubao-smart-router%'`,
+      [keyFingerprint]
+    ).catch(() => {});
+    await db.query(
+      `UPDATE openclaw_provider_endpoints
+       SET status = 'active'
+       WHERE SHA2(api_key, 256) = ?
+         AND LOWER(COALESCE(provider_name, '')) LIKE '%doubao-smart-router%'`,
+      [keyFingerprint]
+    ).catch(() => {});
+    await db.query(
+      `UPDATE openclaw_providers
+       SET status = 'active'
+       WHERE SHA2(api_key, 256) = ?
+         AND (
+           LOWER(COALESCE(name, '')) LIKE '%doubao-smart-router%'
+           OR LOWER(COALESCE(display_name, '')) LIKE '%doubao-smart-router%'
+           OR LOWER(COALESCE(name, '')) LIKE '%doubao-smart-router%'
+         )`,
+      [keyFingerprint]
+    ).catch(() => {});
+    await db.query(
+      `UPDATE openclaw_models m
+       SET m.status = CASE
+         WHEN EXISTS (
+           SELECT 1
+           FROM openclaw_model_providers mp
+           JOIN openclaw_providers p ON p.id = mp.provider_id
+           WHERE mp.model_id = m.id
+             AND mp.status = 'active'
+            AND p.status = 'active'
+            AND (
+              LOWER(COALESCE(p.name, '')) LIKE '%doubao-smart-router%'
+              OR LOWER(COALESCE(p.name, '')) LIKE '%doubaosmartrouter%'
+              OR LOWER(COALESCE(p.display_name, '')) LIKE '%doubao-smart-router%'
+            )
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM openclaw_model_upstreams u
+           WHERE u.model_id = m.id
+            AND u.status = 'active'
+            AND (
+              LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao-smart-router%'
+              OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubaosmartrouter%'
+              OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao-smart-router%'
+            )
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM openclaw_model_endpoints e
+           WHERE e.model_id = m.id
+             AND e.status = 'active'
+             AND LOWER(COALESCE(e.upstream_provider, '')) LIKE '%doubao-smart-router%'
+         )
+         THEN 'active' ELSE 'disabled'
+       END
+       WHERE LOWER(COALESCE(m.provider, '')) LIKE '%doubao-smart-router%'
+          OR EXISTS (
+            SELECT 1
+            FROM openclaw_model_providers mp
+            JOIN openclaw_providers p ON p.id = mp.provider_id
+            WHERE mp.model_id = m.id
+              AND mp.status = 'active'
+              AND p.status = 'active'
+              AND (
+                LOWER(COALESCE(p.name, '')) LIKE '%doubao-smart-router%'
+                OR LOWER(COALESCE(p.name, '')) LIKE '%doubaosmartrouter%'
+                OR LOWER(COALESCE(p.display_name, '')) LIKE '%doubao-smart-router%'
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM openclaw_model_upstreams u
+            WHERE u.model_id = m.id
+              AND (
+                LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao-smart-router%'
+                OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubaosmartrouter%'
+                OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao-smart-router%'
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM openclaw_model_endpoints e
+            WHERE e.model_id = m.id
+              AND LOWER(COALESCE(e.upstream_provider, '')) LIKE '%doubao-smart-router%'
+          )`
+    );
+    await cache.delByPrefix('model:');
+    await cache.delByPrefix('upstreams:');
+    await cache.delByPrefix('provider-endpoints:');
+
+    res.json({ ok: true, api_key: apiKey, status: 'ready' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '手动恢复火山引擎密钥失败: ' + err.message });
+  }
+});
+
+// 火山引擎密钥冷却状态发送到管理员邮箱
+router.post('/huoshan/key-resets/send-email', async (req, res) => {
+  try {
+    const transporter = await getMailer();
+    if (!transporter) return res.status(500).json({ error: 'SMTP未配置，无法发送邮件' });
+    const from = await getSettingCached('smtp_user', '');
+    if (!from) return res.status(500).json({ error: 'SMTP发件人未配置' });
+    const to = process.env.ALERT_EMAIL || process.env.ADMIN_EMAIL || '2743319061@qq.com';
+
+    const [rows] = await db.query(
+      `SELECT
+         r.id,
+         r.key_fingerprint,
+         COALESCE((
+           SELECT u.api_key
+           FROM openclaw_model_upstreams u
+           WHERE SHA2(u.api_key, 256) = r.key_fingerprint
+           LIMIT 1
+         ), '') AS api_key,
+         COALESCE(r.provider_name, '') AS provider_name,
+         COALESCE(r.base_url, '') AS base_url,
+         COALESCE(r.status, 'ready') AS status,
+         r.reset_at,
+         r.last_status_code,
+         r.last_error_message,
+         r.last_seen_at
+       FROM openclaw_huoshan_key_resets r
+       ORDER BY
+         CASE COALESCE(r.status, 'ready')
+           WHEN 'cooldown' THEN 0
+           WHEN 'ready' THEN 1
+           ELSE 2
+         END ASC,
+         r.reset_at ASC,
+         r.id ASC`
+    );
+
+    const now = new Date();
+    const fmtDate = d => d ? new Date(d).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '—';
+    const diffLabel = s => {
+      if (!s) return '';
+      const ms = new Date(s).getTime() - now.getTime();
+      if (ms <= 0) return '(已可用)';
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      return `(还需 ${h}h ${m}m)`;
+    };
+
+    const tableRows = rows.map((r, i) => `
+      <tr style="background:${i % 2 === 0 ? '#fff' : '#f9f9f9'}">
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(String(r.api_key || r.key_fingerprint || '').slice(0, 12) + '…' + String(r.api_key || r.key_fingerprint || '').slice(-6))}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(r.provider_name || '—')}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(r.base_url || '—')}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;color:${r.status === 'cooldown' ? '#e53e3e' : '#38a169'};font-weight:600;">${r.status === 'cooldown' ? '冷却中' : '可用'}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(fmtDate(r.reset_at))} ${escapeHtml(diffLabel(r.reset_at))}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${r.last_status_code || '—'}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;max-width:240px;">${escapeHtml((r.last_error_message || '').slice(0, 80) || '—')}</td>
+        <td style="padding:6px 10px;border:1px solid #eee;">${escapeHtml(fmtDate(r.last_seen_at))}</td>
+      </tr>`).join('');
+
+    const html = `
+      <h2 style="color:#333;">火山引擎密钥冷却状态报告</h2>
+      <p style="color:#666;">查询时间：${escapeHtml(fmtDate(now))}，共 ${rows.length} 条记录</p>
+      <table style="border-collapse:collapse;width:100%;font-size:13px;">
+        <thead>
+          <tr style="background:#f0f0f0;">
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">密钥</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">Provider</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">Base URL</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">状态</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">重置时间</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">HTTP码</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">最近错误</th>
+            <th style="padding:6px 10px;border:1px solid #ddd;text-align:left;">最近活跃</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>`;
+
+    await transporter.sendMail({
+      from,
+      to,
+      subject: `[火山引擎] 密钥冷却状态报告 — ${rows.filter(r => r.status === 'cooldown').length} 个冷却中`,
       html
     });
 

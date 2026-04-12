@@ -5,6 +5,15 @@ const zhipuProvider = {
   apiKey: process.env.ZHIPU_API_KEY || process.env.BIGMODEL_API_KEY || process.env.GLM_API_KEY || ''
 };
 
+const volcengineSmartRouterProvider = {
+  baseUrl: process.env.VOLCENGINE_SMART_ROUTER_BASE_URL
+    || process.env.VOLCENGINE_BASE_URL
+    || 'https://ark.cn-beijing.volces.com/api/v3',
+  apiKey: process.env.VOLCENGINE_SMART_ROUTER_API_KEY
+    || process.env.VOLCENGINE_API_KEY
+    || ''
+};
+
 const PROVIDERS = {
   openai: {
     baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
@@ -31,8 +40,19 @@ const PROVIDERS = {
     apiKey: process.env.GOOGLE_API_KEY || ''
   },
   volcengine: {
-    baseUrl: process.env.VOLCENGINE_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3',
-    apiKey: process.env.VOLCENGINE_API_KEY || ''
+    ...volcengineSmartRouterProvider
+  },
+  volcenginesmartrouter: {
+    ...volcengineSmartRouterProvider
+  },
+  doubaosmartrouter: {
+    ...volcengineSmartRouterProvider
+  },
+  ark: {
+    ...volcengineSmartRouterProvider
+  },
+  huoshan: {
+    ...volcengineSmartRouterProvider
   },
   zhipu: zhipuProvider,
   bigmodel: zhipuProvider,
@@ -53,7 +73,8 @@ function normalizeProviderName(providerName) {
 
 function getProviderConfig(providerName) {
   if (!providerName) return {};
-  return PROVIDERS[providerName] || PROVIDERS[normalizeProviderName(providerName)] || {};
+  const normalized = normalizeProviderName(providerName);
+  return PROVIDERS[providerName] || PROVIDERS[normalized] || {};
 }
 
 module.exports = {

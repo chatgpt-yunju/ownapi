@@ -94,7 +94,14 @@ const api = {
 
   // Admin
   adminOverview() { return this.get('/admin/overview'); },
-  adminStatsRange(start, end) { return this.get(`/admin/stats/range?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`); },
+  adminStatsRange(start, end, filters = {}) {
+    const params = new URLSearchParams({ start, end });
+    if (filters.model) params.set('model', filters.model);
+    if (filters.user_id) params.set('user_id', filters.user_id);
+    if (filters.api_key_id) params.set('api_key_id', filters.api_key_id);
+    return this.get('/admin/stats/range?' + params.toString());
+  },
+  adminStatsRangeOptions() { return this.get('/admin/stats/range/options'); },
   adminUsers(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get('/admin/users' + (q ? '?' + q : ''));
@@ -122,6 +129,15 @@ const api = {
   adminCcclubLatencyTest(payload) {
     return this.post('/admin/ccclub/test-latency', payload);
   },
+  adminGetHuoshanKeyResets() {
+    return this.get('/admin/huoshan/key-resets');
+  },
+  adminRecoverHuoshanKeyReset(api_key) {
+    return this.post('/admin/huoshan/key-resets/recover', { api_key });
+  },
+  adminSendHuoshanKeyResetsEmail(to) {
+    return this.post('/admin/huoshan/key-resets/send-email', to ? { to } : {});
+  },
   adminGetRequestDebugTraces(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get('/admin/request-debug/traces' + (q ? '?' + q : ''));
@@ -139,6 +155,18 @@ const api = {
   adminGetCardKeys() { return this.get('/cardkey/list'); },
   adminGenerateCardKeys(quota, count, vip_days) { return this.post('/cardkey/generate', { quota, count, vip_days }); },
   adminDeleteCardKey(id) { return this.del(`/cardkey/${id}`); },
+  adminGetAppMarket() { return this.get('/admin/app-market'); },
+  adminCreateAppMarketApp(data) { return this.post('/admin/app-market', data); },
+  adminUpdateAppMarketApp(id, data) { return this.put('/admin/app-market/' + id, data); },
+  adminDeleteAppMarketApp(id) { return this.del('/admin/app-market/' + id); },
+  getAppMarket() { return this.get('/app-market'); },
+  adminGetBlogPosts() { return this.get('/admin/blog'); },
+  adminGetBlogPost(id) { return this.get('/admin/blog/' + id); },
+  adminCreateBlogPost(data) { return this.post('/admin/blog', data); },
+  adminUpdateBlogPost(id, data) { return this.put('/admin/blog/' + id, data); },
+  adminDeleteBlogPost(id) { return this.del('/admin/blog/' + id); },
+  adminBlogAiChat(id, payload) { return this.post('/admin/blog/' + id + '/ai-chat', payload); },
+  adminBlogAiRewrite(id, payload) { return this.post('/admin/blog/' + id + '/ai-rewrite-sentence', payload); },
 };
 
 // Check SSO callback token

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>技术博客 - OpenClaw API</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+  <script src="/js/marked.min.js"></script>
+  <style>
+    .blog-shell { max-width: 900px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .blog-hero { padding: 1.8rem; border: 1px solid var(--border-color); border-radius: 24px; background: linear-gradient(135deg, rgba(9,28,44,0.94), rgba(4,16,31,0.92)); box-shadow: var(--shadow-soft); }
+    .blog-hero h1 { margin: 0 0 0.6rem; font-size: 2rem; color: var(--text-primary); }
+    .blog-hero p { margin: 0; color: var(--text-secondary); line-height: 1.8; }
+    .blog-list { margin-top: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+    .blog-card { padding: 1.4rem 1.6rem; border: 1px solid var(--border-color); border-radius: 18px; background: var(--bg-card); box-shadow: var(--shadow-soft); cursor: pointer; transition: border-color 0.2s; }
+    .blog-card:hover { border-color: var(--accent-light); }
+    .blog-card h2 { margin: 0 0 0.5rem; font-size: 1.15rem; color: var(--text-primary); }
+    .blog-card .blog-summary { margin: 0 0 0.75rem; color: var(--text-secondary); font-size: 0.88rem; line-height: 1.7; }
+    .blog-card .blog-meta { font-size: 0.78rem; color: var(--text-muted); }
+    .blog-empty { margin-top: 1.5rem; text-align: center; padding: 2rem; color: var(--text-muted); }
+    /* Detail view */
+    #view-detail { display: none; }
+    .blog-detail-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+    .blog-back-btn { background: none; border: 1px solid var(--border-color); color: var(--text-secondary); padding: 0.4rem 1rem; border-radius: 8px; cursor: pointer; font-size: 0.88rem; }
+    .blog-back-btn:hover { border-color: var(--accent-light); color: var(--text-primary); }
+    .blog-detail-title { margin: 0; font-size: 1.75rem; color: var(--text-primary); line-height: 1.35; }
+    .blog-detail-meta { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 2rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--border-color); }
+    .blog-detail-body { line-height: 2; color: var(--text-secondary); font-size: 1rem; max-width: 720px; }
+    .blog-detail-body p { margin: 0 0 1.2rem; }
+    .blog-detail-body h1 { color: var(--text-primary); margin: 2rem 0 0.75rem; font-size: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.4rem; }
+    .blog-detail-body h2 { color: var(--text-primary); margin: 1.8rem 0 0.6rem; font-size: 1.25rem; }
+    .blog-detail-body h3 { color: var(--text-primary); margin: 1.4rem 0 0.5rem; font-size: 1.05rem; }
+    .blog-detail-body ul, .blog-detail-body ol { margin: 0 0 1.2rem 1.5rem; padding: 0; }
+    .blog-detail-body li { margin-bottom: 0.4rem; }
+    .blog-detail-body code { background: rgba(255,255,255,0.08); padding: 0.18em 0.45em; border-radius: 5px; font-family: var(--font-mono); font-size: 0.87em; color: #7dd3fc; }
+    .blog-detail-body pre { background: rgba(0,0,0,0.45); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.2rem 1.4rem; overflow-x: auto; margin: 0 0 1.4rem; }
+    .blog-detail-body pre code { background: none; padding: 0; color: #e2e8f0; font-size: 0.9em; }
+    .blog-detail-body blockquote { border-left: 3px solid var(--accent-light); margin: 0 0 1.2rem; padding: 0.6rem 1rem; background: rgba(255,255,255,0.03); border-radius: 0 8px 8px 0; color: var(--text-muted); }
+    .blog-detail-body a { color: var(--accent-light); text-decoration: underline; text-underline-offset: 3px; }
+    .blog-detail-body img { max-width: 100%; border-radius: 10px; margin: 0.5rem 0; }
+    .blog-detail-body hr { border: none; border-top: 1px solid var(--border-color); margin: 2rem 0; }
+    @media (max-width: 640px) {
+      .blog-shell { padding: 1rem 1rem 2rem; }
+      .blog-hero { padding: 1.25rem; }
+      .blog-hero h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="oc-navbar nav-collapsible">
+    <a href="/" class="oc-logo">
+      <div class="oc-logo-icon">&gt;_</div>
+      OpenClaw API
+    </a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <div class="oc-nav-links">
+      <a href="/">首页</a>
+      <a href="/pipeline.html">路由能力</a>
+      <a href="/docs.html">文档</a>
+      <a href="/app-market.html">应用市场</a>
+      <a href="/blog.html" class="active">技术博客</a>
+      <a href="/console.html">控制台</a>
+    </div>
+    <div class="oc-nav-right">
+      <a href="/console.html" class="btn-accent">进入控制台</a>
+    </div>
+  </nav>
+
+  <main class="blog-shell">
+    <!-- 列表视图 -->
+    <div id="view-list">
+      <section class="blog-hero">
+        <h1>技术博客</h1>
+        <p>分享 AI 网关架构、模型路由、工程实践等技术文章。</p>
+      </section>
+      <div id="blog-list" class="blog-list"></div>
+      <div id="blog-empty" class="blog-empty oc-card" style="display:none;">暂无文章，敬请期待。</div>
+    </div>
+
+    <!-- 详情视图 -->
+    <div id="view-detail">
+      <div class="blog-detail-header">
+        <button class="blog-back-btn" onclick="showList()">← 返回列表</button>
+        <h1 id="detail-title" class="blog-detail-title"></h1>
+      </div>
+      <div id="detail-meta" class="blog-detail-meta"></div>
+      <div id="detail-body" class="blog-detail-body"></div>
+    </div>
+  </main>
+
+  <script>
+    function escapeHtml(t) {
+      return String(t || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function formatDate(s) {
+      return new Date(s).toLocaleDateString('zh-CN', { year:'numeric', month:'long', day:'numeric' });
+    }
+
+    function showList() {
+      document.getElementById('view-list').style.display = 'block';
+      document.getElementById('view-detail').style.display = 'none';
+      history.pushState({}, '', '/blog.html');
+    }
+
+    // 从当前路径中提取文章 id（支持 /blog/1.html 和 /blog.html?id=1 两种格式）
+    function getIdFromUrl() {
+      const m = location.pathname.match(/^\/blog\/(\d+)\.html$/);
+      if (m) return Number(m[1]);
+      const q = new URLSearchParams(location.search).get('id');
+      return q ? Number(q) : null;
+    }
+
+    async function showDetail(id) {
+      try {
+        const res = await fetch('/api/blog/' + id);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '加载失败');
+        const post = data.post;
+        document.getElementById('detail-title').textContent = post.title;
+        document.getElementById('detail-meta').textContent = '发布于 ' + formatDate(post.created_at);
+        const rawContent = post.content || '';
+        document.getElementById('detail-body').innerHTML = (typeof marked !== 'undefined')
+          ? marked.parse(rawContent)
+          : rawContent.replace(/\n/g, '<br>');
+        document.getElementById('view-list').style.display = 'none';
+        document.getElementById('view-detail').style.display = 'block';
+        history.pushState({}, '', '/blog/' + id + '.html');
+        window.scrollTo(0, 0);
+      } catch (e) {
+        alert('加载文章失败：' + e.message);
+      }
+    }
+
+    async function loadBlogList() {
+      try {
+        const res = await fetch('/api/blog');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '加载失败');
+        const posts = data.posts || [];
+        const list = document.getElementById('blog-list');
+        const empty = document.getElementById('blog-empty');
+        if (!posts.length) {
+          empty.style.display = 'block';
+          return;
+        }
+        list.innerHTML = posts.map(p => `
+          <article class="blog-card" onclick="location.href='/blog/${p.id}.html'">
+            <h2>${escapeHtml(p.title)}</h2>
+            ${p.summary ? `<p class="blog-summary">${escapeHtml(p.summary)}</p>` : ''}
+            <div class="blog-meta">${formatDate(p.updated_at)}</div>
+          </article>
+        `).join('');
+      } catch (e) {
+        document.getElementById('blog-empty').textContent = '加载失败：' + e.message;
+        document.getElementById('blog-empty').style.display = 'block';
+      }
+    }
+
+    // 支持直接通过 /blog/:id.html 或 ?id=xxx 访问文章
+    const urlId = getIdFromUrl();
+    if (urlId) {
+      showDetail(urlId);
+      loadBlogList();
+    } else {
+      loadBlogList();
+    }
+
+    window.addEventListener('popstate', () => {
+      const id = getIdFromUrl();
+      if (id) showDetail(id);
+      else { showList(); loadBlogList(); }
+    });
+  </script>
+</body>
+</html>

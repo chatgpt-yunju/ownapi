@@ -11,6 +11,12 @@ const PIPELINE_STEPS = {
   8: { key: 'recovery', name: '容灾处理' },
 };
 
+const DEBUG_QUEUE_MAX = Math.max(200, parseInt(process.env.GATEWAY_DEBUG_QUEUE_MAX, 10) || 3000);
+const DEBUG_BATCH_SIZE = Math.max(1, parseInt(process.env.GATEWAY_DEBUG_BATCH_SIZE, 10) || 50);
+const DEBUG_FLUSH_INTERVAL_MS = Math.max(200, parseInt(process.env.GATEWAY_DEBUG_FLUSH_INTERVAL_MS, 10) || 500);
+
+let debugQueue = [];
+
 db.query(`
   CREATE TABLE IF NOT EXISTS openclaw_request_debug_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -78,6 +84,90 @@ function serializeDetail(detail) {
   }
 }
 
+function enqueueDebugStepRecord(payload = {}) {
+  if (!payload.requestId) return false;
+
+  const detailJson = payload.detailJson === undefined
+    ? null
+    : serializeDetail(payload.detailJson);
+
+  if (debugQueue.length >= DEBUG_QUEUE_MAX) {
+    debugQueue.shift();
+  }
+
+  debugQueue.push({
+    requestId: payload.requestId,
+    traceType: payload.traceType || 'live',
+    routeName: payload.routeName || null,
+    requestPath: payload.requestPath || null,
+    model: payload.model || null,
+    userId: payload.userId || null,
+    apiKeyId: payload.apiKeyId || null,
+    stepNo: Number(payload.stepNo) || 9,
+    stepKey: payload.stepKey || 'timing',
+    stepName: payload.stepName || '耗时统计',
+    status: payload.status || 'info',
+    durationMs: payload.durationMs === undefined ? null : Math.max(0, Number(payload.durationMs) || 0),
+    attemptNo: Number(payload.attemptNo) || 1,
+    upstreamId: payload.upstreamId === undefined ? null : payload.upstreamId,
+    upstreamProvider: payload.upstreamProvider || null,
+    upstreamBaseUrl: payload.upstreamBaseUrl || null,
+    errorMessage: payload.errorMessage || null,
+    detailJson,
+  });
+
+  return true;
+}
+
+async function flushDebugStepRecords() {
+  if (debugQueue.length === 0) return;
+
+  const batch = debugQueue.splice(0, DEBUG_BATCH_SIZE);
+  const placeholders = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+  const values = [];
+
+  for (const item of batch) {
+    values.push(
+      item.requestId,
+      item.traceType,
+      item.routeName,
+      item.requestPath,
+      item.model,
+      item.userId,
+      item.apiKeyId,
+      item.stepNo,
+      item.stepKey,
+      item.stepName,
+      item.status,
+      item.durationMs,
+      item.attemptNo,
+      item.upstreamId,
+      item.upstreamProvider,
+      item.upstreamBaseUrl,
+      item.errorMessage,
+      item.detailJson,
+    );
+  }
+
+  try {
+    await db.query(
+      `INSERT INTO openclaw_request_debug_logs
+        (request_id, trace_type, route_name, request_path, model, user_id, api_key_id, step_no, step_key,
+         step_name, status, duration_ms, attempt_no, upstream_id, upstream_provider, upstream_base_url,
+         error_message, detail_json)
+       VALUES ${placeholders}`,
+      values
+    );
+  } catch (error) {
+    console.error('[request-debug] flush failed:', error.message);
+    debugQueue = batch.concat(debugQueue);
+  }
+}
+
+setInterval(() => {
+  flushDebugStepRecords().catch((error) => console.error('[request-debug] timer failed:', error.message));
+}, DEBUG_FLUSH_INTERVAL_MS).unref();
+
 function detectRouteName(req) {
   const path = req.path || req.originalUrl || '';
   if (path.endsWith('/chat/completions')) return 'chat.completions';
@@ -119,6 +209,7 @@ module.exports = {
   createDebugRecorder,
   detectRequestedModel,
   detectRouteName,
+  enqueueDebugStepRecord,
   logDebugStep,
   maskSecret,
   safeString,

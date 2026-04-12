@@ -40,6 +40,7 @@ const POLLINATIONS_MAP = {
   'doubao-pro-128k-240515': 'deepseek',
   // minimax
   'minimax-m2.5': 'mistral',
+  'minimax-m2.7': 'mistral',
 };
 
 // 跳过的模型（不可修复）

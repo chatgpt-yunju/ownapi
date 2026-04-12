@@ -19,9 +19,11 @@ const {
   roundAmount,
 } = require('../utils/billing');
 const { noteCcClubRateLimit } = require('../utils/ccClubKeyGuard');
+const { noteHuoshanRateLimit } = require('../utils/huoshanKeyGuard');
 const { createDebugRecorder } = require('../utils/requestDebug');
 const { extractUpstreamErrorMessage } = require('../utils/upstreamError');
-const { axiosInstance } = require('../utils/upstreamHttp');
+const { applyStreamIdleTimeout, axiosInstance, getUpstreamTimeouts } = require('../utils/upstreamHttp');
+const { resolveAnthropicCompatibleUpstreamUrl, resolveOpenAICompatibleUpstreamUrl } = require('../utils/upstreamUrl');
 const {
   acquireBestEndpoint,
   getEndpointIdentity,
@@ -30,9 +32,16 @@ const {
   recordUpstreamSuccess,
   releaseEndpointLease,
 } = require('../utils/upstreamScheduler');
+const { enqueueDebugStepRecord } = require('../utils/requestDebug');
 
 const MAX_RETRIES = 2;
 const PRE_RESERVE = 0.01;
+const DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG = Object.freeze({
+  maxTokens: 96,
+  connectTimeoutMs: 5000,
+  idleTimeoutMs: 14000,
+  requestTimeoutMs: 10000,
+});
 const FORWARDED_CLIENT_HEADERS = [
   'openai-beta',
   'anthropic-beta',
@@ -70,6 +79,14 @@ function normalizeHeaderValue(value) {
   return Array.isArray(value) ? value.join(',') : String(value);
 }
 
+function normalizeModelIdForLatency(model) {
+  return String(model || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function isNvidiaMinimaxM27Model(model) {
+  return normalizeModelIdForLatency(model).includes('minimaxm27');
+}
+
 function withForwardedClientHeaders(req, headers) {
   const merged = { ...headers };
   for (const headerName of FORWARDED_CLIENT_HEADERS) {
@@ -83,6 +100,200 @@ function withForwardedClientHeaders(req, headers) {
     if (value) merged[headerName] = value;
   }
   return merged;
+}
+
+function getResponsesTimeoutConfig({ stream = false, isMinimaxM27Model = false } = {}) {
+  if (isMinimaxM27Model) {
+    return getUpstreamTimeouts({
+      stream,
+      connectTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.connectTimeoutMs,
+      idleTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.idleTimeoutMs,
+      requestTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.requestTimeoutMs,
+    });
+  }
+  return getUpstreamTimeouts({ stream });
+}
+
+function createResponsesTimingTracker(req, model, requestId) {
+  return {
+    requestId,
+    model,
+    routeName: 'responses',
+    requestPath: req.originalUrl || req.path || '/v1/responses',
+    traceType: req.aiGatewayTraceType || 'live',
+    userId: req.apiUserId || null,
+    apiKeyId: req.apiKeyId || null,
+    routeStartedAt: Date.now(),
+    queueWaitMs: Math.max(0, Number(req.aiGatewayQueueWaitMs) || 0),
+    modelLoadedAt: 0,
+    endpointsLoadedAt: 0,
+    billingReservedAt: 0,
+    endpointSelectedAt: 0,
+    requestPreparedAt: 0,
+    upstreamDispatchedAt: 0,
+    dispatchFinishedAt: 0,
+    upstreamStartedAt: 0,
+    upstreamConnectedAt: 0,
+    firstOutputAt: 0,
+    responseCompletedAt: 0,
+    settleFinishedAt: 0,
+    leaseReleasedAt: 0,
+    attempts: 0,
+    finalAttempt: 0,
+    stream: false,
+    selectedUpstreamId: null,
+    selectedProvider: null,
+    selectedBaseUrl: null,
+    selectedUpstreamModelId: null,
+    finalized: false,
+  };
+}
+
+function markResponsesDispatchComplete(tracker) {
+  if (tracker && !tracker.dispatchFinishedAt) tracker.dispatchFinishedAt = Date.now();
+}
+
+function markResponsesModelLoaded(tracker) {
+  if (tracker && !tracker.modelLoadedAt) tracker.modelLoadedAt = Date.now();
+}
+
+function markResponsesEndpointsLoaded(tracker) {
+  if (tracker && !tracker.endpointsLoadedAt) tracker.endpointsLoadedAt = Date.now();
+}
+
+function markResponsesBillingReserved(tracker) {
+  if (tracker && !tracker.billingReservedAt) tracker.billingReservedAt = Date.now();
+}
+
+function markResponsesEndpointSelected(tracker) {
+  if (tracker && !tracker.endpointSelectedAt) tracker.endpointSelectedAt = Date.now();
+}
+
+function markResponsesRequestPrepared(tracker) {
+  if (tracker && !tracker.requestPreparedAt) tracker.requestPreparedAt = Date.now();
+}
+
+function markResponsesUpstreamDispatched(tracker) {
+  if (tracker && !tracker.upstreamDispatchedAt) tracker.upstreamDispatchedAt = Date.now();
+}
+
+function markResponsesUpstreamStart(tracker) {
+  if (!tracker) return;
+  tracker.upstreamStartedAt = Date.now();
+  tracker.upstreamConnectedAt = 0;
+  tracker.firstOutputAt = 0;
+}
+
+function markResponsesUpstreamConnected(tracker) {
+  if (tracker && !tracker.upstreamConnectedAt) tracker.upstreamConnectedAt = Date.now();
+}
+
+function markResponsesFirstOutput(tracker) {
+  if (tracker && !tracker.firstOutputAt) tracker.firstOutputAt = Date.now();
+}
+
+function markResponsesResponseCompleted(tracker) {
+  if (tracker && !tracker.responseCompletedAt) tracker.responseCompletedAt = Date.now();
+}
+
+function markResponsesSettleFinished(tracker) {
+  if (tracker && !tracker.settleFinishedAt) tracker.settleFinishedAt = Date.now();
+}
+
+function markResponsesLeaseReleased(tracker) {
+  if (tracker && !tracker.leaseReleasedAt) tracker.leaseReleasedAt = Date.now();
+}
+
+function buildResponsesStepTimings(tracker, endedAt = Date.now()) {
+  if (!tracker) return [];
+  const points = [
+    { key: 'entry', name: '入口接入', start: tracker.routeStartedAt, end: tracker.modelLoadedAt || tracker.endpointsLoadedAt || tracker.billingReservedAt || endedAt },
+    { key: 'model_lookup', name: '模型加载', start: tracker.modelLoadedAt || tracker.routeStartedAt, end: tracker.endpointsLoadedAt || tracker.billingReservedAt || endedAt },
+    { key: 'endpoints_load', name: '端点加载', start: tracker.endpointsLoadedAt || tracker.modelLoadedAt || tracker.routeStartedAt, end: tracker.billingReservedAt || endedAt },
+    { key: 'billing_reserve', name: '预扣费', start: tracker.billingReservedAt || tracker.endpointsLoadedAt || tracker.routeStartedAt, end: tracker.endpointSelectedAt || endedAt },
+    { key: 'endpoint_select', name: '端点调度', start: tracker.endpointSelectedAt || tracker.billingReservedAt || tracker.routeStartedAt, end: tracker.requestPreparedAt || endedAt },
+    { key: 'request_prepare', name: '请求组装', start: tracker.requestPreparedAt || tracker.endpointSelectedAt || tracker.routeStartedAt, end: tracker.upstreamDispatchedAt || endedAt },
+    { key: 'upstream_dispatch', name: '上游发起', start: tracker.upstreamDispatchedAt || tracker.requestPreparedAt || tracker.routeStartedAt, end: tracker.upstreamStartedAt || endedAt },
+    { key: 'upstream_connect', name: '上游连接', start: tracker.upstreamStartedAt || tracker.upstreamDispatchedAt || tracker.routeStartedAt, end: tracker.upstreamConnectedAt || endedAt },
+    { key: 'first_output', name: '首个输出', start: tracker.upstreamConnectedAt || tracker.upstreamStartedAt || tracker.routeStartedAt, end: tracker.firstOutputAt || endedAt },
+    { key: 'response_complete', name: '响应处理', start: tracker.firstOutputAt || tracker.upstreamConnectedAt || tracker.routeStartedAt, end: tracker.responseCompletedAt || endedAt },
+    { key: 'settle_release', name: '结算释放', start: tracker.responseCompletedAt || tracker.firstOutputAt || tracker.routeStartedAt, end: tracker.leaseReleasedAt || endedAt },
+    { key: 'async_log', name: '异步日志', start: tracker.leaseReleasedAt || tracker.responseCompletedAt || tracker.routeStartedAt, end: endedAt },
+  ];
+
+  return points.map((item) => ({
+    key: item.key,
+    name: item.name,
+    durationMs: Math.max(0, Number(item.end || endedAt) - Number(item.start || endedAt)),
+  }));
+}
+
+function buildResponsesTimingPayload(tracker, endedAt = Date.now()) {
+  if (!tracker) {
+    return {
+      queueWaitMs: 0,
+      dispatchMs: 0,
+      upstreamConnectMs: 0,
+      firstOutputMs: 0,
+      totalMs: 0,
+      stepTimings: [],
+    };
+  }
+
+  return {
+    queueWaitMs: Math.max(0, Number(tracker.queueWaitMs) || 0),
+    dispatchMs: tracker.dispatchFinishedAt ? Math.max(0, tracker.dispatchFinishedAt - tracker.routeStartedAt) : 0,
+    upstreamConnectMs: (tracker.upstreamStartedAt && tracker.upstreamConnectedAt)
+      ? Math.max(0, tracker.upstreamConnectedAt - tracker.upstreamStartedAt)
+      : 0,
+    firstOutputMs: tracker.firstOutputAt ? Math.max(0, tracker.firstOutputAt - tracker.routeStartedAt) : 0,
+    totalMs: Math.max(0, endedAt - tracker.routeStartedAt),
+    stepTimings: buildResponsesStepTimings(tracker, endedAt),
+  };
+}
+
+function resolveResponsesMaxOutputTokens(maxOutputTokens, isMinimaxM27Model) {
+  if (maxOutputTokens !== undefined && maxOutputTokens !== null) return maxOutputTokens;
+  return isMinimaxM27Model ? DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.maxTokens : 4096;
+}
+
+function scheduleResponsesTimingLog(tracker, res, extra = {}) {
+  if (!tracker || tracker.finalized) return;
+  tracker.finalized = true;
+  const endedAt = Date.now();
+  const payload = buildResponsesTimingPayload(tracker, endedAt);
+  setImmediate(() => {
+    enqueueDebugStepRecord({
+      requestId: tracker.requestId,
+      traceType: tracker.traceType,
+      routeName: tracker.routeName,
+      requestPath: tracker.requestPath,
+      model: tracker.model,
+      userId: tracker.userId,
+      apiKeyId: tracker.apiKeyId,
+      stepNo: 9,
+      stepKey: 'timing',
+      stepName: '耗时统计',
+      status: res.statusCode >= 400 ? 'error' : 'info',
+      durationMs: payload.totalMs,
+      attemptNo: Math.max(1, Number(tracker.finalAttempt || tracker.attempts || 1)),
+      upstreamId: tracker.selectedUpstreamId,
+      upstreamProvider: tracker.selectedProvider,
+      upstreamBaseUrl: tracker.selectedBaseUrl,
+      errorMessage: extra.errorMessage || null,
+      detailJson: {
+        ...payload,
+        stream: Boolean(tracker.stream),
+        attempts: tracker.attempts || 0,
+        final_attempt: tracker.finalAttempt || tracker.attempts || 0,
+        selected_upstream_id: tracker.selectedUpstreamId,
+        selected_provider: tracker.selectedProvider,
+        selected_base_url: tracker.selectedBaseUrl,
+        selected_upstream_model_id: tracker.selectedUpstreamModelId,
+        status_code: res.statusCode,
+      },
+    });
+  });
 }
 
 // ── 输入转换：Responses API input → Chat Completions messages ───────────────
@@ -325,13 +536,13 @@ function resolveUpstream(model, modelConfig, baseUrl) {
     baseUrl.includes('claude-code.club') || baseUrl.includes('anthropic.com')
   );
   const trimmed = baseUrl.replace(/\/+$/, '');
-  let upstreamUrl;
-  if (trimmed.match(/\/chat\/completions$/)) upstreamUrl = trimmed;
-  else if (trimmed.match(/\/messages$/)) upstreamUrl = trimmed;
-  else {
-    const clean = trimmed.replace(/\/v1\/messages\/?$/, '').replace(/\/v1\/chat\/completions\/?$/, '').replace(/\/v1\/?$/, '').replace(/\/+$/, '');
-    upstreamUrl = isAnthropicAPI ? `${clean}/v1/messages` : `${clean}/v1/chat/completions`;
-  }
+  const upstreamUrl = trimmed.match(/\/chat\/completions$/)
+    ? trimmed
+    : trimmed.match(/\/messages$/)
+      ? trimmed
+      : isAnthropicAPI
+        ? resolveAnthropicCompatibleUpstreamUrl(baseUrl)
+        : resolveOpenAICompatibleUpstreamUrl(baseUrl, 'chat/completions');
   return { isAnthropicAPI, upstreamUrl };
 }
 
@@ -381,7 +592,7 @@ function buildNativeResponsesBody({ upstreamModel, input, instructions, temperat
     input: normalizeResponsesInput(input),
     // CC Club /openai Responses upstream requires stream=true.
     stream: true,
-    max_output_tokens: max_output_tokens || 4096,
+    max_output_tokens: max_output_tokens !== undefined && max_output_tokens !== null ? max_output_tokens : 4096,
   };
   if (instructions) body.instructions = instructions;
   if (temperature !== undefined) body.temperature = temperature;
@@ -488,6 +699,11 @@ function messagesToAnthropic(messages) {
 router.post('/responses', async (req, res) => {
   const requestId = req.aiGatewayRequestId || `resp_${uuidv4().replace(/-/g, '').slice(0, 24)}`;
   const { model, input, instructions, stream = false, temperature, max_output_tokens, top_p, tools, tool_choice } = req.body;
+  const isMinimaxM27Model = isNvidiaMinimaxM27Model(model);
+  const responsesTimeoutConfig = getResponsesTimeoutConfig({ stream, isMinimaxM27Model });
+  const effectiveMaxOutputTokens = resolveResponsesMaxOutputTokens(max_output_tokens, isMinimaxM27Model);
+  const timingTracker = createResponsesTimingTracker(req, model, requestId);
+  timingTracker.stream = Boolean(stream);
   const debug = createDebugRecorder({
     requestId,
     traceType: req.aiGatewayTraceType || 'live',
@@ -498,6 +714,14 @@ router.post('/responses', async (req, res) => {
     apiKeyId: req.apiKeyId || null,
   });
   res.setHeader('X-Request-Id', requestId);
+  let timingLogged = false;
+  const finalizeTiming = (extra = {}) => {
+    if (timingLogged) return;
+    timingLogged = true;
+    scheduleResponsesTimingLog(timingTracker, res, extra);
+  };
+  res.once('finish', () => finalizeTiming());
+  res.once('close', () => finalizeTiming());
 
   if (!model) {
     await debug.step(1, 'error', { has_model: false }, { errorMessage: 'model is required' });
@@ -517,6 +741,7 @@ router.post('/responses', async (req, res) => {
       return res.status(404).json({ error: { message: `Model '${model}' not found or disabled`, type: 'invalid_request_error' } });
     }
     modelConfig = await getModelConfig(model);
+    markResponsesModelLoaded(timingTracker);
   if (!modelConfig) {
     await debug.step(5, 'error', { reason: 'model_not_found' }, { errorMessage: `Model '${model}' not found or disabled` });
     return res.status(404).json({ error: { message: `Model '${model}' not found or disabled`, type: 'invalid_request_error' } });
@@ -528,6 +753,7 @@ router.post('/responses', async (req, res) => {
 
   // 获取端点
   const allEndpoints = await getAllUpstreamEndpoints(modelConfig);
+  markResponsesEndpointsLoaded(timingTracker);
   if (allEndpoints.length === 0) {
     await debug.step(5, 'error', { reason: 'provider_not_configured' }, { errorMessage: 'Model provider not configured' });
     return res.status(503).json({ error: { message: 'Model provider not configured', type: 'server_error' } });
@@ -555,6 +781,7 @@ router.post('/responses', async (req, res) => {
       error: { message: billingMeta.balanceType === 'wallet' ? '钱包余额不足' : '余额不足，当前额度已用尽。请购买加油包或升级套餐以继续使用。', type: 'billing_error' }
     });
   }
+  markResponsesBillingReserved(timingTracker);
   billingContext.finalized = false;
   await debug.step(3, 'success', {
     billing_mode: billingMeta.billingMode,
@@ -587,6 +814,13 @@ router.post('/responses', async (req, res) => {
     const upstreamUrl = useNativeResponsesUpstream
       ? resolveNativeResponsesUpstream(selected.base_url)
       : resolvedUpstreamUrl;
+    timingTracker.attempts = attempt + 1;
+    timingTracker.finalAttempt = attempt + 1;
+    timingTracker.selectedUpstreamId = selected.id || null;
+    timingTracker.selectedProvider = selected.provider_name || null;
+    timingTracker.selectedBaseUrl = selected.base_url || null;
+    timingTracker.selectedUpstreamModelId = selected.upstream_model_id || null;
+    markResponsesEndpointSelected(timingTracker);
     await debug.step(5, 'success', {
       attempt: attempt + 1,
       selected_upstream_id: selected.id,
@@ -602,20 +836,22 @@ router.post('/responses', async (req, res) => {
 
     let body, headers;
     if (useNativeResponsesUpstream) {
+      markResponsesRequestPrepared(timingTracker);
       body = buildNativeResponsesBody({
         upstreamModel,
         input,
         instructions,
         temperature,
-        max_output_tokens,
+        max_output_tokens: effectiveMaxOutputTokens,
         top_p,
         tools,
         tool_choice,
       });
       headers = withForwardedClientHeaders(req, { 'Authorization': `Bearer ${selected.api_key}`, 'Content-Type': 'application/json' });
     } else if (isAnthropicAPI) {
+      markResponsesRequestPrepared(timingTracker);
       const { system, messages: anthMsgs } = messagesToAnthropic(messages);
-      body = { model: upstreamModel, messages: anthMsgs, max_tokens: max_output_tokens || 4096 };
+      body = { model: upstreamModel, messages: anthMsgs, max_tokens: effectiveMaxOutputTokens };
       if (system) body.system = system;
       if (temperature !== undefined) body.temperature = temperature;
       if (top_p !== undefined) body.top_p = top_p;
@@ -625,7 +861,8 @@ router.post('/responses', async (req, res) => {
       if (stream) body.stream = true;
       headers = withForwardedClientHeaders(req, { 'x-api-key': selected.api_key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' });
     } else {
-      body = { model: upstreamModel, messages, max_tokens: max_output_tokens || 4096 };
+      markResponsesRequestPrepared(timingTracker);
+      body = { model: upstreamModel, messages, max_tokens: effectiveMaxOutputTokens };
       if (temperature !== undefined) body.temperature = temperature;
       if (top_p !== undefined) body.top_p = top_p;
       if (chatTools) body.tools = chatTools;
@@ -655,17 +892,19 @@ router.post('/responses', async (req, res) => {
         upstream_url: upstreamUrl,
         stream: stream || useNativeResponsesUpstream,
       });
+      markResponsesDispatchComplete(timingTracker);
+      markResponsesUpstreamDispatched(timingTracker);
 
       if (useNativeResponsesUpstream) {
-        if (stream) {
-          return await handleNativeResponsesStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt });
-        }
-        return await handleNativeResponsesNonStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt });
-      }
       if (stream) {
-        return await handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt });
+        return await handleNativeResponsesStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt }, timingTracker, responsesTimeoutConfig);
       }
-      return await handleNonStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt });
+      return await handleNativeResponsesNonStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt }, timingTracker, responsesTimeoutConfig);
+    }
+    if (stream) {
+        return await handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt }, timingTracker, responsesTimeoutConfig);
+      }
+      return await handleNonStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, { leaseToken, startedAt }, timingTracker, responsesTimeoutConfig);
     } catch (err) {
       lastErr = err;
       const errMsg = await extractUpstreamErrorMessage(err);
@@ -682,14 +921,24 @@ router.post('/responses', async (req, res) => {
         status_code: err.response?.status || null,
       }, { errorMessage: errMsg });
       if (is429Error(err)) {
-        await noteCcClubRateLimit({
-          providerName: selected.provider_name,
-          baseUrl: selected.base_url,
-          apiKey: selected.api_key,
-          errorMessage: errMsg,
-          statusCode: err.response?.status || 429,
-          source: 'responses'
-        });
+        await Promise.allSettled([
+          noteCcClubRateLimit({
+            providerName: selected.provider_name,
+            baseUrl: selected.base_url,
+            apiKey: selected.api_key,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'responses'
+          }),
+          noteHuoshanRateLimit({
+            providerName: selected.provider_name,
+            baseUrl: selected.base_url,
+            apiKey: selected.api_key,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'responses'
+          })
+        ]);
       }
       if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
         remaining = remaining.filter((item) => getEndpointIdentity(item) !== getEndpointIdentity(selected));
@@ -720,6 +969,7 @@ router.post('/responses', async (req, res) => {
       model,
     }).catch((error) => console.error('[Responses] refund failed:', error.message));
     billingContext.finalized = true;
+  markResponsesSettleFinished(timingTracker);
   }
   await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, {
     billingMode: billingMeta.billingMode,
@@ -727,14 +977,22 @@ router.post('/responses', async (req, res) => {
     chargedAmount: 0,
   });
   const statusCode = lastErr?.code === 'UPSTREAM_SATURATED' ? 503 : (lastErr?.response?.status || 502);
+  markResponsesResponseCompleted(timingTracker);
   res.status(statusCode).json({
     error: { message: errMsg, type: statusCode === 503 ? 'overloaded_error' : 'upstream_error' }
   });
 });
 
 // ── 原生 Responses 非流式（上游强制 stream=true，网关聚合后再返回） ─────────────
-async function handleNativeResponsesNonStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta) {
-  const upstream = await axiosInstance.post(upstreamUrl, { ...body, stream: true }, { headers, responseType: 'stream', timeout: 120000 });
+async function handleNativeResponsesNonStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta, timingTracker, upstreamTimeoutConfig) {
+  markResponsesUpstreamStart(timingTracker);
+  const upstream = await axiosInstance.post(upstreamUrl, { ...body, stream: true }, { headers, responseType: 'stream', timeout: upstreamTimeoutConfig.connectTimeoutMs });
+  markResponsesUpstreamConnected(timingTracker);
+  applyStreamIdleTimeout(upstream.data, upstreamTimeoutConfig.idleTimeoutMs, () => {
+    const error = new Error('Upstream stream idle timeout');
+    error.code = 'ECONNABORTED';
+    return error;
+  });
   const state = { response: null, promptTokens: 0, completionTokens: 0, fullText: '' };
   const parseChunk = createSseParser((eventName, parsed) => captureNativeResponsesEvent(eventName, parsed, state));
 
@@ -758,6 +1016,7 @@ async function handleNativeResponsesNonStream(req, res, upstreamUrl, body, heade
     { route: 'responses', request_id: requestId, model }
   );
   billingContext.finalized = true;
+  markResponsesSettleFinished(timingTracker);
   await debug.step(6, 'success', {
     stream: false,
     selected_upstream_id: selected?.id || null,
@@ -776,11 +1035,13 @@ async function handleNativeResponsesNonStream(req, res, upstreamUrl, body, heade
       statusCode: upstream.status,
     });
     await releaseEndpointLease(selected, attemptMeta.leaseToken);
+    markResponsesLeaseReleased(timingTracker);
     await logCall(req.apiUserId, req.apiKeyId, model, state.promptTokens, state.completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, {
       billingMode: getModelBillingMeta(modelConfig).billingMode,
       chargedBalanceType: getModelBillingMeta(modelConfig).balanceType,
       chargedAmount: billingContext?.reservedAmount || 0,
     });
+    markResponsesFirstOutput(timingTracker);
     return res.status(402).json({ error: { message: '额度已用尽', type: 'billing_error' } });
   }
   await debug.step(7, 'success', {
@@ -800,12 +1061,21 @@ async function handleNativeResponsesNonStream(req, res, upstreamUrl, body, heade
     chargedBalanceType: getModelBillingMeta(modelConfig).balanceType,
     chargedAmount: getChargedAmountForLog(modelConfig, cost),
   });
+  markResponsesResponseCompleted(timingTracker);
+  markResponsesFirstOutput(timingTracker);
   res.json(state.response);
 }
 
 // ── 原生 Responses 流式（上游 SSE 直接透传） ────────────────────────────────
-async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta) {
-  const upstream = await axiosInstance.post(upstreamUrl, { ...body, stream: true }, { headers, responseType: 'stream', timeout: 120000 });
+async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta, timingTracker, upstreamTimeoutConfig) {
+  markResponsesUpstreamStart(timingTracker);
+  const upstream = await axiosInstance.post(upstreamUrl, { ...body, stream: true }, { headers, responseType: 'stream', timeout: upstreamTimeoutConfig.connectTimeoutMs });
+  markResponsesUpstreamConnected(timingTracker);
+  applyStreamIdleTimeout(upstream.data, upstreamTimeoutConfig.idleTimeoutMs, () => {
+    const error = new Error('Upstream stream idle timeout');
+    error.code = 'ECONNABORTED';
+    return error;
+  });
   const state = { response: null, promptTokens: 0, completionTokens: 0, fullText: '' };
   const parseChunk = createSseParser((eventName, parsed) => captureNativeResponsesEvent(eventName, parsed, state));
 
@@ -830,6 +1100,7 @@ async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers,
       { route: 'responses', request_id: requestId, model }
     );
     billingContext.finalized = true;
+  markResponsesSettleFinished(timingTracker);
     await debug.step(6, 'success', {
       stream: true,
       selected_upstream_id: selected?.id || null,
@@ -847,6 +1118,7 @@ async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers,
         statusCode: upstream.status,
       });
       await releaseEndpointLease(selected, attemptMeta.leaseToken);
+    markResponsesLeaseReleased(timingTracker);
       await logCall(req.apiUserId, req.apiKeyId, model, state.promptTokens, state.completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, {
         billingMode: getModelBillingMeta(modelConfig).billingMode,
         chargedBalanceType: getModelBillingMeta(modelConfig).balanceType,
@@ -866,11 +1138,13 @@ async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers,
       statusCode: upstream.status,
     });
     await releaseEndpointLease(selected, attemptMeta.leaseToken);
+    markResponsesLeaseReleased(timingTracker);
     await logCall(req.apiUserId, req.apiKeyId, model, state.promptTokens, state.completionTokens, cost, req.ip, 'success', null, requestId, {
       billingMode: getModelBillingMeta(modelConfig).billingMode,
       chargedBalanceType: getModelBillingMeta(modelConfig).balanceType,
       chargedAmount: getChargedAmountForLog(modelConfig, cost),
     });
+    markResponsesResponseCompleted(timingTracker);
   });
 
   upstream.data.on('error', async (err) => {
@@ -881,6 +1155,7 @@ async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers,
       statusCode: err.response?.status || 0,
     });
     await releaseEndpointLease(selected, attemptMeta.leaseToken);
+    markResponsesLeaseReleased(timingTracker);
     await debug.step(6, 'error', {
       stream: true,
       selected_upstream_id: selected?.id || null,
@@ -897,6 +1172,7 @@ async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers,
         model,
       }).catch((error) => console.error('[Responses] refund failed:', error.message));
       billingContext.finalized = true;
+  markResponsesSettleFinished(timingTracker);
     }
     await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, {
       billingMode: getModelBillingMeta(modelConfig).billingMode,
@@ -908,8 +1184,10 @@ async function handleNativeResponsesStream(req, res, upstreamUrl, body, headers,
 }
 
 // ── 非流式 ──────────────────────────────────────────────────────────────────
-async function handleNonStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta) {
-  const upstream = await axiosInstance.post(upstreamUrl, body, { headers, timeout: 120000 });
+async function handleNonStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta, timingTracker, upstreamTimeoutConfig) {
+  markResponsesUpstreamStart(timingTracker);
+  const upstream = await axiosInstance.post(upstreamUrl, body, { headers, timeout: upstreamTimeoutConfig.requestTimeoutMs });
+  markResponsesUpstreamConnected(timingTracker);
   const data = upstream.data;
 
   let resp, promptTokens, completionTokens;
@@ -933,6 +1211,7 @@ async function handleNonStream(req, res, upstreamUrl, body, headers, isAnthropic
     { route: 'responses', request_id: requestId, model }
   );
   billingContext.finalized = true;
+  markResponsesSettleFinished(timingTracker);
   await debug.step(6, 'success', {
     stream: false,
     selected_upstream_id: selected?.id || null,
@@ -951,6 +1230,7 @@ async function handleNonStream(req, res, upstreamUrl, body, headers, isAnthropic
       statusCode: upstream.status,
     });
     await releaseEndpointLease(selected, attemptMeta.leaseToken);
+    markResponsesLeaseReleased(timingTracker);
     await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足', requestId, {
       billingMode: getModelBillingMeta(modelConfig).billingMode,
       chargedBalanceType: getModelBillingMeta(modelConfig).balanceType,
@@ -975,12 +1255,21 @@ async function handleNonStream(req, res, upstreamUrl, body, headers, isAnthropic
     chargedBalanceType: getModelBillingMeta(modelConfig).balanceType,
     chargedAmount: getChargedAmountForLog(modelConfig, cost),
   });
+  markResponsesResponseCompleted(timingTracker);
+  markResponsesFirstOutput(timingTracker);
   res.json(resp);
 }
 
 // ── 流式 ────────────────────────────────────────────────────────────────────
-async function handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta) {
-  const upstream = await axiosInstance.post(upstreamUrl, body, { headers, responseType: 'stream', timeout: 120000 });
+async function handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI, model, modelConfig, requestId, debug, selected, billingContext, attemptMeta, timingTracker, upstreamTimeoutConfig) {
+  markResponsesUpstreamStart(timingTracker);
+  const upstream = await axiosInstance.post(upstreamUrl, body, { headers, responseType: 'stream', timeout: upstreamTimeoutConfig.connectTimeoutMs });
+  markResponsesUpstreamConnected(timingTracker);
+  applyStreamIdleTimeout(upstream.data, upstreamTimeoutConfig.idleTimeoutMs, () => {
+    const error = new Error('Upstream stream idle timeout');
+    error.code = 'ECONNABORTED';
+    return error;
+  });
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -1000,6 +1289,7 @@ async function handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI
   function ensureHeaders() {
     if (headersSent) return;
     headersSent = true;
+    markResponsesFirstOutput(timingTracker);
     // response.created
     sendEvent('response.created', {
       type: 'response.created',
@@ -1018,6 +1308,7 @@ async function handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI
   }
 
   upstream.data.on('data', (chunk) => {
+    markResponsesFirstOutput(timingTracker);
     buffer += chunk.toString();
     const lines = buffer.split('\n');
     buffer = lines.pop() || '';
@@ -1075,6 +1366,7 @@ async function handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI
       { route: 'responses', request_id: requestId, model }
     );
     billingContext.finalized = true;
+  markResponsesSettleFinished(timingTracker);
     await debug.step(6, 'success', {
       stream: true,
       selected_upstream_id: selected?.id || null,
@@ -1092,6 +1384,7 @@ async function handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI
         statusCode: upstream.status,
       });
       await releaseEndpointLease(selected, attemptMeta.leaseToken);
+    markResponsesLeaseReleased(timingTracker);
       await logCall(req.apiUserId, req.apiKeyId, model, promptTokens, completionTokens, cost, req.ip, 'insufficient_balance', '余额不足（流式响应后扣款失败）', requestId, {
         billingMode: getModelBillingMeta(modelConfig).billingMode,
         chargedBalanceType: getModelBillingMeta(modelConfig).balanceType,
@@ -1142,6 +1435,7 @@ async function handleStream(req, res, upstreamUrl, body, headers, isAnthropicAPI
         model,
       }).catch((error) => console.error('[Responses] refund failed:', error.message));
       billingContext.finalized = true;
+  markResponsesSettleFinished(timingTracker);
     }
     await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'error', errMsg, requestId, {
       billingMode: getModelBillingMeta(modelConfig).billingMode,

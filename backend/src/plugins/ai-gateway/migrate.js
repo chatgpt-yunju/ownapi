@@ -3,6 +3,49 @@ const {
   classifyModelCategory,
   normalizeModelCategory,
 } = require('./utils/billing');
+const { getDomesticAveragePricing } = require('./utils/smartRouterPricing');
+
+function normalizeProviderKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+}
+
+async function mergeProviderRows(sourceProviderId, targetProviderId) {
+  if (!sourceProviderId || !targetProviderId || sourceProviderId === targetProviderId) return;
+
+  await db.query(
+    'UPDATE openclaw_provider_endpoints SET provider_id = ? WHERE provider_id = ?',
+    [targetProviderId, sourceProviderId]
+  );
+
+  const [targetBindings] = await db.query(
+    'SELECT model_id FROM openclaw_model_providers WHERE provider_id = ?',
+    [targetProviderId]
+  );
+  const targetModelIds = new Set(targetBindings.map(row => row.model_id));
+
+  const [sourceBindings] = await db.query(
+    'SELECT id, model_id FROM openclaw_model_providers WHERE provider_id = ? ORDER BY id',
+    [sourceProviderId]
+  );
+
+  for (const binding of sourceBindings) {
+    if (targetModelIds.has(binding.model_id)) {
+      await db.query('DELETE FROM openclaw_model_providers WHERE id = ?', [binding.id]).catch(() => {});
+      continue;
+    }
+
+    await db.query(
+      'UPDATE openclaw_model_providers SET provider_id = ? WHERE id = ?',
+      [targetProviderId, binding.id]
+    ).catch(() => {});
+    targetModelIds.add(binding.model_id);
+  }
+
+  await db.query('UPDATE openclaw_providers SET status = "disabled" WHERE id = ?', [sourceProviderId]);
+}
 
 module.exports = async function migrate() {
   await db.query(`CREATE TABLE IF NOT EXISTS openclaw_models (
@@ -21,7 +64,8 @@ module.exports = async function migrate() {
   await db.query("ALTER TABLE openclaw_models ADD COLUMN upstream_key VARCHAR(500) DEFAULT NULL").catch(() => {});
   await db.query("ALTER TABLE openclaw_models ADD COLUMN billing_mode ENUM('token','per_call') NOT NULL DEFAULT 'token'").catch(() => {});
   await db.query('ALTER TABLE openclaw_models ADD COLUMN per_call_price DECIMAL(12,6) DEFAULT NULL').catch(() => {});
-  await db.query("ALTER TABLE openclaw_models ADD COLUMN model_category ENUM('language','image','vision','audio','coding') NOT NULL DEFAULT 'language'").catch(() => {});
+  await db.query("ALTER TABLE openclaw_models ADD COLUMN model_category ENUM('language','image','vision','audio','coding','smart_route') NOT NULL DEFAULT 'language'").catch(() => {});
+  await db.query("ALTER TABLE openclaw_models MODIFY COLUMN model_category ENUM('language','image','vision','audio','coding','smart_route') NOT NULL DEFAULT 'language'").catch(() => {});
 
   await db.query(`CREATE TABLE IF NOT EXISTS openclaw_api_keys (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -72,6 +116,26 @@ module.exports = async function migrate() {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
   await db.query('ALTER TABLE openclaw_ccclub_key_resets ADD COLUMN cooldown_notified_at DATETIME DEFAULT NULL').catch(() => {});
   await db.query('ALTER TABLE openclaw_ccclub_key_resets ADD COLUMN recovered_notified_at DATETIME DEFAULT NULL').catch(() => {});
+
+  // 火山引擎 key 冷却记录：记录每个 key 的重置时间，未到期自动禁用，到期自动启用
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_huoshan_key_resets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    key_fingerprint CHAR(64) NOT NULL UNIQUE,
+    provider_name VARCHAR(100) DEFAULT '',
+    base_url VARCHAR(500) DEFAULT '',
+    reset_at DATETIME NOT NULL,
+    status ENUM('cooldown','ready') DEFAULT 'cooldown',
+    last_status_code INT DEFAULT NULL,
+    last_error_message TEXT,
+    last_seen_at DATETIME DEFAULT NOW(),
+    cooldown_notified_at DATETIME DEFAULT NULL,
+    recovered_notified_at DATETIME DEFAULT NULL,
+    created_at DATETIME DEFAULT NOW(),
+    updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
+    INDEX idx_status_reset (status, reset_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+  await db.query('ALTER TABLE openclaw_huoshan_key_resets ADD COLUMN cooldown_notified_at DATETIME DEFAULT NULL').catch(() => {});
+  await db.query('ALTER TABLE openclaw_huoshan_key_resets ADD COLUMN recovered_notified_at DATETIME DEFAULT NULL').catch(() => {});
 
   await db.query(`CREATE TABLE IF NOT EXISTS openclaw_packages (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -281,6 +345,144 @@ module.exports = async function migrate() {
     } catch (e) { console.error(`[migrate] merge ${oldName}→${newName}:`, e.message); }
   }
 
+  // 将火山引擎智能路由的历史命名统一为 Doubao-Smart-Router，兼容旧数据里
+  // 不同的 smart-router 别名。
+  try {
+    const smartRouterCanonicalName = 'doubao-smart-router';
+    const smartRouterCanonicalKey = normalizeProviderKey(smartRouterCanonicalName);
+    const smartRouterDisplayName = 'Doubao-Smart-Router';
+    const smartRouterNameKeys = new Set([
+      normalizeProviderKey(smartRouterCanonicalName),
+      normalizeProviderKey('doubao smart router'),
+    ]);
+    const smartRouterDisplayKeys = new Set([
+      normalizeProviderKey(smartRouterDisplayName),
+    ]);
+
+    const [smartRouterRows] = await db.query(
+      'SELECT id, name, display_name, base_url, api_key, status, sort_order FROM openclaw_providers'
+    );
+    const matchedRows = smartRouterRows.filter(row =>
+      smartRouterNameKeys.has(normalizeProviderKey(row.name)) ||
+      smartRouterDisplayKeys.has(normalizeProviderKey(row.display_name))
+    );
+
+    if (matchedRows.length > 0) {
+      const canonicalRow = matchedRows.find(row => normalizeProviderKey(row.name) === smartRouterCanonicalKey)
+        || matchedRows[0];
+
+      for (const row of matchedRows) {
+        if (row.id !== canonicalRow.id) {
+          await mergeProviderRows(row.id, canonicalRow.id);
+        }
+      }
+
+      const preferredBaseUrl = canonicalRow.base_url
+        || matchedRows.find(row => row.id !== canonicalRow.id && row.base_url)?.base_url
+        || null;
+      const preferredApiKey = canonicalRow.api_key
+        || matchedRows.find(row => row.id !== canonicalRow.id && row.api_key)?.api_key
+        || null;
+      const preferredStatus = matchedRows.some(row => row.status === 'active') ? 'active' : canonicalRow.status;
+      const preferredSortOrder = canonicalRow.sort_order ?? 0;
+
+      await db.query(
+        `UPDATE openclaw_providers
+         SET name = ?, display_name = ?, base_url = ?, api_key = ?, status = ?, sort_order = ?
+         WHERE id = ?`,
+        [
+          smartRouterCanonicalName,
+          smartRouterDisplayName,
+          preferredBaseUrl,
+          preferredApiKey,
+          preferredStatus,
+          preferredSortOrder,
+          canonicalRow.id
+        ]
+      );
+    }
+  } catch (e) {
+    console.error('[migrate] smart-router provider normalization:', e.message);
+  }
+
+  // 只保留 Smart-Route：其余火山引擎历史模型、供应商和上游绑定全部禁用。
+  try {
+    const nonSmartRouterNames = [
+      'volcengine',
+      'volcengine-1',
+      'volcengine-2',
+      'huoshan',
+      'ark',
+    ];
+    const nonSmartRouterSql = nonSmartRouterNames.map((name) => `'${normalizeProviderKey(name)}'`).join(', ');
+
+    await db.query(
+      `UPDATE openclaw_providers
+       SET status = 'disabled'
+       WHERE LOWER(COALESCE(name, '')) IN (${nonSmartRouterSql})
+          OR LOWER(COALESCE(display_name, '')) LIKE '%火山引擎%'
+          OR LOWER(COALESCE(display_name, '')) LIKE '%volcengine%'
+          OR LOWER(COALESCE(display_name, '')) LIKE '%huoshan%'
+          OR LOWER(COALESCE(display_name, '')) LIKE '%ark%'`
+    );
+
+    await db.query(
+      `UPDATE openclaw_model_providers mp
+       JOIN openclaw_providers p ON p.id = mp.provider_id
+       SET mp.status = 'disabled'
+       WHERE mp.status = 'active'
+         AND (
+           LOWER(COALESCE(p.name, '')) IN (${nonSmartRouterSql})
+           OR LOWER(COALESCE(p.display_name, '')) LIKE '%火山引擎%'
+           OR LOWER(COALESCE(p.display_name, '')) LIKE '%volcengine%'
+           OR LOWER(COALESCE(p.display_name, '')) LIKE '%huoshan%'
+           OR LOWER(COALESCE(p.display_name, '')) LIKE '%ark%'
+         )`
+    );
+
+    await db.query(
+      `UPDATE openclaw_model_upstreams
+       SET status = 'disabled'
+       WHERE status = 'active'
+         AND (
+           LOWER(COALESCE(provider_name, '')) IN (${nonSmartRouterSql})
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%火山引擎%'
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%volcengine%'
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%huoshan%'
+           OR LOWER(COALESCE(provider_name, '')) LIKE '%ark%'
+         )`
+    );
+
+    await db.query(
+      `UPDATE openclaw_model_endpoints e
+       JOIN openclaw_models m ON m.id = e.model_id
+       SET e.status = 'disabled'
+       WHERE e.status = 'active'
+         AND (
+           LOWER(COALESCE(m.provider, '')) IN (${nonSmartRouterSql})
+           OR LOWER(COALESCE(m.provider, '')) LIKE '%火山引擎%'
+           OR LOWER(COALESCE(m.provider, '')) LIKE '%volcengine%'
+           OR LOWER(COALESCE(m.provider, '')) LIKE '%huoshan%'
+           OR LOWER(COALESCE(m.provider, '')) LIKE '%ark%'
+         )`
+    );
+
+    const smartRouterPricing = await getDomesticAveragePricing();
+    await db.query(
+      `UPDATE openclaw_models
+       SET input_price_per_1k = ?,
+           output_price_per_1k = ?,
+           price_currency = 'CNY',
+           per_call_price = NULL,
+           model_category = 'smart_route'
+       WHERE LOWER(COALESCE(model_id, '')) LIKE '%doubao-smart-router%'
+          OR LOWER(COALESCE(provider, '')) LIKE '%doubao-smart-router%'`,
+      [smartRouterPricing.input_price_per_1k, smartRouterPricing.output_price_per_1k]
+    );
+  } catch (e) {
+    console.error('[migrate] disable non-smart-router volcengine models:', e.message);
+  }
+
   // 将仍在旧 upstream 表中生效的 CC Club OpenAI 绑定同步到 provider 体系，
   // 避免 /v1/responses 仅依赖新表时拿不到可用端点。
   try {
@@ -447,5 +649,16 @@ module.exports = async function migrate() {
     INDEX idx_category (category),
     INDEX idx_status (status),
     FULLTEXT INDEX ft_search (title, content)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_blog_posts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    summary TEXT,
+    content LONGTEXT,
+    status ENUM('draft','published') DEFAULT 'draft',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
 };

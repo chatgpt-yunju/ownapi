@@ -3,8 +3,9 @@ const nodemailer = require('nodemailer');
 const db = require('../../../config/db');
 const cache = require('./cache');
 const { getSettingCached } = require('../../../routes/quota');
+const { parseResetAt } = require('./ccClubKeyGuard');
 
-const LOCK_NAME = 'openclaw_ccclub_key_guard_lock';
+const LOCK_NAME = 'openclaw_huoshan_key_guard_lock';
 const SYNC_INTERVAL_MS = 60 * 1000;
 const DEFAULT_ALERT_EMAIL = '2743319061@qq.com';
 let timerStarted = false;
@@ -13,7 +14,19 @@ let schemaReady = false;
 
 async function ensureSchema() {
   if (schemaReady) return;
-  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_ccclub_key_resets (
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_model_endpoints (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    model_id INT NOT NULL,
+    base_url VARCHAR(500) NOT NULL,
+    api_key VARCHAR(500) NOT NULL,
+    upstream_model_id VARCHAR(200) DEFAULT NULL,
+    upstream_provider VARCHAR(100) DEFAULT NULL,
+    weight INT DEFAULT 1,
+    status ENUM('active','disabled') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (model_id) REFERENCES openclaw_models(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
+  await db.query(`CREATE TABLE IF NOT EXISTS openclaw_huoshan_key_resets (
     id INT AUTO_INCREMENT PRIMARY KEY,
     key_fingerprint CHAR(64) NOT NULL UNIQUE,
     provider_name VARCHAR(100) DEFAULT '',
@@ -29,8 +42,8 @@ async function ensureSchema() {
     updated_at DATETIME DEFAULT NOW() ON UPDATE NOW(),
     INDEX idx_status_reset (status, reset_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
-  await db.query('ALTER TABLE openclaw_ccclub_key_resets ADD COLUMN cooldown_notified_at DATETIME DEFAULT NULL').catch(() => {});
-  await db.query('ALTER TABLE openclaw_ccclub_key_resets ADD COLUMN recovered_notified_at DATETIME DEFAULT NULL').catch(() => {});
+  await db.query('ALTER TABLE openclaw_huoshan_key_resets ADD COLUMN cooldown_notified_at DATETIME DEFAULT NULL').catch(() => {});
+  await db.query('ALTER TABLE openclaw_huoshan_key_resets ADD COLUMN recovered_notified_at DATETIME DEFAULT NULL').catch(() => {});
   schemaReady = true;
 }
 
@@ -58,22 +71,7 @@ function maskFingerprint(fp = '') {
 function maskApiKey(key = '') {
   const s = String(key || '');
   if (!s) return '';
-  // 保留 cr_ 前缀后最多8个字符，末尾保留6个字符
-  const prefix = s.startsWith('cr_') ? 'cr_' : '';
-  const rest = s.startsWith('cr_') ? s.slice(3) : s;
-  return `${prefix}${rest.slice(0, 8)}...${rest.slice(-6)}`;
-}
-
-async function fetchCcClubKeyNotes(apiKey) {
-  try {
-    const [[row]] = await db.query(
-      'SELECT notes FROM openclaw_ccclub_keys WHERE api_key = ? LIMIT 1',
-      [apiKey]
-    );
-    return row?.notes || '';
-  } catch {
-    return '';
-  }
+  return `${s.slice(0, 8)}...${s.slice(-6)}`;
 }
 
 function formatLocalTime(dateObj) {
@@ -94,61 +92,27 @@ async function sendResetMail({ subject, html }) {
     await transporter.sendMail({ from, to, subject, html });
     return true;
   } catch (e) {
-    console.error('[ccclub-key-guard] send mail failed:', e.message);
+    console.error('[huoshan-key-guard] send mail failed:', e.message);
     return false;
   }
 }
 
-function isCcClubEndpoint(baseUrl = '', providerName = '') {
-  return String(baseUrl).includes('claude-code.club') || String(providerName).startsWith('ccclub');
+function normalizeProviderName(providerName) {
+  return String(providerName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
 }
 
-function parseResetAt(errorMessage = '') {
-  const msg = String(errorMessage || '');
-  const toDate = (value, unit) => {
-    const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) return null;
-    const multipliers = {
-      second: 1000,
-      seconds: 1000,
-      sec: 1000,
-      secs: 1000,
-      minute: 60 * 1000,
-      minutes: 60 * 1000,
-      min: 60 * 1000,
-      mins: 60 * 1000,
-      hour: 60 * 60 * 1000,
-      hours: 60 * 60 * 1000,
-      hr: 60 * 60 * 1000,
-      hrs: 60 * 60 * 1000,
-    };
-    const multiplier = multipliers[String(unit || '').toLowerCase()];
-    if (!multiplier) return null;
-    return new Date(Date.now() + n * multiplier);
-  };
+function isSmartRouterProvider(providerName = '') {
+  const normalizedProvider = normalizeProviderName(providerName);
+  return normalizedProvider === 'doubaosmartrouter'
+    || normalizedProvider.includes('doubaosmartrouter');
+}
 
-  // 例：将在 9626 分钟后重置 / 60 秒后重试
-  const zhMatch = msg.match(/(?:将[在于]|请在|还需|需要)?\s*(\d+)\s*(秒钟?|分钟?|小时?)\s*(?:后(?:重置|重试|再试)|后可用)?/);
-  if (zhMatch) {
-    const unitMap = {
-      秒: 'seconds',
-      秒钟: 'seconds',
-      分钟: 'minutes',
-      小时: 'hours',
-    };
-    const unitKey = unitMap[zhMatch[2]] || unitMap[String(zhMatch[2] || '').replace(/钟$/, '')] || zhMatch[2];
-    const date = toDate(zhMatch[1], unitKey);
-    if (date) return date;
-  }
-
-  // 例：reset in 120 minutes / retry after 30 seconds
-  const enMatch = msg.match(/(?:reset\s+in|retry\s+after|try\s+again\s+in)\s+(\d+)\s*(seconds?|minutes?|hours?|secs?|mins?|hrs?)/i);
-  if (enMatch) {
-    const date = toDate(enMatch[1], enMatch[2]);
-    if (date) return date;
-  }
-
-  return null;
+function isHuoshanEndpoint(baseUrl = '', providerName = '') {
+  return isSmartRouterProvider(providerName)
+    || String(baseUrl || '').toLowerCase().includes('doubao-smart-router');
 }
 
 function fingerprintKey(apiKey = '') {
@@ -174,39 +138,110 @@ async function applyKeyStateByFingerprint(keyFingerprint, shouldEnable) {
   await db.query(
     `UPDATE openclaw_model_upstreams
      SET status = ?
-     WHERE base_url LIKE '%claude-code.club%'
-       AND SHA2(api_key, 256) = ?`,
+     WHERE SHA2(api_key, 256) = ?
+       AND (
+         LOWER(COALESCE(provider_name, '')) LIKE '%doubao-smart-router%'
+         OR LOWER(COALESCE(provider_name, '')) LIKE '%doubao smart router%'
+         OR LOWER(COALESCE(provider_name, '')) LIKE '%doubaosmartrouter%'
+       )`,
     [nextStatus, keyFingerprint]
   );
 
   await db.query(
+    `UPDATE openclaw_model_endpoints
+     SET status = ?
+     WHERE SHA2(api_key, 256) = ?
+       AND LOWER(COALESCE(upstream_provider, '')) LIKE '%doubao-smart-router%'`,
+    [nextStatus, keyFingerprint]
+  ).catch(() => {});
+
+  await db.query(
     `UPDATE openclaw_provider_endpoints
      SET status = ?
-     WHERE base_url LIKE '%claude-code.club%'
-       AND SHA2(api_key, 256) = ?`,
+     WHERE SHA2(api_key, 256) = ?
+       AND LOWER(COALESCE(provider_name, '')) LIKE '%doubao-smart-router%'`,
     [nextStatus, keyFingerprint]
   ).catch(() => {});
 
   await db.query(
     `UPDATE openclaw_providers
      SET status = ?
-     WHERE base_url LIKE '%claude-code.club%'
-       AND SHA2(api_key, 256) = ?`,
+     WHERE SHA2(api_key, 256) = ?
+       AND (
+         LOWER(COALESCE(name, '')) LIKE '%doubao-smart-router%'
+         OR LOWER(COALESCE(display_name, '')) LIKE '%doubao-smart-router%'
+         OR LOWER(COALESCE(name, '')) LIKE '%doubaosmartrouter%'
+       )`,
     [nextStatus, keyFingerprint]
   ).catch(() => {});
 }
 
-async function refreshCcClubModelStatus() {
+async function refreshHuoshanModelStatus() {
   await db.query(
     `UPDATE openclaw_models m
-     LEFT JOIN (
-       SELECT model_id, SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active_cnt
-       FROM openclaw_model_upstreams
-       WHERE base_url LIKE '%claude-code.club%'
-       GROUP BY model_id
-     ) u ON u.model_id = m.id
-     SET m.status = CASE WHEN COALESCE(u.active_cnt, 0) > 0 THEN 'active' ELSE 'disabled' END
-     WHERE m.provider LIKE 'ccclub%' OR u.model_id IS NOT NULL`
+     SET m.status = CASE
+       WHEN EXISTS (
+         SELECT 1
+         FROM openclaw_model_providers mp
+         JOIN openclaw_providers p ON p.id = mp.provider_id
+         WHERE mp.model_id = m.id
+           AND mp.status = 'active'
+           AND p.status = 'active'
+           AND (
+             LOWER(COALESCE(p.name, '')) LIKE '%doubao-smart-router%'
+             OR LOWER(COALESCE(p.name, '')) LIKE '%doubao-smart-router%'
+             OR LOWER(COALESCE(p.name, '')) LIKE '%doubaosmartrouter%'
+             OR LOWER(COALESCE(p.display_name, '')) LIKE '%doubao-smart-router%'
+           )
+       )
+       OR EXISTS (
+         SELECT 1
+         FROM openclaw_model_upstreams u
+         WHERE u.model_id = m.id
+           AND u.status = 'active'
+           AND (
+             LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao-smart-router%'
+             OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao smart router%'
+             OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubaosmartrouter%'
+           )
+       )
+       OR EXISTS (
+         SELECT 1
+         FROM openclaw_model_endpoints e
+         WHERE e.model_id = m.id
+           AND e.status = 'active'
+           AND LOWER(COALESCE(e.upstream_provider, '')) LIKE '%doubao-smart-router%'
+       )
+       THEN 'active' ELSE 'disabled'
+     END
+     WHERE LOWER(COALESCE(m.provider, '')) LIKE '%doubao-smart-router%'
+        OR EXISTS (
+          SELECT 1
+          FROM openclaw_model_providers mp
+          JOIN openclaw_providers p ON p.id = mp.provider_id
+          WHERE mp.model_id = m.id
+            AND (
+              LOWER(COALESCE(p.name, '')) LIKE '%doubao-smart-router%'
+              OR LOWER(COALESCE(p.name, '')) LIKE '%doubaosmartrouter%'
+              OR LOWER(COALESCE(p.display_name, '')) LIKE '%doubao-smart-router%'
+            )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM openclaw_model_upstreams u
+         WHERE u.model_id = m.id
+            AND (
+              LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao-smart-router%'
+              OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubao smart router%'
+              OR LOWER(COALESCE(u.provider_name, '')) LIKE '%doubaosmartrouter%'
+            )
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM openclaw_model_endpoints e
+          WHERE e.model_id = m.id
+            AND LOWER(COALESCE(e.upstream_provider, '')) LIKE '%doubao-smart-router%'
+        )`
   );
 }
 
@@ -216,14 +251,18 @@ async function clearGatewayCache() {
   await cache.delByPrefix('provider-endpoints:');
 }
 
-async function syncCcClubKeyStates() {
+async function syncHuoshanKeyStates() {
   await ensureSchema();
   await withDbLock(async () => {
     const [rows] = await db.query(
       `SELECT r.key_fingerprint, r.provider_name, r.base_url, r.reset_at, r.recovered_notified_at,
-              k.api_key, k.notes
-       FROM openclaw_ccclub_key_resets r
-       LEFT JOIN openclaw_ccclub_keys k ON SHA2(k.api_key, 256) = r.key_fingerprint
+              (
+                SELECT u.api_key
+                FROM openclaw_model_upstreams u
+                WHERE SHA2(u.api_key, 256) = r.key_fingerprint
+                LIMIT 1
+              ) AS api_key
+       FROM openclaw_huoshan_key_resets r
        WHERE r.status = 'cooldown'`
     );
 
@@ -236,7 +275,7 @@ async function syncCcClubKeyStates() {
       await applyKeyStateByFingerprint(row.key_fingerprint, shouldEnable);
 
       await db.query(
-        `UPDATE openclaw_ccclub_key_resets
+        `UPDATE openclaw_huoshan_key_resets
          SET status = ?,
              recovered_notified_at = CASE
                WHEN ? = 1 AND recovered_notified_at IS NULL THEN NOW()
@@ -248,15 +287,13 @@ async function syncCcClubKeyStates() {
       );
 
       if (shouldEnable && !row.recovered_notified_at) {
-        const keyNotes = row.notes || '';
         await sendResetMail({
-          subject: `【CC Club Key恢复】${row.provider_name || 'ccclub'}${keyNotes ? ' · ' + keyNotes : ''} 已到重置时间`,
+          subject: `【火山引擎 Key恢复】${row.provider_name || 'huoshan'} 已到重置时间`,
           html: `<div style="font-family:sans-serif;line-height:1.8;">
-<h3>CC Club Key 已自动恢复启用</h3>
+<h3>火山引擎 Key 已自动恢复启用</h3>
 <p><b>Provider:</b> ${row.provider_name || '-'}</p>
 <p><b>Base URL:</b> ${row.base_url || '-'}</p>
 <p><b>Key 预览:</b> <code>${row.api_key ? maskApiKey(row.api_key) : maskFingerprint(row.key_fingerprint)}</code></p>
-<p><b>备注:</b> ${keyNotes || '-'}</p>
 <p><b>重置时间(Asia/Shanghai):</b> ${formatLocalTime(row.reset_at)}</p>
 <p><b>恢复时间(Asia/Shanghai):</b> ${formatLocalTime(new Date())}</p>
 </div>`
@@ -264,14 +301,14 @@ async function syncCcClubKeyStates() {
       }
     }
 
-    await refreshCcClubModelStatus();
+    await refreshHuoshanModelStatus();
     await clearGatewayCache();
   }, 0);
 }
 
-async function noteCcClubRateLimit({ providerName, baseUrl, apiKey, errorMessage, statusCode, source = 'chat' }) {
+async function noteHuoshanRateLimit({ providerName, baseUrl, apiKey, errorMessage, statusCode, source = 'chat' }) {
   await ensureSchema();
-  if (!isCcClubEndpoint(baseUrl, providerName)) return;
+  if (!isHuoshanEndpoint(baseUrl, providerName)) return;
   if (!apiKey) return;
 
   const resetAt = parseResetAt(errorMessage);
@@ -281,7 +318,7 @@ async function noteCcClubRateLimit({ providerName, baseUrl, apiKey, errorMessage
 
   await withDbLock(async () => {
     const [[before]] = await db.query(
-      `SELECT reset_at FROM openclaw_ccclub_key_resets WHERE key_fingerprint = ?`,
+      `SELECT reset_at FROM openclaw_huoshan_key_resets WHERE key_fingerprint = ?`,
       [fp]
     );
     const beforeTs = before?.reset_at ? new Date(before.reset_at).getTime() : 0;
@@ -289,7 +326,7 @@ async function noteCcClubRateLimit({ providerName, baseUrl, apiKey, errorMessage
     const shouldNotifyCooldown = !beforeTs || beforeTs !== nowTs;
 
     await db.query(
-      `INSERT INTO openclaw_ccclub_key_resets
+      `INSERT INTO openclaw_huoshan_key_resets
        (key_fingerprint, provider_name, base_url, reset_at, status, last_status_code, last_error_message, last_seen_at, cooldown_notified_at)
        VALUES (?, ?, ?, ?, 'cooldown', ?, ?, NOW(), NOW())
        ON DUPLICATE KEY UPDATE
@@ -311,19 +348,17 @@ async function noteCcClubRateLimit({ providerName, baseUrl, apiKey, errorMessage
     );
 
     await applyKeyStateByFingerprint(fp, false);
-    await refreshCcClubModelStatus();
+    await refreshHuoshanModelStatus();
     await clearGatewayCache();
 
     if (shouldNotifyCooldown) {
-      const keyNotes = await fetchCcClubKeyNotes(apiKey);
       await sendResetMail({
-        subject: `【CC Club Key冷却】${providerName || 'ccclub'}${keyNotes ? ' · ' + keyNotes : ''} 已记录重置时间`,
+        subject: `【火山引擎 Key冷却】${providerName || 'huoshan'} 已记录重置时间`,
         html: `<div style="font-family:sans-serif;line-height:1.8;">
-<h3>CC Club Key 进入冷却期</h3>
+<h3>火山引擎 Key 进入冷却期</h3>
 <p><b>Provider:</b> ${providerName || '-'}</p>
 <p><b>Base URL:</b> ${baseUrl || '-'}</p>
 <p><b>Key 预览:</b> <code>${maskApiKey(apiKey)}</code></p>
-<p><b>备注:</b> ${keyNotes || '-'}</p>
 <p><b>预计恢复时间(Asia/Shanghai):</b> ${formatLocalTime(resetAt)}</p>
 <p><b>记录时间(Asia/Shanghai):</b> ${formatLocalTime(new Date())}</p>
 </div>`
@@ -332,25 +367,26 @@ async function noteCcClubRateLimit({ providerName, baseUrl, apiKey, errorMessage
   }, 2);
 }
 
-function startCcClubKeyGuard() {
+function startHuoshanKeyGuard() {
   if (timerStarted) return;
   timerStarted = true;
 
-  // 启动立即执行一次，随后每分钟执行一次
-  syncCcClubKeyStates().catch((e) => {
-    console.error('[ccclub-key-guard] initial sync failed:', e.message);
+  syncHuoshanKeyStates().catch((e) => {
+    console.error('[huoshan-key-guard] initial sync failed:', e.message);
   });
 
   setInterval(() => {
-    syncCcClubKeyStates().catch((e) => {
-      console.error('[ccclub-key-guard] periodic sync failed:', e.message);
+    syncHuoshanKeyStates().catch((e) => {
+      console.error('[huoshan-key-guard] periodic sync failed:', e.message);
     });
   }, SYNC_INTERVAL_MS);
 }
 
 module.exports = {
-  noteCcClubRateLimit,
-  syncCcClubKeyStates,
-  startCcClubKeyGuard,
-  parseResetAt
+  ensureSchema,
+  noteHuoshanRateLimit,
+  syncHuoshanKeyStates,
+  startHuoshanKeyGuard,
+  parseResetAt,
+  isHuoshanEndpoint,
 };

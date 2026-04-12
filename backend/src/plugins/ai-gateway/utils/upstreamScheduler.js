@@ -329,29 +329,42 @@ async function releaseEndpointLease(endpoint, token) {
   else memoryLeases.set(leaseKey, next);
 }
 
-function computeHealthScore(endpoint, snapshot, inflight) {
+function computeHealthScore(endpoint, snapshot, inflight, options = {}) {
   const weight = Math.max(1, Number(endpoint.weight || 1));
+  const latencyCritical = Boolean(options.latencyCritical);
+  const latencyDivisor = latencyCritical ? 22 : 30;
+  const inflightPenalty = latencyCritical ? 90 : 75;
+  const recentSuccessWindowMs = latencyCritical ? 10 * 60 * 1000 : 5 * 60 * 1000;
+  const recentSuccessBonus = latencyCritical ? 45 : 20;
+  const recentFailureWindowMs = latencyCritical ? 2 * 60 * 1000 : 5 * 60 * 1000;
+  const recentFailurePenalty = latencyCritical ? 40 : 20;
   let score = 1000;
   score += Math.min(weight, 10) * 15;
-  score += (snapshot.successEwma || 1) * 120;
-  score -= Math.min(snapshot.latencyEwmaMs || 0, 15000) / 40;
+  score += (snapshot.successEwma || 1) * 100;
+  score -= Math.min(snapshot.latencyEwmaMs || 0, 15000) / latencyDivisor;
   score -= (snapshot.consecutiveFailures || 0) * 120;
   score -= (snapshot.rateLimitCount || 0) * 45;
-  score -= (snapshot.serverErrorCount || 0) * 30;
-  score -= (snapshot.timeoutCount || 0) * 40;
-  score -= inflight * 60;
+  score -= (snapshot.serverErrorCount || 0) * 35;
+  score -= (snapshot.timeoutCount || 0) * 50;
+  score -= inflight * inflightPenalty;
+  if ((snapshot.lastSuccessAt || 0) > 0 && (Date.now() - snapshot.lastSuccessAt) <= recentSuccessWindowMs) {
+    score += recentSuccessBonus;
+  }
+  if ((snapshot.lastFailureAt || 0) > 0 && (Date.now() - snapshot.lastFailureAt) <= recentFailureWindowMs) {
+    score -= recentFailurePenalty;
+  }
   if ((snapshot.circuitOpenUntil || 0) > Date.now()) score -= 5000;
   if (inflight >= config.ENDPOINT_MAX_INFLIGHT) score -= 2000;
   return Number(score.toFixed(2));
 }
 
-async function rankUpstreams(endpoints) {
+async function rankUpstreams(endpoints, options = {}) {
   await refreshConfig();
 
   const candidates = await Promise.all((endpoints || []).map(async (endpoint) => {
     const snapshot = await getHealthSnapshot(endpoint);
     const inflight = await getEndpointInflight(endpoint);
-    const score = computeHealthScore(endpoint, snapshot, inflight);
+    const score = computeHealthScore(endpoint, snapshot, inflight, options);
     const circuitOpen = (snapshot.circuitOpenUntil || 0) > Date.now();
     const saturated = inflight >= config.ENDPOINT_MAX_INFLIGHT;
     return {
@@ -379,8 +392,8 @@ async function rankUpstreams(endpoints) {
   });
 }
 
-async function acquireBestEndpoint(endpoints, token) {
-  const ranked = await rankUpstreams(endpoints);
+async function acquireBestEndpoint(endpoints, token, options = {}) {
+  const ranked = await rankUpstreams(endpoints, options);
   for (const endpoint of ranked) {
     const lease = await acquireEndpointLease(endpoint, token);
     if (!lease.acquired) continue;

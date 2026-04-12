@@ -18,6 +18,8 @@ const {
   refundModelCharge,
   roundAmount,
 } = require('../utils/billing');
+const { noteCcClubRateLimit } = require('../utils/ccClubKeyGuard');
+const { noteHuoshanRateLimit } = require('../utils/huoshanKeyGuard');
 const { createDebugRecorder } = require('../utils/requestDebug');
 const { axiosInstance } = require('../utils/upstreamHttp');
 const {
@@ -516,6 +518,26 @@ router.post(/^\/models\/(.+)$/, async (req, res) => {
         status_code: err.response?.status || null,
       }, { errorMessage: errMsg });
       lastErr = err;
+      if (is429Error(err)) {
+        await Promise.allSettled([
+          noteCcClubRateLimit({
+            providerName: selected.provider_name,
+            baseUrl: selected.base_url,
+            apiKey: selected.api_key,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'gemini'
+          }),
+          noteHuoshanRateLimit({
+            providerName: selected.provider_name,
+            baseUrl: selected.base_url,
+            apiKey: selected.api_key,
+            errorMessage: errMsg,
+            statusCode: err.response?.status || 429,
+            source: 'gemini'
+          })
+        ]);
+      }
       if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
         remaining = remaining.filter((item) => getEndpointIdentity(item) !== getEndpointIdentity(selected));
         console.log(`[Gemini 429] 端点 ${selected.id} 限流, 剩余 ${remaining.length} 个可用`);

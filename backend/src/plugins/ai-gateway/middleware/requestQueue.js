@@ -16,6 +16,8 @@ const PRIORITY = {
 const DEFAULTS = {
   GLOBAL_MAX_INFLIGHT: 120,
   MODEL_MAX_INFLIGHT_DEFAULT: 30,
+  DEEPSEEK_V32_MODEL_MAX_INFLIGHT: 50,
+  DEEPSEEK_V32_MODEL_MAX_INFLIGHT_ENABLED: true,
   MAX_QUEUE_SIZE: 3000,
   WAIT_TIMEOUT_MS: 45000,
   POLL_INTERVAL_MS: 50,
@@ -68,11 +70,22 @@ function normalizeModelKey(model) {
   return encodeURIComponent(String(model).slice(0, 160));
 }
 
+function isDeepseekV32Model(model) {
+  const normalized = String(model || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+  return normalized.includes('deepseekv32') || normalized.includes('deepseekv3251201');
+}
+
 function getModelActiveKey(model) {
   return `ai-gw:queue:active:model:${normalizeModelKey(model)}`;
 }
 
 function getModelInflightLimit(model) {
+  if (config.DEEPSEEK_V32_MODEL_MAX_INFLIGHT_ENABLED && isDeepseekV32Model(model)) {
+    return Math.max(1, Number(config.DEEPSEEK_V32_MODEL_MAX_INFLIGHT) || DEFAULTS.DEEPSEEK_V32_MODEL_MAX_INFLIGHT);
+  }
   return modelInflightOverrides[normalizeModelKey(model)] || config.MODEL_MAX_INFLIGHT_DEFAULT;
 }
 
@@ -107,13 +120,15 @@ async function getSettingWithFallback(primaryKey, fallbackKey, defaultValue) {
 
 async function refreshConfig() {
   try {
-    const [globalInflight, modelInflight, queueSize, waitTimeoutMs, pollIntervalMs, overridesRaw] = await Promise.all([
+    const [globalInflight, modelInflight, queueSize, waitTimeoutMs, pollIntervalMs, overridesRaw, deepseekInflightRaw, deepseekEnabledRaw] = await Promise.all([
       getSettingWithFallback('gateway_global_max_inflight', 'queue_max_concurrent', String(DEFAULTS.GLOBAL_MAX_INFLIGHT)),
       getSettingWithFallback('gateway_model_max_inflight_default', null, String(DEFAULTS.MODEL_MAX_INFLIGHT_DEFAULT)),
       getSettingWithFallback('gateway_queue_max_size', 'queue_max_size', String(DEFAULTS.MAX_QUEUE_SIZE)),
       getSettingWithFallback('gateway_queue_wait_timeout_ms', 'queue_wait_timeout_ms', String(DEFAULTS.WAIT_TIMEOUT_MS)),
       getSettingWithFallback('gateway_queue_poll_interval_ms', null, String(DEFAULTS.POLL_INTERVAL_MS)),
       getSettingWithFallback('gateway_model_max_inflight_overrides', null, ''),
+      getSettingWithFallback('gateway_model_max_inflight_deepseek_v32', null, String(DEFAULTS.DEEPSEEK_V32_MODEL_MAX_INFLIGHT)),
+      getSettingWithFallback('gateway_model_max_inflight_deepseek_v32_enabled', null, String(DEFAULTS.DEEPSEEK_V32_MODEL_MAX_INFLIGHT_ENABLED)),
     ]);
 
     let parsedOverrides = {};
@@ -136,6 +151,8 @@ async function refreshConfig() {
       ...config,
       GLOBAL_MAX_INFLIGHT: Math.max(1, parseInt(globalInflight, 10) || DEFAULTS.GLOBAL_MAX_INFLIGHT),
       MODEL_MAX_INFLIGHT_DEFAULT: Math.max(1, parseInt(modelInflight, 10) || DEFAULTS.MODEL_MAX_INFLIGHT_DEFAULT),
+      DEEPSEEK_V32_MODEL_MAX_INFLIGHT: Math.max(1, parseInt(deepseekInflightRaw, 10) || DEFAULTS.DEEPSEEK_V32_MODEL_MAX_INFLIGHT),
+      DEEPSEEK_V32_MODEL_MAX_INFLIGHT_ENABLED: String(deepseekEnabledRaw).trim().toLowerCase() !== 'false',
       MAX_QUEUE_SIZE: Math.max(0, parseInt(queueSize, 10) || DEFAULTS.MAX_QUEUE_SIZE),
       WAIT_TIMEOUT_MS: Math.max(1000, parseInt(waitTimeoutMs, 10) || DEFAULTS.WAIT_TIMEOUT_MS),
       POLL_INTERVAL_MS: Math.max(10, parseInt(pollIntervalMs, 10) || DEFAULTS.POLL_INTERVAL_MS),

@@ -17,10 +17,77 @@
     .admin-table-card { overflow:hidden; }
     .admin-table-card .oc-table { min-width: 760px; }
     .admin-filter-bar { display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; }
+    .model-edit-modal { width:min(94vw, 860px); }
+    .model-edit-stack { display:flex; gap:0.75rem; }
+    .model-edit-stack > .form-group { flex:1; }
+    .model-upstream-row {
+      display:grid;
+      grid-template-columns: minmax(110px, 0.9fr) minmax(180px, 1.35fr) minmax(240px, 1.7fr) minmax(160px, 1.1fr) minmax(76px, 0.48fr) auto;
+      gap:0.5rem;
+      align-items:end;
+      padding:0.65rem;
+      background:var(--bg-secondary);
+      border:1px solid var(--border-color);
+      border-radius:12px;
+    }
+    .model-upstream-row .form-group { margin-bottom:0; }
+    .model-upstream-row .form-group label { margin-bottom:0.28rem; font-size:0.7rem; }
+    .model-upstream-row .oc-input,
+    .model-upstream-row .oc-select { padding:0.62rem 0.72rem; font-size:0.8rem; }
+    .model-upstream-row .model-upstream-actions { display:flex; align-items:flex-end; }
+    .model-upstream-row .model-upstream-actions .btn-outline { width:100%; white-space:nowrap; }
+    .model-upstream-note { margin-top:0.35rem; color:var(--text-muted); font-size:0.74rem; line-height:1.45; word-break:break-all; }
+    .model-upstream-key-preview { display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center; }
+    .model-upstream-key-preview code { font-size:0.72rem; }
+    .provider-key-pill {
+      display:inline-flex;
+      align-items:center;
+      gap:0.28rem;
+      padding:0.14rem 0.52rem;
+      border-radius:999px;
+      color:#fff;
+      font-size:0.72rem;
+      font-weight:600;
+      letter-spacing:0.02em;
+      border:1px solid rgba(255,255,255,0.16);
+      box-shadow:0 10px 24px rgba(108, 92, 231, 0.22);
+      white-space:nowrap;
+    }
+    .provider-key-pill::before {
+      content:'';
+      width:6px;
+      height:6px;
+      border-radius:50%;
+      background:#fff;
+      box-shadow:0 0 8px rgba(255,255,255,0.65);
+      flex-shrink:0;
+    }
+    .provider-key-pill-nvidia {
+      background:linear-gradient(135deg, rgba(108, 92, 231, 0.92), rgba(0, 206, 201, 0.92));
+    }
+    .provider-key-pill-ccclub {
+      background:linear-gradient(135deg, rgba(239, 68, 68, 0.9), rgba(249, 115, 22, 0.9));
+      color:#fff;
+    }
+    .provider-key-badges {
+      display:flex;
+      flex-wrap:wrap;
+      gap:0.35rem;
+      margin-top:0.35rem;
+    }
     @media (max-width: 768px) {
       .admin-title { font-size: 1.5rem; }
       .admin-filter-bar > * { width: 100% !important; }
       .admin-filter-bar button { justify-content: center; }
+      .model-edit-modal { width:96vw !important; min-width:unset !important; padding:1rem; }
+      .model-edit-stack { flex-direction:column; gap:0; }
+      .model-upstream-row {
+        grid-template-columns: 1fr;
+        gap:0.4rem;
+        padding:0.55rem;
+      }
+      .model-upstream-row .model-upstream-actions { align-items:stretch; }
+      .model-upstream-row .model-upstream-actions .btn-outline { width:100%; }
     }
     @media (max-width: 560px) {
       .admin-title { font-size: 1.3rem; }
@@ -157,6 +224,7 @@
       <div class="oc-sidebar-item" data-page="logs" onclick="switchPage('logs')">&#x1f50d; 请求日志</div>
       <div class="oc-sidebar-item" data-page="debug-center" onclick="switchPage('debug-center')">&#x1f9ea; 调试中心</div>
       <div class="oc-sidebar-item" data-page="ccclub" onclick="switchPage('ccclub')">&#x1f4e8; CC Club 消息</div>
+      <div class="oc-sidebar-item" data-page="huoshan" onclick="switchPage('huoshan')">&#x1f525; 火山引擎</div>
       <div class="oc-sidebar-item" data-page="bulk-email" onclick="switchPage('bulk-email')">&#x1f4e7; 群发邮件</div>
       <div class="oc-sidebar-item" data-page="cardkeys" onclick="switchPage('cardkeys')">&#x1f511; 卡密管理</div>
       <div class="oc-sidebar-item" data-page="app-market" onclick="switchPage('app-market')">&#x1f6d2; 应用市场</div>
@@ -309,12 +377,21 @@
               <option value="active">启用</option>
               <option value="disabled">禁用</option>
             </select>
+            <select class="oc-select" id="model-filter-category" onchange="applyModelFilter()" style="width:130px;">
+              <option value="">全部分类</option>
+              <option value="smart_route">智能路由</option>
+              <option value="language">语言</option>
+              <option value="coding">编程</option>
+              <option value="vision">视觉</option>
+              <option value="image">图片</option>
+              <option value="audio">语音</option>
+            </select>
             <input class="oc-input" id="model-filter-search" placeholder="搜索模型ID或名称..." oninput="applyModelFilter()" style="width:220px;">
           </div>
         </div>
         <div class="oc-card admin-table-card models-table-wrap">
           <table class="oc-table">
-            <thead><tr><th>模型 ID</th><th>显示名称</th><th>分类</th><th>计费</th><th>按次价格</th><th>Upstreams</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>模型 ID</th><th>显示名称</th><th>路由分类</th><th>计费</th><th>按次价格</th><th>Upstreams</th><th>供应模型</th><th>输入价格 (/1M)</th><th>输出价格 (/1M)</th><th>币种</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="models-tbody"></tbody>
           </table>
         </div>
@@ -558,6 +635,19 @@
         <h2 style="margin-bottom:1.5rem;">CC Club 请求消息</h2>
         <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于查看 CC Club 相关请求样本、关键词与测试链路，便于做专项审计和问题定位。</p>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;gap:0.75rem;flex-wrap:wrap;">
+            <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;">CC Club 密钥冷却状态</div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              <button class="btn-accent btn-sm" onclick="loadCcclubKeyResets()">一键查询重置时间</button>
+              <button class="btn-outline btn-sm" id="ccclub-key-resets-email-btn" onclick="sendCcclubKeyResetsEmail()" style="display:none;">发送到邮箱</button>
+            </div>
+          </div>
+          <div style="color:var(--text-muted);font-size:0.8rem;margin-bottom:0.75rem;">
+            点击上方按钮实时刷新冷却结果与重置时间。
+          </div>
+          <div id="ccclub-key-resets-result" style="color:var(--text-muted);font-size:0.82rem;">点击按钮查询</div>
+        </div>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
           <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;margin-bottom:0.75rem;">CC Club 直连与中转链路对比</div>
           <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
             <select class="oc-select" id="ccclub-test-model" style="width:260px;">
@@ -603,16 +693,6 @@
           </div>
         </div>
         <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
-            <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;">CC Club 密钥冷却状态</div>
-            <div style="display:flex;gap:0.5rem;">
-              <button class="btn-accent btn-sm" onclick="loadCcclubKeyResets()">一键查询重置时间</button>
-              <button class="btn-outline btn-sm" id="ccclub-key-resets-email-btn" onclick="sendCcclubKeyResetsEmail()" style="display:none;">发送到邮箱</button>
-            </div>
-          </div>
-          <div id="ccclub-key-resets-result" style="color:var(--text-muted);font-size:0.82rem;">点击按钮查询</div>
-        </div>
-        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
           <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
             <input class="oc-input" id="ccclub-filter-user" placeholder="用户ID..." style="width:100px;" type="number">
             <input class="oc-input" id="ccclub-filter-model" placeholder="模型名..." style="width:160px;">
@@ -640,6 +720,21 @@
             <tbody id="ccclub-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
           </table>
           <div class="oc-pagination" id="ccclub-pagination"></div>
+        </div>
+      </div>
+
+      <div id="page-huoshan" class="page-content" style="display:none;">
+        <h2 style="margin-bottom:1.5rem;">火山引擎冷却管理</h2>
+        <p style="color:var(--text-muted);margin-bottom:1.5rem;">用于查看火山引擎所有模型相关密钥的冷却状态，并在到期后手动恢复或导出邮件报告。</p>
+        <div class="oc-card" style="margin-bottom:1rem;padding:1rem;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+            <div style="font-size:0.92rem;color:var(--text-primary);font-weight:600;">火山引擎密钥冷却状态</div>
+            <div style="display:flex;gap:0.5rem;">
+              <button class="btn-accent btn-sm" onclick="loadHuoshanKeyResets()">一键查询重置时间</button>
+              <button class="btn-outline btn-sm" id="huoshan-key-resets-email-btn" onclick="sendHuoshanKeyResetsEmail()" style="display:none;">发送到邮箱</button>
+            </div>
+          </div>
+          <div id="huoshan-key-resets-result" style="color:var(--text-muted);font-size:0.82rem;">点击按钮查询</div>
         </div>
       </div>
 
@@ -1321,7 +1416,7 @@
 
   <!-- Edit Model Modal -->
   <div class="oc-modal-overlay" id="modal-model">
-    <div class="oc-modal" style="min-width:600px;max-width:90vw;">
+    <div class="oc-modal model-edit-modal">
       <h3 id="model-modal-title">编辑模型</h3>
       <input type="hidden" id="model-edit-id">
       <div class="form-group">
@@ -1336,7 +1431,7 @@
         <label>供应模型 (可选，实际请求上游的模型ID)</label>
         <input class="oc-input" id="model-upstream-model-input" placeholder="如 claude-sonnet-4-6，留空则使用模型ID">
       </div>
-      <div style="display:flex;gap:0.75rem;">
+      <div class="model-edit-stack">
         <div class="form-group" style="flex:1;">
           <label>输入价格 (/1M)</label>
           <input class="oc-input" id="model-input-price" type="number" step="0.01">
@@ -1353,10 +1448,11 @@
           <option value="USD">美元 (USD) - 国外模型，自动转换 (汇率 7.2)</option>
         </select>
       </div>
-      <div style="display:flex;gap:0.75rem;">
+      <div class="model-edit-stack">
         <div class="form-group" style="flex:1;">
-          <label>模型分类</label>
+          <label>路由分类</label>
           <select class="oc-select" id="model-category-input" style="width:100%;">
+            <option value="smart_route">智能路由</option>
             <option value="language">语言</option>
             <option value="coding">编程</option>
             <option value="vision">视觉</option>
@@ -1412,13 +1508,18 @@
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
           <label>标识 (唯一英文名)</label>
-          <input class="oc-input" id="provider-name-input" placeholder="如 openai">
+          <input class="oc-input" id="provider-name-input" placeholder="如 doubao-smart-router">
         </div>
         <div class="form-group" style="flex:1;">
           <label>显示名称</label>
-          <input class="oc-input" id="provider-display-input" placeholder="如 OpenAI">
+          <input class="oc-input" id="provider-display-input" placeholder="如 Doubao-Smart-Router">
         </div>
       </div>
+      <div class="quickstart-note" style="margin-bottom:0.85rem;">
+        <strong style="color:var(--accent-light);">火山智能路由提示：</strong>
+        火山引擎在本平台只保留智能路由入口，建议标识写 <code>doubao-smart-router</code>，显示名称写 <code>Doubao-Smart-Router</code>；Base URL 继续使用 <code>https://ark.cn-beijing.volces.com/api/v3</code>，模型的 <code>upstream_model_id</code> 对应 Endpoint ID，不要再新建普通 Ark 直连模型。
+      </div>
+      <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.85rem;">Smart-Route 的后台展示价格按国产模型平均价自动计算，并且只保留这一条火山入口的配置与展示。</div>
       <div style="display:flex;gap:0.75rem;">
         <div class="form-group" style="flex:1;">
           <label>排序 (越小越前)</label>
@@ -1555,6 +1656,7 @@
       else if (page === 'logs') { logsPage = 1; loadLogs(); }
       else if (page === 'debug-center') { debugPage = 1; loadDebugTraces(); }
       else if (page === 'ccclub') { ccClubPage = 1; loadCcclubModelOptions(); loadCcclubMessages(); loadCcclubKeys(); loadNvidiaKeys(); }
+      else if (page === 'huoshan') loadHuoshanKeyResets();
       else if (page === 'bulk-email') toggleBulkEmailTarget();
       else if (page === 'cardkeys') loadCardKeys();
       else if (page === 'app-market') loadAppMarketAdmin();
@@ -1849,6 +1951,174 @@
     let allModels = [];
     let cachedProviders = [];
 
+    function getUpstreamProviderKind(u = {}) {
+      const provider = String(u?.provider_name || '').trim().toLowerCase();
+      const baseUrl = String(u?.base_url || '').trim().toLowerCase();
+      if (provider === 'nvidia' || baseUrl.includes('nvidia')) return 'nvidia';
+      if (provider === 'ccclub' || baseUrl.includes('ccclub')) return 'ccclub';
+      return '';
+    }
+
+    function isNvidiaUpstreamData(u = {}) {
+      return getUpstreamProviderKind(u) === 'nvidia';
+    }
+
+    function isCcclubUpstreamData(u = {}) {
+      return getUpstreamProviderKind(u) === 'ccclub';
+    }
+
+    function getKnownProviderKeyEntries(kind) {
+      const map = new Map();
+
+      const cache = kind === 'ccclub' ? ccclubKeysCache : nvidiaKeysCache;
+      (Array.isArray(cache) ? cache : []).forEach(k => {
+        const apiKey = String(k?.api_key || '').trim();
+        if (!apiKey) return;
+        map.set(apiKey, {
+          api_key: apiKey,
+          notes: String(k?.notes || '').trim(),
+          status: k?.status || 'active',
+        });
+      });
+
+      (allModels || []).forEach(m => (m.upstreams || []).forEach(u => {
+        if (getUpstreamProviderKind(u) !== kind) return;
+        const apiKey = String(u?.api_key || '').trim();
+        if (!apiKey || map.has(apiKey)) return;
+        map.set(apiKey, {
+          api_key: apiKey,
+          notes: '',
+          status: u?.status || 'active',
+        });
+      }));
+
+      return Array.from(map.values()).sort((a, b) => {
+        const noteA = a.notes || '';
+        const noteB = b.notes || '';
+        if (noteA && noteB && noteA !== noteB) return noteA.localeCompare(noteB, 'zh-CN');
+        return a.api_key.localeCompare(b.api_key);
+      });
+    }
+
+    function getUpstreamHost(baseUrl = '') {
+      try {
+        return new URL(baseUrl).hostname;
+      } catch {
+        return '';
+      }
+    }
+
+    function getUpstreamLabel(u = {}) {
+      const provider = String(u.provider_name || '').trim();
+      const host = getUpstreamHost(u.base_url || '');
+      return provider || host || '未命名';
+    }
+
+    function getUpstreamSummaryText(u = {}) {
+      const label = getUpstreamLabel(u);
+      if (isNvidiaUpstreamData(u) && u.api_key) {
+        return `${label} · ${makeNvidiaKeyPreview(u.api_key)}`;
+      }
+      return label;
+    }
+
+    function getUpstreamTitle(u = {}) {
+      const parts = [u.provider_name, u.base_url, u.api_key].filter(Boolean);
+      return parts.join(' | ');
+    }
+
+    function renderProviderKeyBadge(kind, apiKey = '') {
+      const value = String(apiKey || '').trim();
+      if (!value) return '';
+      const label = kind === 'ccclub' ? 'CC Club' : 'NVIDIA';
+      const klass = kind === 'ccclub' ? 'provider-key-pill provider-key-pill-ccclub' : 'provider-key-pill provider-key-pill-nvidia';
+      return `<span class="${klass}" title="${escapeHtmlText(value)}">${label} ${escapeHtmlText(makeNvidiaKeyPreview(value))}</span>`;
+    }
+
+    function getUsedProviderKeys(kind, excludeRow = null) {
+      const used = new Set();
+      document.querySelectorAll('#model-upstreams-list > div').forEach(row => {
+        if (excludeRow && row === excludeRow) return;
+        const rowKind = getUpstreamProviderKind({
+          provider_name: row.querySelector('.us-name')?.value?.trim() || '',
+          base_url: row.querySelector('.us-url')?.value?.trim() || '',
+        });
+        if (rowKind !== kind) return;
+        const apiKey = row.querySelector('.us-key')?.value?.trim() || row.querySelector('.us-key-input')?.value?.trim() || '';
+        if (apiKey) used.add(apiKey);
+      });
+      return used;
+    }
+
+    function pickPreferredProviderKey(kind, providerKeys, currentValue, excludeRow = null) {
+      const trimmedCurrent = String(currentValue || '').trim();
+      if (trimmedCurrent) return trimmedCurrent;
+      const used = getUsedProviderKeys(kind, excludeRow);
+      const nextKey = providerKeys.find(k => !used.has(k.api_key));
+      return nextKey ? nextKey.api_key : '';
+    }
+
+    function syncUpstreamKeyField(row) {
+      const wrap = row.querySelector('.us-key-wrap');
+      if (!wrap) return;
+
+      const currentValue = row.querySelector('.us-key')?.value?.trim() || row.querySelector('.us-key-select')?.value?.trim() || '';
+      const kind = getUpstreamProviderKind({
+        provider_name: row.querySelector('.us-name')?.value?.trim() || '',
+        base_url: row.querySelector('.us-url')?.value?.trim() || '',
+      });
+      const providerLabel = kind === 'ccclub' ? 'CC Club' : 'NVIDIA';
+      const providerKeys = kind ? getKnownProviderKeyEntries(kind) : [];
+
+      if (kind && providerKeys.length > 0) {
+        const selectedValue = pickPreferredProviderKey(kind, providerKeys, currentValue, row);
+        const datalistId = `${kind}-key-options-${Math.random().toString(36).slice(2, 10)}`;
+        wrap.innerHTML = `
+          <div class="provider-key-badges">
+            ${providerKeys.map(k => {
+              const label = k.notes ? `${k.notes} · ${makeNvidiaKeyPreview(k.api_key)}` : makeNvidiaKeyPreview(k.api_key);
+              const klass = kind === 'ccclub' ? 'provider-key-pill provider-key-pill-ccclub' : 'provider-key-pill provider-key-pill-nvidia';
+              return `<span class="${klass}" title="${escapeHtmlText(k.api_key)}">${escapeHtmlText(label)}</span>`;
+            }).join('')}
+          </div>
+          <input class="oc-input us-key us-key-input model-upstream-key-input" list="${datalistId}" value="${escapeHtmlText(selectedValue)}" placeholder="可直接输入或从建议中选择">
+          <datalist id="${datalistId}">
+            ${providerKeys.map(k => {
+              const label = k.notes ? `${k.notes} · ${makeNvidiaKeyPreview(k.api_key)}` : makeNvidiaKeyPreview(k.api_key);
+              return `<option value="${escapeHtmlText(k.api_key)}" label="${escapeHtmlText(label)}"></option>`;
+            }).join('')}
+          </datalist>
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+            <button class="btn-outline btn-sm" type="button" onclick="fillProviderKeyFromSuggestions(this, '${kind}', false)">填入建议值</button>
+            <button class="btn-outline btn-sm" type="button" onclick="fillProviderKeyFromSuggestions(this, '${kind}', true)">清空重填</button>
+          </div>
+          <div class="model-upstream-note">
+            ${providerLabel} 上游会自动展示当前已关联的 ${providerKeys.length} 个密钥，你也可以直接改写成新的 key。
+          </div>
+        `;
+        return;
+      }
+
+      wrap.innerHTML = `
+        <input class="oc-input us-key" placeholder="API Key" value="${escapeHtmlText(currentValue)}" style="width:100%;font-size:0.8rem;" type="password">
+      `;
+    }
+
+    function fillProviderKeyFromSuggestions(btn, kind = 'nvidia', clearFirst = false) {
+      const row = btn?.closest?.('.model-upstream-row');
+      if (!row) return;
+      const input = row.querySelector('.model-upstream-key-input');
+      if (!input) return;
+      if (clearFirst) input.value = '';
+      else if (!input.value.trim()) {
+        const firstBadge = row.querySelector('.provider-key-pill');
+        const title = firstBadge?.getAttribute('title') || '';
+        input.value = title || input.value;
+      }
+      input.focus();
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
     async function loadModels() {
       try {
         allModels = await api.adminGetModels();
@@ -1907,22 +2177,48 @@
     function addUpstreamRow(data) {
       const container = document.getElementById('model-upstreams-list');
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:0.4rem;align-items:center;padding:0.4rem;background:var(--bg-secondary);border-radius:6px;';
+      row.className = 'model-upstream-row';
       row.innerHTML = `
         <input type="hidden" class="us-id" value="${data?.id || ''}">
-        <input class="oc-input us-name" placeholder="名称" value="${data?.provider_name || ''}" style="width:80px;font-size:0.8rem;">
-        <input class="oc-input us-url" placeholder="Base URL" value="${data?.base_url || ''}" style="flex:2;font-size:0.8rem;">
-        <input class="oc-input us-key" placeholder="API Key" value="${data?.api_key || ''}" style="flex:1.5;font-size:0.8rem;" type="password">
-        <input class="oc-input us-model" placeholder="供应模型(可选)" value="${data?.upstream_model_id || ''}" style="width:120px;font-size:0.8rem;">
-        <input class="oc-input us-weight" placeholder="权重" value="${data?.weight || 1}" style="width:50px;font-size:0.8rem;" type="number" min="1">
-        <button class="btn-outline btn-sm" style="color:var(--danger);padding:0.2rem 0.4rem;" onclick="this.parentElement.remove()">x</button>
+        <div class="form-group">
+          <label>供应商</label>
+          <input class="oc-input us-name" placeholder="名称" value="${data?.provider_name || ''}">
+        </div>
+        <div class="form-group">
+          <label>Base URL</label>
+          <input class="oc-input us-url" placeholder="Base URL" value="${data?.base_url || ''}">
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <div class="us-key-wrap"></div>
+        </div>
+        <div class="form-group">
+          <label>供应模型</label>
+          <input class="oc-input us-model" placeholder="供应模型(可选)" value="${data?.upstream_model_id || ''}">
+        </div>
+        <div class="form-group">
+          <label>权重</label>
+          <input class="oc-input us-weight" placeholder="权重" value="${data?.weight || 1}" type="number" min="1">
+        </div>
+        <div class="form-group model-upstream-actions">
+          <label>&nbsp;</label>
+          <button class="btn-outline btn-sm" style="color:var(--danger);padding:0.38rem 0.55rem;" onclick="this.closest('.model-upstream-row').remove()">移除</button>
+        </div>
       `;
       container.appendChild(row);
+      const refreshKeyField = () => syncUpstreamKeyField(row);
+      row.querySelector('.us-name')?.addEventListener('input', refreshKeyField);
+      row.querySelector('.us-url')?.addEventListener('input', refreshKeyField);
+      syncUpstreamKeyField(row);
     }
 
     function getUpstreamsFromForm() {
       return Array.from(document.querySelectorAll('#model-upstreams-list > div')).map(row => ({
         id: row.querySelector('.us-id')?.value || null,
+        provider_kind: getUpstreamProviderKind({
+          provider_name: row.querySelector('.us-name')?.value?.trim() || '',
+          base_url: row.querySelector('.us-url')?.value?.trim() || '',
+        }) || null,
         provider_name: row.querySelector('.us-name')?.value?.trim() || '',
         base_url: row.querySelector('.us-url')?.value?.trim() || '',
         api_key: row.querySelector('.us-key')?.value?.trim() || '',
@@ -1934,6 +2230,17 @@
     async function saveModel() {
       const id = document.getElementById('model-edit-id').value;
       const upstreams = getUpstreamsFromForm();
+      const duplicateKeyPairs = new Set();
+      for (const u of upstreams) {
+        const kind = u.provider_kind || getUpstreamProviderKind(u);
+        if (!kind || !u.api_key) continue;
+        const pair = `${kind}:${u.api_key}`;
+        if (duplicateKeyPairs.has(pair)) {
+          const label = kind === 'ccclub' ? 'CC Club' : 'NVIDIA';
+          return showToast(`${label} 上游 key 不能重复，请为每条上游分配不同密钥`, 'error');
+        }
+        duplicateKeyPairs.add(pair);
+      }
       const firstProviderName = upstreams.length > 0 ? upstreams[0].provider_name : '';
       const data = {
         model_id: document.getElementById('model-id-input').value.trim(),
@@ -1974,30 +2281,67 @@
       return p ? p.display_name : '?';
     }
 
+    function normalizeModelSearchText(value) {
+      return String(value || '')
+        .toLowerCase()
+        .replace(/[\s_-]+/g, '')
+        .replace(/router/g, 'route');
+    }
+
+    const MODEL_CATEGORY_LABELS = {
+      smart_route: '智能路由',
+      language: '语言',
+      coding: '编程',
+      vision: '视觉',
+      image: '图片',
+      audio: '语音',
+    };
+
+    function getModelCategoryLabel(category) {
+      return MODEL_CATEGORY_LABELS[category] || '语言';
+    }
+
+    function isSmartRouteDisplayModel(model) {
+      if (model?.model_category === 'smart_route') return true;
+      const normalized = normalizeModelSearchText(`${model?.model_id || ''} ${model?.display_name || ''}`);
+      return normalized.includes('doubaosmartroute');
+    }
+
     function applyModelFilter() {
       const provider = document.getElementById('model-filter-provider').value;
       const status = document.getElementById('model-filter-status').value;
-      const search = document.getElementById('model-filter-search').value.trim().toLowerCase();
+      const category = document.getElementById('model-filter-category').value;
+      const search = normalizeModelSearchText(document.getElementById('model-filter-search').value.trim());
       const filtered = allModels.filter(m => {
         if (provider) {
           const ups = (m.upstreams || []).filter(u => u.status === 'active');
           if (!ups.some(u => u.provider_name === provider)) return false;
         }
         if (status && m.status !== status) return false;
-        if (search && !m.model_id.toLowerCase().includes(search) && !m.display_name.toLowerCase().includes(search)) return false;
+        if (category) {
+          const isSmartRoute = isSmartRouteDisplayModel(m);
+          if (category === 'smart_route') {
+            if (!isSmartRoute) return false;
+          } else if (m.model_category !== category) {
+            return false;
+          }
+        }
+        if (search) {
+          const searchable = normalizeModelSearchText([
+            m.model_id,
+            m.display_name,
+            m.provider,
+            m.upstream_model_id,
+            ...(m.upstreams || []).filter(u => u.status === 'active').map(u => u.provider_name),
+          ].filter(Boolean).join(' '));
+          if (!searchable.includes(search)) return false;
+        }
         return true;
       });
       renderModelsTable(filtered);
     }
 
     function renderModelsTable(models) {
-      const categoryLabel = {
-        language: '语言',
-        coding: '编程',
-        vision: '视觉',
-        image: '图片',
-        audio: '语音',
-      };
       document.getElementById('models-tbody').innerHTML = models.length
         ? models.map(m => {
             const currency = m.price_currency || 'CNY';
@@ -2010,12 +2354,18 @@
               : '<span class="badge-disabled">Token</span>';
             const ups = (m.upstreams || []).filter(u => u.status === 'active');
             const upstreamTags = ups.length > 0
-              ? ups.map(u => `<span style="display:inline-block;padding:0.1rem 0.4rem;background:var(--bg-secondary);border-radius:4px;font-size:0.75rem;margin:1px;" title="${u.base_url}">${u.provider_name || new URL(u.base_url).hostname}</span>`).join('')
+              ? ups.map(u => {
+                  const label = getUpstreamLabel(u);
+                  return `<span style="display:inline-flex;align-items:center;gap:0.25rem;padding:0.1rem 0.45rem;background:var(--bg-secondary);border-radius:4px;font-size:0.75rem;margin:1px;max-width:100%;word-break:break-all;" title="${escapeHtmlText(getUpstreamTitle(u))}">${escapeHtmlText(label)}${isNvidiaUpstreamData(u) ? ` ${renderProviderKeyBadge('nvidia', u.api_key)}` : ''}</span>`;
+                }).join('')
               : '<span style="color:var(--text-muted);font-size:0.8rem;">未配置</span>';
+            const smartRouteBadge = isSmartRouteDisplayModel(m)
+              ? ' <span class="badge-active" style="background:var(--accent-light);color:white;">智能路由</span>'
+              : '';
             return `<tr>
               <td><code style="color:var(--accent-light)">${m.model_id}</code></td>
-              <td>${m.display_name}</td>
-              <td>${categoryLabel[m.model_category] || '语言'}</td>
+              <td>${m.display_name}${smartRouteBadge}</td>
+              <td>${getModelCategoryLabel(m.model_category)}</td>
               <td>${billingBadge}</td>
               <td style="font-family:var(--font-mono);">${m.billing_mode === 'per_call' ? `$${parseFloat(m.per_call_price || 0).toFixed(6)}` : '-'}</td>
               <td style="max-width:200px;">${upstreamTags}</td>
@@ -2032,10 +2382,10 @@
             </tr>`;
           }).join('')
         : '<tr><td colspan="13" style="text-align:center;color:var(--text-muted);">暂无模型</td></tr>';
-      renderModelCards(models, categoryLabel);
+      renderModelCards(models);
     }
 
-    function renderModelCards(models, categoryLabel) {
+    function renderModelCards(models) {
       const cards = document.getElementById('models-cards');
       cards.innerHTML = models.length
         ? models.map(m => {
@@ -2046,18 +2396,21 @@
               : '按 Token';
             const ups = (m.upstreams || []).filter(u => u.status === 'active');
             const upstreamText = ups.length > 0
-              ? ups.map(u => u.provider_name || '未命名').join(' / ')
+              ? ups.map(u => getUpstreamSummaryText(u)).join(' / ')
               : '未配置';
+            const smartRouteBadge = isSmartRouteDisplayModel(m)
+              ? ' <span class="badge-active" style="background:var(--accent-light);color:white;">智能路由</span>'
+              : '';
             return `<div class="model-card">
               <div class="model-card-head">
                 <div>
-                  <div class="model-card-id">${m.model_id}</div>
+                  <div class="model-card-id">${m.model_id}${smartRouteBadge}</div>
                   <div class="model-card-name">${m.display_name}</div>
                 </div>
                 ${m.status === 'active' ? '<span class="badge-active">启用</span>' : '<span class="badge-disabled">禁用</span>'}
               </div>
               <div class="model-card-grid">
-                <div class="model-card-item"><div class="lbl">分类</div><div class="val">${categoryLabel[m.model_category] || '语言'}</div></div>
+                <div class="model-card-item"><div class="lbl">路由分类</div><div class="val">${getModelCategoryLabel(m.model_category)}</div></div>
                 <div class="model-card-item"><div class="lbl">计费</div><div class="val">${billingText}</div></div>
                 <div class="model-card-item"><div class="lbl">输入价格</div><div class="val">${sym}${(m.input_price_per_1k * 1000).toFixed(2)} /1M</div></div>
                 <div class="model-card-item"><div class="lbl">输出价格</div><div class="val">${sym}${(m.output_price_per_1k * 1000).toFixed(2)} /1M</div></div>
@@ -2896,6 +3249,7 @@
       const el = document.getElementById('ccclub-key-resets-result');
       el.innerHTML = '<span style="color:var(--text-muted);">查询中...</span>';
       try {
+        await api.post('/admin/ccclub/key-resets/refresh', {});
         const data = await api.get('/admin/ccclub/key-resets');
         const rows = data.rows || [];
         ccclubKeyResetRows = rows;
@@ -2921,14 +3275,12 @@
           const safeNotes = escapeHtmlText(r.notes || '—');
           const safeError = escapeHtmlText((r.last_error_message || '').slice(0, 40) || '—');
           const safeErrorTitle = escapeHtmlText(r.last_error_message || '');
-          const manualDisabledBadge = r.key_status === 'disabled'
-            ? '<span style="color:#fff;background:#777;padding:2px 7px;border-radius:4px;font-size:0.75rem;margin-left:4px;">已禁用</span>'
-            : '';
-          const statusBadge = (r.status === 'cooldown'
-            ? '<span style="color:#fff;background:var(--danger);padding:2px 7px;border-radius:4px;font-size:0.75rem;">冷却中</span>'
-            : '<span style="color:#fff;background:var(--success);padding:2px 7px;border-radius:4px;font-size:0.75rem;">可用</span>')
-            + manualDisabledBadge;
-          const actionBtn = r.key_status === 'disabled'
+          const statusBadge = r.status === 'disabled'
+            ? '<span style="color:#fff;background:#777;padding:2px 7px;border-radius:4px;font-size:0.75rem;">已禁用</span>'
+            : r.status === 'cooldown'
+              ? '<span style="color:#fff;background:var(--danger);padding:2px 7px;border-radius:4px;font-size:0.75rem;">冷却中</span>'
+              : '<span style="color:#fff;background:var(--success);padding:2px 7px;border-radius:4px;font-size:0.75rem;">可用</span>';
+          const actionBtn = r.status === 'disabled'
             ? '<span style="color:var(--text-muted);font-size:0.78rem;">手动禁用</span>'
             : r.status === 'cooldown'
               ? `<button class="btn-outline btn-sm" style="color:var(--success);" data-ccclub-recover-key="${safeKey}">恢复可用</button>`
@@ -2987,7 +3339,118 @@
       btn.disabled = true;
       btn.textContent = '发送中...';
       try {
-        const data = await api.post('/admin/ccclub/key-resets/send-email', {});
+        const to = '2743319061@qq.com';
+        const data = await api.post('/admin/ccclub/key-resets/send-email', { to });
+        showToast(`已发送到 ${data.to}，共 ${data.count} 条记录`, 'success');
+      } catch (e) {
+        showToast('发送失败：' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '发送到邮箱';
+      }
+    }
+
+    // === 火山引擎密钥冷却状态 ===
+    let huoshanKeyResetRows = [];
+    const huoshanKeyResetBox = document.getElementById('huoshan-key-resets-result');
+
+    huoshanKeyResetBox.addEventListener('click', (event) => {
+      const recoverBtn = event.target.closest('[data-huoshan-recover-key]');
+      if (!recoverBtn) return;
+      const apiKey = String(recoverBtn.getAttribute('data-huoshan-recover-key') || '').trim();
+      if (!apiKey) return;
+      recoverHuoshanKeyReset(apiKey, recoverBtn);
+    });
+
+    async function loadHuoshanKeyResets() {
+      const el = document.getElementById('huoshan-key-resets-result');
+      el.innerHTML = '<span style="color:var(--text-muted);">查询中...</span>';
+      try {
+        const data = await api.adminGetHuoshanKeyResets();
+        const rows = data.rows || [];
+        huoshanKeyResetRows = rows;
+        if (!rows.length) { el.innerHTML = '<span style="color:var(--text-muted);">暂无记录</span>'; return; }
+        const now = Date.now();
+        const fmtDate = s => {
+          if (!s) return '—';
+          const d = new Date(s);
+          return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }).replace(/\//g, '-');
+        };
+        const diffLabel = s => {
+          if (!s) return '';
+          const ms = new Date(s).getTime() - now;
+          if (ms <= 0) return '<span style="color:var(--success);">已可用</span>';
+          const h = Math.floor(ms / 3600000);
+          const m = Math.floor((ms % 3600000) / 60000);
+          return `<span style="color:var(--warning);">还需 ${h}h ${m}m</span>`;
+        };
+        const tbody = rows.map((r) => {
+          const safeKey = escapeHtmlText(r.api_key || '');
+          const keyPreview = String(r.api_key || r.key_fingerprint || '').slice(0, 12) + '…' + String(r.api_key || r.key_fingerprint || '').slice(-6);
+          const safeProvider = escapeHtmlText(r.provider_name || '—');
+          const safeBaseUrl = escapeHtmlText(r.base_url || '—');
+          const safeError = escapeHtmlText((r.last_error_message || '').slice(0, 40) || '—');
+          const safeErrorTitle = escapeHtmlText(r.last_error_message || '');
+          const actionBtn = r.status === 'cooldown'
+            ? `<button class="btn-outline btn-sm" style="color:var(--success);" data-huoshan-recover-key="${safeKey}">恢复可用</button>`
+            : '—';
+          return `<tr>
+            <td style="font-weight:600;">${r.id}</td>
+            <td style="font-size:0.78rem;font-family:monospace;" title="${safeKey}">${escapeHtmlText(keyPreview)}</td>
+            <td>${safeProvider}</td>
+            <td style="font-size:0.78rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${safeBaseUrl}">${safeBaseUrl}</td>
+            <td style="color:${r.status === 'cooldown' ? 'var(--danger)' : 'var(--success)'};font-weight:600;">${r.status === 'cooldown' ? '冷却中' : '可用'}</td>
+            <td>${fmtDate(r.reset_at)} ${diffLabel(r.reset_at)}</td>
+            <td>${r.last_status_code || '—'}</td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${safeErrorTitle}">${safeError}</td>
+            <td>${fmtDate(r.last_seen_at)}</td>
+            <td>${actionBtn}</td>
+          </tr>`;
+        }).join('');
+        el.innerHTML = `<table class="oc-table" style="margin-top:0.5rem;">
+          <thead><tr>
+            <th>ID</th><th>密钥</th><th>Provider</th><th>Base URL</th><th>状态</th><th>重置时间</th><th>HTTP码</th><th>最近错误</th><th>最近活跃</th><th>操作</th>
+          </tr></thead>
+          <tbody>${tbody}</tbody>
+        </table>`;
+        document.getElementById('huoshan-key-resets-email-btn').style.display = '';
+      } catch (e) {
+        huoshanKeyResetRows = [];
+        el.innerHTML = `<span style="color:var(--danger);">查询失败：${e.message}</span>`;
+      }
+    }
+
+    async function recoverHuoshanKeyReset(apiKey, btnEl) {
+      const key = String(apiKey || '').trim();
+      if (!key) {
+        showToast('缺少密钥参数', 'error');
+        return;
+      }
+      const ok = confirm('确认将该火山引擎密钥手动恢复为可用？');
+      if (!ok) return;
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = '恢复中...';
+      }
+      try {
+        await api.adminRecoverHuoshanKeyReset(key);
+        showToast('已恢复为可用', 'success');
+        loadHuoshanKeyResets();
+      } catch (e) {
+        showToast(e.message || '恢复失败', 'error');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = '恢复可用';
+        }
+      }
+    }
+
+    async function sendHuoshanKeyResetsEmail() {
+      const btn = document.getElementById('huoshan-key-resets-email-btn');
+      btn.disabled = true;
+      btn.textContent = '发送中...';
+      try {
+        const data = await api.adminSendHuoshanKeyResetsEmail();
         showToast(`已发送到 ${data.to}，共 ${data.count} 条记录`, 'success');
       } catch (e) {
         showToast('发送失败：' + e.message, 'error');
