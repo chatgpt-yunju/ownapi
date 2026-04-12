@@ -22,7 +22,6 @@ const {
 const { enqueueRequestDetail } = require('../utils/requestDetailLogger');
 const { recordMessagesStageTiming } = require('../utils/metrics');
 const { applyStreamIdleTimeout, axiosInstance, getUpstreamTimeouts } = require('../utils/upstreamHttp');
-const { MINIMAX_M27_CONTEXT_LIMIT, prepareMessagesForContextLimit } = require('../utils/contextCompaction');
 const {
   acquireBestEndpoint,
   getEndpointIdentity,
@@ -166,7 +165,9 @@ function isNvidiaLatencyCriticalModel(model, modelConfig) {
   const normalized = normalizeModelIdForLatency(model);
   return normalized.includes('step35flash')
     || normalized.includes('minimaxm25')
+    || normalized.includes('minimax25')
     || normalized.includes('minimaxm27')
+    || normalized.includes('minimax27')
     || normalized.includes('deepseekv32')
     || normalized.includes('deepseekv3251201');
 }
@@ -174,8 +175,8 @@ function isNvidiaLatencyCriticalModel(model, modelConfig) {
 function getNvidiaLatencyProfileName(model) {
   const normalized = normalizeModelIdForLatency(model);
   if (normalized.includes('step35flash')) return 'nvidia_step_35_flash';
-  if (normalized.includes('minimaxm27')) return 'nvidia_minimax_m27_fast';
-  if (normalized.includes('minimaxm25')) return 'nvidia_minimax_m25';
+  if (normalized.includes('minimaxm27') || normalized.includes('minimax27')) return 'nvidia_minimax_m27_fast';
+  if (normalized.includes('minimaxm25') || normalized.includes('minimax25')) return 'nvidia_minimax_m25';
   if (normalized.includes('deepseekv32') || normalized.includes('deepseekv3251201')) return 'nvidia_deepseek_v32';
   if (/(405b|675b|253b|120b|90b|70b|51b|49b|36b|32b|27b|24b|22b)/.test(normalized)) return 'nvidia_large';
   if (/(1b|2b|3b|4b|5b|6b|7b|8b|9b|10b|11b|12b|13b|14b|15b|16b)/.test(normalized)) return 'nvidia_small';
@@ -232,8 +233,18 @@ async function getNvidiaDeepseekFastConfig() {
 
 async function getNvidiaMinimaxFastConfig(model) {
   const normalized = normalizeModelIdForLatency(model);
-  if (normalized.includes('minimaxm27')) return { ...DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG };
+  if (normalized.includes('minimaxm27') || normalized.includes('minimax27')) return { ...DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG };
   return { ...DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG };
+}
+
+function resolveNvidiaMinimaxM27MaxTokens(requestedMaxTokens) {
+  const cap = DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.maxTokens;
+  if (requestedMaxTokens === undefined || requestedMaxTokens === null || requestedMaxTokens === '') {
+    return cap;
+  }
+  const parsed = Number(requestedMaxTokens);
+  if (!Number.isFinite(parsed) || parsed <= 0) return cap;
+  return Math.max(1, Math.min(Math.floor(parsed), cap));
 }
 
 // ========== 模型 & 上游缓存查询 ==========
@@ -595,7 +606,10 @@ function isNvidiaMinimaxM25Model(model) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
-  return normalized.includes('minimaxm25') || normalized.includes('minimaxm27');
+  return normalized.includes('minimaxm25')
+    || normalized.includes('minimax25')
+    || normalized.includes('minimaxm27')
+    || normalized.includes('minimax27');
 }
 
 function isNvidiaMinimaxM27Model(model) {
@@ -603,7 +617,7 @@ function isNvidiaMinimaxM27Model(model) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
-  return normalized.includes('minimaxm27');
+  return normalized.includes('minimaxm27') || normalized.includes('minimax27');
 }
 
 // GLM-5 不支持 JSON Schema 的 additionalProperties / $schema / $defs 等扩展字段
@@ -1463,11 +1477,7 @@ router.post('/embeddings', async (req, res) => {
 
   for (let attempt = 0; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
     const leaseToken = `${requestId}:${attempt + 1}`;
-    const picked = await acquireBestEndpoint(
-      remaining,
-      leaseToken,
-      isMinimaxM27Model ? { latencyCritical: true } : {},
-    );
+    const picked = await acquireBestEndpoint(remaining, leaseToken, {});
     const selected = picked.endpoint;
     if (!selected) {
       lastErr = createUpstreamSaturatedError();
@@ -2740,17 +2750,11 @@ router.post('/messages', async (req, res) => {
           ? baseUrl
           : resolveAnthropicCompatibleUpstreamUrl(baseUrl);
         markMessagesRequestPrepared(latencyTracker);
-        const requestedMaxTokens = max_tokens || 4096;
-        const compactedRequest = isMinimaxM27Model
-          ? prepareMessagesForContextLimit({
-            system,
-            messages,
-            requestedMaxTokens,
-            contextLimit: MINIMAX_M27_CONTEXT_LIMIT,
-          })
-          : { system, messages, maxOutputTokens: requestedMaxTokens, compacted: false };
-        const upstreamBody = { model: upstreamModel, messages: compactedRequest.messages, max_tokens: compactedRequest.maxOutputTokens };
-        if (compactedRequest.system) upstreamBody.system = compactedRequest.system;
+        const requestedMaxTokens = isMinimaxM27Model
+          ? resolveNvidiaMinimaxM27MaxTokens(max_tokens !== undefined ? max_tokens : nvidiaMinimaxFastConfig.maxTokens)
+          : (max_tokens || 4096);
+        const upstreamBody = { model: upstreamModel, messages, max_tokens: requestedMaxTokens };
+        if (system) upstreamBody.system = system;
         if (temperature !== undefined) upstreamBody.temperature = temperature;
         if (top_p !== undefined) upstreamBody.top_p = top_p;
         if (top_k !== undefined) upstreamBody.top_k = top_k;
@@ -2760,17 +2764,6 @@ router.post('/messages', async (req, res) => {
         if (thinking) upstreamBody.thinking = thinking;
         if (metadata) upstreamBody.metadata = metadata;
         if (stream) upstreamBody.stream = true;
-
-        if (compactedRequest.compacted) {
-          await debug.step(5, 'success', {
-            attempt: attempt + 1,
-            request_compacted: true,
-            dropped_messages: compactedRequest.droppedCount,
-            dropped_tokens: compactedRequest.droppedTokens,
-            input_tokens_after_compact: compactedRequest.inputTokens,
-            max_tokens_after_compact: compactedRequest.maxOutputTokens,
-          });
-        }
 
         const headers = buildAnthropicUpstreamHeaders(req, apiKey, betas);
 
@@ -2970,19 +2963,11 @@ router.post('/messages', async (req, res) => {
       );
       const useNvidiaOpenAIFastProfile = Boolean(useNvidiaFastProfile && isUpstreamNvidia);
       const requestedMaxTokens = max_tokens !== undefined
-        ? max_tokens
+        ? (isMinimaxM27Model ? resolveNvidiaMinimaxM27MaxTokens(max_tokens) : max_tokens)
         : (useNvidiaMinimaxFastProfile
           ? nvidiaMinimaxFastConfig.maxTokens
           : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.maxTokens : undefined));
-      const compactedRequest = isMinimaxM27Model
-        ? prepareMessagesForContextLimit({
-          system,
-          messages,
-          requestedMaxTokens: requestedMaxTokens || 4096,
-          contextLimit: MINIMAX_M27_CONTEXT_LIMIT,
-        })
-        : { system, messages, maxOutputTokens: requestedMaxTokens, compacted: false };
-      const openaiMessages = convertAnthropicToOpenAIMessages(compactedRequest.system, compactedRequest.messages);
+      const openaiMessages = convertAnthropicToOpenAIMessages(system, messages);
       const openaiBody = { model: upstreamModel, messages: openaiMessages, stream };
       markMessagesRequestPrepared(latencyTracker);
       if (useNvidiaOpenAIFastProfile) {
@@ -2998,7 +2983,7 @@ router.post('/messages', async (req, res) => {
           ? nvidiaMinimaxFastConfig.temperature
           : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.temperature : undefined));
       if (isMinimaxM27Model || requestedMaxTokens !== undefined) {
-        openaiBody.max_tokens = compactedRequest.maxOutputTokens;
+        openaiBody.max_tokens = requestedMaxTokens;
       }
       openaiBody.top_p = top_p !== undefined
         ? top_p
@@ -3014,17 +2999,6 @@ router.post('/messages', async (req, res) => {
           const params = t.input_schema || {};
           const sanitizedParams = isGlm5Model(model) ? sanitizeSchemaForGlm5(params) : params;
           return { type: 'function', function: { name: t.name, description: t.description || '', parameters: sanitizedParams } };
-        });
-      }
-
-      if (compactedRequest.compacted) {
-        await debug.step(5, 'success', {
-          attempt: attempt + 1,
-          request_compacted: true,
-          dropped_messages: compactedRequest.droppedCount,
-          dropped_tokens: compactedRequest.droppedTokens,
-          input_tokens_after_compact: compactedRequest.inputTokens,
-          max_tokens_after_compact: compactedRequest.maxOutputTokens,
         });
       }
 

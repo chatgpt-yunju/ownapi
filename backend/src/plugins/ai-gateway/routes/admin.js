@@ -3023,7 +3023,12 @@ router.post('/blog/:id/ai-chat', async (req, res) => {
     const axios = require('axios');
     const resp = await axios.post(
       'http://localhost:3000/v1/chat/completions',
-      { model: 'step-3.5-flash', messages, stream: false },
+      {
+        model: 'minimax-m2.7',
+        messages,
+        stream: false,
+        max_tokens: 2048,
+      },
       { headers: { Authorization: req.headers.authorization }, timeout: 60000 }
     );
     const reply = resp.data?.choices?.[0]?.message?.content || '';
@@ -3043,12 +3048,13 @@ router.post('/blog/:id/ai-rewrite-sentence', async (req, res) => {
     const resp = await axios.post(
       'http://localhost:3000/v1/chat/completions',
       {
-        model: 'step-3.5-flash',
+        model: 'minimax-m2.7',
         messages: [
           { role: 'system', content: '你是一个文字编辑助手。用户会给你一句话和改写要求，你只需要返回改写后的句子，不加任何说明、前缀或引号。' },
           { role: 'user', content: `原句：${sentence}\n要求：${instruction || '优化表达'}` },
         ],
         stream: false,
+        max_tokens: 512,
       },
       { headers: { Authorization: req.headers.authorization }, timeout: 30000 }
     );

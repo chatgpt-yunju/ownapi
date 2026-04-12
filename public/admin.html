@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>管理后台 - OpenClaw API</title>
+  <title>管理后台 - 云聚API</title>
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -250,7 +250,7 @@
 <body>
   <nav class="oc-navbar">
     <button class="oc-sidebar-toggle" onclick="toggleSidebar()" style="display:none;background:none;border:none;color:var(--text-primary);font-size:1.5rem;cursor:pointer;padding:0.5rem;">☰</button>
-    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>OpenClaw API <span style="font-size:0.7rem;color:var(--text-muted);margin-left:0.5rem;">Admin</span></a>
+    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div>云聚API <span style="font-size:0.7rem;color:var(--text-muted);margin-left:0.5rem;">Admin</span></a>
     <div class="oc-nav-links">
       <a href="/console.html">控制台</a>
       <a href="/admin.html" class="active">管理后台</a>
@@ -469,7 +469,7 @@
         <div class="admin-head">
           <div>
             <div class="admin-title" style="font-size:1.55rem;">订单管理</div>
-            <div class="admin-subtitle">查看交易状态、套餐购买、加油包订单与用户明细。</div>
+            <div class="admin-subtitle">查看交易状态、套餐购买、额度充值订单与用户明细。</div>
           </div>
         </div>
         <!-- 全部订单 -->
@@ -478,7 +478,7 @@
             <input class="oc-input" id="order-filter-user" placeholder="用户ID..." style="width:100px;" type="number">
             <select class="oc-select" id="order-filter-type" style="width:130px;">
               <option value="">全部类型</option>
-              <option value="recharge">加油包</option>
+              <option value="recharge">额度充值</option>
               <option value="package">套餐</option>
             </select>
             <select class="oc-select" id="order-filter-status" style="width:120px;">
@@ -534,7 +534,7 @@
           </div>
 
           <div class="oc-card" style="margin-bottom:1rem;">
-            <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">加油包订单</h4>
+            <h4 style="margin-bottom:0.75rem;color:var(--text-primary);">额度充值订单</h4>
             <table class="oc-table">
               <thead><tr><th>订单号</th><th>金额</th><th>状态</th><th>创建时间</th><th>支付时间</th></tr></thead>
               <tbody id="user-booster-tbody"></tbody>
@@ -943,7 +943,7 @@
             <!-- AI 面板 -->
             <div class="blog-ai-panel">
               <h4>✨ AI 改稿助手</h4>
-              <div style="font-size:0.78rem;color:var(--text-muted);">与 step-3.5-flash 对话，讨论文章修改方向。</div>
+              <div style="font-size:0.78rem;color:var(--text-muted);">与 minimax-m2.7 对话，讨论文章修改方向。</div>
               <div id="blog-chat-history" class="blog-chat-history"></div>
               <div style="display:flex;gap:0.5rem;">
                 <input class="oc-input" id="blog-chat-input" placeholder="输入改稿指令..." style="flex:1;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();blogSendChat();}">
@@ -996,11 +996,11 @@
             </div>
             <div class="form-group" style="margin-bottom:0.75rem;">
               <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">联系微信</label>
-              <input class="oc-input" id="ss-contact-wechat" placeholder="19966519194">
+              <input class="oc-input" id="ss-contact-wechat" placeholder="15953077610">
             </div>
             <div class="form-group" style="margin-bottom:0.75rem;">
               <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">联系邮箱</label>
-              <input class="oc-input" id="ss-contact-email" placeholder="xxx@qq.com">
+              <input class="oc-input" id="ss-contact-email" placeholder="cyjlnk@foxmail.com">
             </div>
             <div class="form-group" style="margin-bottom:1rem;">
               <label style="display:block;margin-bottom:4px;font-size:0.82rem;color:var(--text-secondary);">反馈邮箱</label>
@@ -2625,7 +2625,7 @@
         const q = new URLSearchParams(params).toString();
         const data = await api.get('/admin/orders?' + q);
         const orders = data.orders || [];
-        const typeLabel = { recharge: '加油包', package: '套餐', quota: '额度' };
+        const typeLabel = { recharge: '额度充值', package: '套餐', quota: '额度' };
         const statusBadge = { paid: '<span class="badge-active">已支付</span>', pending: '<span class="badge-disabled">待支付</span>', cancelled: '<span style="color:var(--text-muted);">已取消</span>', refunded: '<span style="color:var(--warning);">已退款</span>' };
         document.getElementById('orders-all-tbody').innerHTML = orders.length
           ? orders.map(o => `<tr>
@@ -2690,7 +2690,7 @@
             </tr>`).join('')
           : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">无套餐记录</td></tr>';
 
-        // 加油包订单
+        // 额度充值订单
         document.getElementById('user-booster-tbody').innerHTML = (data.boosterOrders || []).length
           ? data.boosterOrders.map(o => `<tr>
               <td style="font-family:var(--font-mono);font-size:0.75rem;">${o.out_trade_no}</td>
@@ -2699,7 +2699,7 @@
               <td style="font-size:0.75rem;">${o.created_at || '-'}</td>
               <td style="font-size:0.75rem;">${o.paid_at || '-'}</td>
             </tr>`).join('')
-          : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">无加油包订单</td></tr>';
+          : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">无额度充值订单</td></tr>';
 
         // 套餐订单
         document.getElementById('user-pkg-orders-tbody').innerHTML = (data.packageOrders || []).length

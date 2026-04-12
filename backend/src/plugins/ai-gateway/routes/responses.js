@@ -23,7 +23,6 @@ const { noteHuoshanRateLimit } = require('../utils/huoshanKeyGuard');
 const { createDebugRecorder } = require('../utils/requestDebug');
 const { extractUpstreamErrorMessage } = require('../utils/upstreamError');
 const { applyStreamIdleTimeout, axiosInstance, getUpstreamTimeouts } = require('../utils/upstreamHttp');
-const { MINIMAX_M27_CONTEXT_LIMIT, prepareMessagesForContextLimit } = require('../utils/contextCompaction');
 const { resolveAnthropicCompatibleUpstreamUrl, resolveOpenAICompatibleUpstreamUrl } = require('../utils/upstreamUrl');
 const {
   acquireBestEndpoint,
@@ -85,7 +84,8 @@ function normalizeModelIdForLatency(model) {
 }
 
 function isNvidiaMinimaxM27Model(model) {
-  return normalizeModelIdForLatency(model).includes('minimaxm27');
+  const normalized = normalizeModelIdForLatency(model);
+  return normalized.includes('minimaxm27') || normalized.includes('minimax27');
 }
 
 function withForwardedClientHeaders(req, headers) {
@@ -254,8 +254,11 @@ function buildResponsesTimingPayload(tracker, endedAt = Date.now()) {
 }
 
 function resolveResponsesMaxOutputTokens(maxOutputTokens, isMinimaxM27Model) {
-  if (maxOutputTokens !== undefined && maxOutputTokens !== null) return maxOutputTokens;
-  return isMinimaxM27Model ? DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.maxTokens : 4096;
+  const cap = isMinimaxM27Model ? DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.maxTokens : 4096;
+  if (maxOutputTokens === undefined || maxOutputTokens === null || maxOutputTokens === '') return cap;
+  const parsed = Number(maxOutputTokens);
+  if (!Number.isFinite(parsed) || parsed <= 0) return cap;
+  return isMinimaxM27Model ? Math.max(1, Math.min(Math.floor(parsed), cap)) : Math.floor(parsed);
 }
 
 function scheduleResponsesTimingLog(tracker, res, extra = {}) {
@@ -852,58 +855,23 @@ router.post('/responses', async (req, res) => {
     } else if (isAnthropicAPI) {
       markResponsesRequestPrepared(timingTracker);
       const { system, messages: anthMsgs } = messagesToAnthropic(messages);
-      const compactedRequest = isMinimaxM27Model
-        ? prepareMessagesForContextLimit({
-          system,
-          messages: anthMsgs,
-          requestedMaxTokens: effectiveMaxOutputTokens,
-          contextLimit: MINIMAX_M27_CONTEXT_LIMIT,
-        })
-        : { system, messages: anthMsgs, maxOutputTokens: effectiveMaxOutputTokens, compacted: false };
-      body = { model: upstreamModel, messages: compactedRequest.messages, max_tokens: compactedRequest.maxOutputTokens };
-      if (compactedRequest.system) body.system = compactedRequest.system;
+      body = { model: upstreamModel, messages: anthMsgs, max_tokens: effectiveMaxOutputTokens };
+      if (system) body.system = system;
       if (temperature !== undefined) body.temperature = temperature;
       if (top_p !== undefined) body.top_p = top_p;
       if (chatTools) {
         body.tools = chatTools.map(t => ({ name: t.function?.name, description: t.function?.description, input_schema: t.function?.parameters }));
       }
       if (stream) body.stream = true;
-      if (compactedRequest.compacted) {
-        await debug.step(5, 'success', {
-          attempt: attempt + 1,
-          request_compacted: true,
-          dropped_messages: compactedRequest.droppedCount,
-          dropped_tokens: compactedRequest.droppedTokens,
-          input_tokens_after_compact: compactedRequest.inputTokens,
-          max_tokens_after_compact: compactedRequest.maxOutputTokens,
-        });
-      }
       headers = withForwardedClientHeaders(req, { 'x-api-key': selected.api_key, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' });
     } else {
       markResponsesRequestPrepared(timingTracker);
-      const compactedRequest = isMinimaxM27Model
-        ? prepareMessagesForContextLimit({
-          messages,
-          requestedMaxTokens: effectiveMaxOutputTokens,
-          contextLimit: MINIMAX_M27_CONTEXT_LIMIT,
-        })
-        : { messages, maxOutputTokens: effectiveMaxOutputTokens, compacted: false };
-      body = { model: upstreamModel, messages: compactedRequest.messages, max_tokens: compactedRequest.maxOutputTokens };
+      body = { model: upstreamModel, messages, max_tokens: effectiveMaxOutputTokens };
       if (temperature !== undefined) body.temperature = temperature;
       if (top_p !== undefined) body.top_p = top_p;
       if (chatTools) body.tools = chatTools;
       if (tool_choice) body.tool_choice = tool_choice;
       if (stream) { body.stream = true; body.stream_options = { include_usage: true }; }
-      if (compactedRequest.compacted) {
-        await debug.step(5, 'success', {
-          attempt: attempt + 1,
-          request_compacted: true,
-          dropped_messages: compactedRequest.droppedCount,
-          dropped_tokens: compactedRequest.droppedTokens,
-          input_tokens_after_compact: compactedRequest.inputTokens,
-          max_tokens_after_compact: compactedRequest.maxOutputTokens,
-        });
-      }
       headers = withForwardedClientHeaders(req, { 'Authorization': `Bearer ${selected.api_key}`, 'Content-Type': 'application/json' });
     }
 
