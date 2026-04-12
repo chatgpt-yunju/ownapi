@@ -196,6 +196,55 @@
     .blog-rewrite-bar { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
     .blog-rewrite-bar input { flex:1; min-width:120px; }
     .blog-list-table { width:100%; }
+    .blog-cards-wrap { display:none; }
+    .blog-card {
+      background:var(--bg-card);
+      border:1px solid var(--border-color);
+      border-radius:12px;
+      padding:0.9rem;
+      margin-bottom:0.75rem;
+    }
+    .blog-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:0.75rem; margin-bottom:0.5rem; }
+    .blog-card-id { font-family:var(--font-mono); color:var(--accent-light); font-size:0.78rem; }
+    .blog-card-title { font-weight:600; color:var(--text-primary); margin-top:0.2rem; line-height:1.45; word-break:break-word; }
+    .blog-card-meta { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin:0.7rem 0; }
+    .blog-card-item { background:rgba(255,255,255,0.03); border-radius:8px; padding:0.45rem 0.55rem; }
+    .blog-card-item .lbl { font-size:0.7rem; color:var(--text-muted); }
+    .blog-card-item .val { margin-top:0.12rem; font-size:0.8rem; color:var(--text-secondary); word-break:break-word; }
+    .blog-card-actions { display:flex; gap:0.5rem; flex-wrap:wrap; }
+    .blog-card-actions .btn-outline { flex:1 1 calc(50% - 0.25rem); min-width:0; }
+    .blog-action-group { display:flex; gap:0.5rem; flex-wrap:wrap; }
+    .blog-action-group .btn-outline { white-space:nowrap; }
+    @media (max-width: 768px) {
+      .blog-action-group .btn-outline { flex:1 1 calc(50% - 0.25rem); }
+      .blog-cards-wrap { display:block; }
+      .blog-table-wrap { display:none; }
+      .blog-card-actions .btn-outline { flex:1 1 calc(50% - 0.25rem); }
+      #blog-editor-view .admin-head {
+        align-items:stretch;
+      }
+      #blog-editor-view .admin-head > div,
+      #blog-editor-view .admin-head > div:last-child {
+        width:100%;
+      }
+      #blog-editor-view .admin-head > div:last-child {
+        display:flex;
+        flex-wrap:wrap;
+        gap:0.5rem;
+      }
+      #blog-editor-view .admin-head > div:last-child .oc-input,
+      #blog-editor-view .admin-head > div:last-child .btn-accent {
+        width:100% !important;
+      }
+      #blog-editor-view .admin-head > div:first-child {
+        flex-direction:column;
+        align-items:flex-start;
+        gap:0.5rem;
+      }
+      #blog-editor-view .admin-head > div:first-child .btn-outline {
+        width:100%;
+      }
+    }
   </style>
 </head>
 <body>
@@ -855,15 +904,18 @@
           <div class="admin-head">
             <div>
               <div class="admin-title">技术博客</div>
-              <div class="admin-subtitle">管理公开发布的技术文章，支持 Markdown 格式。</div>
+              <div class="admin-subtitle">管理技术文章，支持 Markdown 格式与公开/私密切换。</div>
             </div>
             <button class="btn-accent" onclick="blogNewPost()">+ 新建文章</button>
           </div>
           <div class="oc-card admin-table-card">
-            <table class="oc-table blog-list-table">
-              <thead><tr><th>ID</th><th>标题</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead>
-              <tbody id="blog-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
-            </table>
+            <div class="table-scroll blog-table-wrap">
+              <table class="oc-table blog-list-table">
+                <thead><tr><th>ID</th><th>标题</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead>
+                <tbody id="blog-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);">加载中...</td></tr></tbody>
+              </table>
+            </div>
+            <div id="blog-cards-wrap" class="blog-cards-wrap" style="padding:0.75rem;"></div>
           </div>
         </div>
         <!-- 编辑器视图 -->
@@ -4228,6 +4280,21 @@
     let blogChatHistory = [];
     let blogLastAiReply = '';
 
+    function blogStatusLabel(status) {
+      return status === 'published' ? '已发布' : '草稿';
+    }
+
+    function blogActionButtonsHtml(p) {
+      return `
+        <div class="blog-action-group">
+          <button class="btn-outline btn-sm" onclick="blogEditPost(${p.id})">编辑</button>
+          <button class="btn-outline btn-sm" onclick="blogSetVisibility(${p.id}, 'draft')" ${p.status === 'published' ? '' : 'disabled style="opacity:0.5;cursor:not-allowed;"'}>私密</button>
+          <button class="btn-outline btn-sm" onclick="blogSetVisibility(${p.id}, 'published')" ${p.status !== 'published' ? '' : 'disabled style="opacity:0.5;cursor:not-allowed;"'}>公开</button>
+          <button class="btn-outline btn-sm" style="color:var(--danger);" onclick="blogDeletePost(${p.id})">删除</button>
+        </div>
+      `;
+    }
+
     async function loadBlogList() {
       try {
         const data = await api.adminGetBlogPosts();
@@ -4237,17 +4304,41 @@
               <tr>
                 <td>${p.id}</td>
                 <td style="color:var(--text-primary);font-weight:600;max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtmlText(p.title)}</td>
-                <td><span style="color:${p.status === 'published' ? 'var(--success, #4caf50)' : 'var(--text-muted)'};">${p.status === 'published' ? '已发布' : '草稿'}</span></td>
+                <td><span style="color:${p.status === 'published' ? 'var(--success, #4caf50)' : 'var(--text-muted)'};">${blogStatusLabel(p.status)}</span></td>
                 <td style="font-size:0.78rem;">${formatDate(p.updated_at || p.created_at)}</td>
                 <td>
-                  <div style="display:flex;gap:0.5rem;">
-                    <button class="btn-outline btn-sm" onclick="blogEditPost(${p.id})">编辑</button>
-                    <button class="btn-outline btn-sm" style="color:var(--danger);" onclick="blogDeletePost(${p.id})">删除</button>
-                  </div>
+                  ${blogActionButtonsHtml(p)}
                 </td>
               </tr>
             `).join('')
           : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">暂无文章，点击"+ 新建文章"开始写作。</td></tr>';
+        const cardsWrap = document.getElementById('blog-cards-wrap');
+        if (cardsWrap) {
+          cardsWrap.innerHTML = posts.length
+            ? posts.map(p => `
+                <div class="blog-card">
+                  <div class="blog-card-head">
+                    <div>
+                      <div class="blog-card-id">#${p.id}</div>
+                      <div class="blog-card-title">${escapeHtmlText(p.title)}</div>
+                    </div>
+                    <span style="font-size:0.78rem;color:${p.status === 'published' ? 'var(--success, #4caf50)' : 'var(--text-muted)'};">${blogStatusLabel(p.status)}</span>
+                  </div>
+                  <div class="blog-card-meta">
+                    <div class="blog-card-item">
+                      <div class="lbl">更新时间</div>
+                      <div class="val">${formatDate(p.updated_at || p.created_at)}</div>
+                    </div>
+                    <div class="blog-card-item">
+                      <div class="lbl">摘要</div>
+                      <div class="val">${escapeHtmlText(p.summary || '暂无摘要')}</div>
+                    </div>
+                  </div>
+                  ${blogActionButtonsHtml(p)}
+                </div>
+              `).join('')
+            : '<div style="text-align:center;color:var(--text-muted);padding:1.5rem 0;">暂无文章，点击"+ 新建文章"开始写作。</div>';
+        }
       } catch (e) {
         showToast(e.message, 'error');
       }
@@ -4296,6 +4387,33 @@
       try {
         await api.adminDeleteBlogPost(id);
         showToast('文章已删除', 'success');
+        loadBlogList();
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
+    }
+
+    async function blogSetVisibility(id, status) {
+      try {
+        const data = await api.adminGetBlogPost(id);
+        const post = data.post;
+        if (!post) {
+          showToast('文章不存在', 'error');
+          return;
+        }
+        if (post.status === status) {
+          showToast(status === 'published' ? '该文章已是公开状态' : '该文章已是私密状态', 'error');
+          return;
+        }
+        const targetLabel = status === 'published' ? '公开' : '私密';
+        if (!confirm(`确认将该文章设为${targetLabel}？`)) return;
+        await api.adminUpdateBlogPost(id, {
+          title: post.title || '',
+          summary: post.summary || '',
+          content: post.content || '',
+          status,
+        });
+        showToast(`文章已设为${targetLabel}`, 'success');
         loadBlogList();
       } catch (e) {
         showToast(e.message, 'error');

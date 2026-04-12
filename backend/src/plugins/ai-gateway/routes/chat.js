@@ -22,6 +22,7 @@ const {
 const { enqueueRequestDetail } = require('../utils/requestDetailLogger');
 const { recordMessagesStageTiming } = require('../utils/metrics');
 const { applyStreamIdleTimeout, axiosInstance, getUpstreamTimeouts } = require('../utils/upstreamHttp');
+const { MINIMAX_M27_CONTEXT_LIMIT, prepareMessagesForContextLimit } = require('../utils/contextCompaction');
 const {
   acquireBestEndpoint,
   getEndpointIdentity,
@@ -2739,8 +2740,17 @@ router.post('/messages', async (req, res) => {
           ? baseUrl
           : resolveAnthropicCompatibleUpstreamUrl(baseUrl);
         markMessagesRequestPrepared(latencyTracker);
-        const upstreamBody = { model: upstreamModel, messages, max_tokens: max_tokens || 4096 };
-        if (system) upstreamBody.system = system;
+        const requestedMaxTokens = max_tokens || 4096;
+        const compactedRequest = isMinimaxM27Model
+          ? prepareMessagesForContextLimit({
+            system,
+            messages,
+            requestedMaxTokens,
+            contextLimit: MINIMAX_M27_CONTEXT_LIMIT,
+          })
+          : { system, messages, maxOutputTokens: requestedMaxTokens, compacted: false };
+        const upstreamBody = { model: upstreamModel, messages: compactedRequest.messages, max_tokens: compactedRequest.maxOutputTokens };
+        if (compactedRequest.system) upstreamBody.system = compactedRequest.system;
         if (temperature !== undefined) upstreamBody.temperature = temperature;
         if (top_p !== undefined) upstreamBody.top_p = top_p;
         if (top_k !== undefined) upstreamBody.top_k = top_k;
@@ -2750,6 +2760,17 @@ router.post('/messages', async (req, res) => {
         if (thinking) upstreamBody.thinking = thinking;
         if (metadata) upstreamBody.metadata = metadata;
         if (stream) upstreamBody.stream = true;
+
+        if (compactedRequest.compacted) {
+          await debug.step(5, 'success', {
+            attempt: attempt + 1,
+            request_compacted: true,
+            dropped_messages: compactedRequest.droppedCount,
+            dropped_tokens: compactedRequest.droppedTokens,
+            input_tokens_after_compact: compactedRequest.inputTokens,
+            max_tokens_after_compact: compactedRequest.maxOutputTokens,
+          });
+        }
 
         const headers = buildAnthropicUpstreamHeaders(req, apiKey, betas);
 
@@ -2942,15 +2963,28 @@ router.post('/messages', async (req, res) => {
       }
 
       const upstreamUrl = resolveOpenAICompatibleUpstreamUrl(baseUrl, 'chat/completions');
-      const openaiMessages = convertAnthropicToOpenAIMessages(system, messages);
-      const openaiBody = { model: upstreamModel, messages: openaiMessages, stream };
-      markMessagesRequestPrepared(latencyTracker);
       const useNvidiaMinimaxFastProfile = Boolean(
         nvidiaMinimaxFastConfig?.enabled
         && isUpstreamNvidia
         && (isMinimaxM25Model || isMinimaxM27Model)
       );
       const useNvidiaOpenAIFastProfile = Boolean(useNvidiaFastProfile && isUpstreamNvidia);
+      const requestedMaxTokens = max_tokens !== undefined
+        ? max_tokens
+        : (useNvidiaMinimaxFastProfile
+          ? nvidiaMinimaxFastConfig.maxTokens
+          : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.maxTokens : undefined));
+      const compactedRequest = isMinimaxM27Model
+        ? prepareMessagesForContextLimit({
+          system,
+          messages,
+          requestedMaxTokens: requestedMaxTokens || 4096,
+          contextLimit: MINIMAX_M27_CONTEXT_LIMIT,
+        })
+        : { system, messages, maxOutputTokens: requestedMaxTokens, compacted: false };
+      const openaiMessages = convertAnthropicToOpenAIMessages(compactedRequest.system, compactedRequest.messages);
+      const openaiBody = { model: upstreamModel, messages: openaiMessages, stream };
+      markMessagesRequestPrepared(latencyTracker);
       if (useNvidiaOpenAIFastProfile) {
         latencyTracker.latencyProfile = nvidiaLatencyProfile;
       }
@@ -2963,11 +2997,9 @@ router.post('/messages', async (req, res) => {
         : (useNvidiaMinimaxFastProfile
           ? nvidiaMinimaxFastConfig.temperature
           : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.temperature : undefined));
-      openaiBody.max_tokens = max_tokens !== undefined
-        ? max_tokens
-        : (useNvidiaMinimaxFastProfile
-          ? nvidiaMinimaxFastConfig.maxTokens
-          : (useNvidiaOpenAIFastProfile ? nvidiaFastConfig.maxTokens : undefined));
+      if (isMinimaxM27Model || requestedMaxTokens !== undefined) {
+        openaiBody.max_tokens = compactedRequest.maxOutputTokens;
+      }
       openaiBody.top_p = top_p !== undefined
         ? top_p
         : (useNvidiaMinimaxFastProfile
@@ -2982,6 +3014,17 @@ router.post('/messages', async (req, res) => {
           const params = t.input_schema || {};
           const sanitizedParams = isGlm5Model(model) ? sanitizeSchemaForGlm5(params) : params;
           return { type: 'function', function: { name: t.name, description: t.description || '', parameters: sanitizedParams } };
+        });
+      }
+
+      if (compactedRequest.compacted) {
+        await debug.step(5, 'success', {
+          attempt: attempt + 1,
+          request_compacted: true,
+          dropped_messages: compactedRequest.droppedCount,
+          dropped_tokens: compactedRequest.droppedTokens,
+          input_tokens_after_compact: compactedRequest.inputTokens,
+          max_tokens_after_compact: compactedRequest.maxOutputTokens,
         });
       }
 
