@@ -30,7 +30,6 @@ const {
   recordUpstreamSuccess,
   releaseEndpointLease,
 } = require('../utils/upstreamScheduler');
-const { applyDomesticModelDiscount } = require('../utils/domesticDiscount');
 
 const MODEL_CACHE_TTL = 10 * 60 * 1000;          // 模型配置缓存 10 分钟
 const UPSTREAM_CACHE_TTL = 10 * 60 * 1000;       // 上游配置缓存 10 分钟
@@ -250,9 +249,8 @@ async function getModelConfig(modelId) {
   const cached = await cache.get(cacheKey);
   if (cached !== undefined) return cached;
   const [[row]] = await db.query('SELECT * FROM openclaw_models WHERE model_id = ? AND status = "active"', [modelId]);
-  const result = row ? applyDomesticModelDiscount(row) : null;
-  await cache.set(cacheKey, result, MODEL_CACHE_TTL);
-  return result;
+  await cache.set(cacheKey, row, MODEL_CACHE_TTL);
+  return row;
 }
 
 async function getModelUpstreams(modelDbId) {

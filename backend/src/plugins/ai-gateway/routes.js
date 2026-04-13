@@ -12,7 +12,6 @@ const {
   getDomesticAveragePricing,
   isSmartRouterModel,
 } = require('./utils/smartRouterPricing');
-const { applyDomesticModelDiscount } = require('./utils/domesticDiscount');
 const { createDebugRecorder, detectRequestedModel, detectRouteName } = require('./utils/requestDebug');
 const { getSchedulerSummary } = require('./utils/upstreamScheduler');
 const {
@@ -126,7 +125,7 @@ router.get('/api/models', async (req, res) => {
       isSmartRouterModel(model)
         ? applySmartRouterAveragePricing(model, smartRouterPricing)
         : model
-    )).map((model) => applyDomesticModelDiscount(
+    )).map((model) => (
       isSmartRouterModel(model)
         ? { ...model, model_category: 'smart_route' }
         : model

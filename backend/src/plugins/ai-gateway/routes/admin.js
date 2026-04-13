@@ -11,7 +11,6 @@ const {
   getDomesticAveragePricing,
   isSmartRouterModel,
 } = require('../utils/smartRouterPricing');
-const { applyDomesticModelDiscount } = require('../utils/domesticDiscount');
 const {
   adjustBalance,
   normalizeBillingMode,
@@ -738,14 +737,6 @@ router.get('/models', async (req, res) => {
         m.per_call_price = priced.per_call_price;
         m.model_category = priced.model_category;
       }
-      const discounted = applyDomesticModelDiscount(m);
-      m.input_price_per_1k = discounted.input_price_per_1k;
-      m.output_price_per_1k = discounted.output_price_per_1k;
-      m.base_input_price_per_1k = discounted.base_input_price_per_1k;
-      m.base_output_price_per_1k = discounted.base_output_price_per_1k;
-      m.discount_rate = discounted.discount_rate;
-      m.discount_label = discounted.discount_label;
-      m.is_domestic_discounted = discounted.is_domestic_discounted;
     }
     res.json(models);
   } catch (err) {

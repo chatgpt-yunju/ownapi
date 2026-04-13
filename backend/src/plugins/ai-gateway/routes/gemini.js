@@ -30,7 +30,6 @@ const {
   recordUpstreamSuccess,
   releaseEndpointLease,
 } = require('../utils/upstreamScheduler');
-const { applyDomesticModelDiscount } = require('../utils/domesticDiscount');
 
 const MAX_RETRIES = 2;
 const PRE_RESERVE = 0.01;
@@ -421,7 +420,7 @@ router.post(/^\/models\/(.+)$/, async (req, res) => {
       await debug.step(5, 'error', { reason: 'model_not_found' }, { errorMessage: `Model not found: ${model}` });
       return res.status(404).json({ error: { code: 404, message: `Model not found: ${model}`, status: 'NOT_FOUND' } });
     }
-    modelConfig = applyDomesticModelDiscount(row);
+    modelConfig = row;
   } catch (err) {
     await debug.step(5, 'error', { reason: 'model_lookup_failed' }, { errorMessage: err.message });
     return res.status(500).json({ error: { code: 500, message: 'Internal error', status: 'INTERNAL' } });
