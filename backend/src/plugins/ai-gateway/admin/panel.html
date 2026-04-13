@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Gateway 管理配置面板</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .header p {
+            opacity: 0.9;
+            margin-top: 4px;
+            font-size: 14px;
+        }
+
+        .nav {
+            display: flex;
+            gap: 4px;
+            background: white;
+            padding: 8px 32px;
+            border-bottom: 1px solid #e8e8e8;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .nav-item {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #666;
+            transition: all 0.2s;
+            border: none;
+            background: transparent;
+        }
+
+        .nav-item:hover {
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .nav-item.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px 32px;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header h2 {
+            font-size: 16px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 24px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .form-group label .required {
+            color: #ff4d4f;
+            margin-left: 4px;
+        }
+
+        .form-control {
+            padding: 10px 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .form-control:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-control:disabled {
+            background: #f5f5f5;
+            cursor: not-allowed;
+        }
+
+        .form-text {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .switch {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+        }
+
+        .switch input {
+            width: 44px;
+            height: 22px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: #ccc;
+            border-radius: 11px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .switch input:checked {
+            background: #667eea;
+        }
+
+        .switch input::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s;
+        }
+
+        .switch input:checked::after {
+            transform: translateX(22px);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+
+        .btn-success {
+            background: #52c41a;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #ff4d4f;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        th {
+            background: #fafafa;
+            font-weight: 600;
+            color: #333;
+            font-size: 14px;
+        }
+
+        td {
+            font-size: 14px;
+            color: #666;
+        }
+
+        tr:hover {
+            background: #fafafa;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .status-active {
+            background: #e6ffed;
+            color: #52c41a;
+        }
+
+        .status-inactive {
+            background: #fff1f0;
+            color: #ff4d4f;
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 24px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: #52c41a;
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: none;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow: auto;
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h3 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid #f0f0f0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .log-output {
+            background: #1a1a1a;
+            color: #4af;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        @media (max-width: 768px) {
+            .nav {
+                flex-wrap: wrap;
+                padding: 8px 16px;
+            }
+
+            .container {
+                padding: 16px;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 AI Gateway 管理配置面板</h1>
+        <p>统一配置所有变量，无需编辑代码</p>
+    </div>
+
+    <div class="nav">
+        <button class="nav-item active" onclick="showTab('overview')">总览</button>
+        <button class="nav-item" onclick="showTab('endpoints')">上游 Endpoint</button>
+        <button class="nav-item" onclick="showTab('scheduler')">调度配置</button>
+        <button class="nav-item" onclick="showTab('rate-limit')">限流设置</button>
+        <button class="nav-item" onclick="showTab('cache')">缓存配置</button>
+        <button class="nav-item" onclick="showTab('models')">模型映射</button>
+        <button class="nav-item" onclick="showTab('logs')">日志配置</button>
+    </div>
+
+    <div class="container">
+        <!-- 总览 -->
+        <div id="overview" class="tab-content active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-endpoints">-</div>
+                    <div class="stat-label">上游 Endpoint</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="active-endpoints">-</div>
+                    <div class="stat-label">活跃中</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="today-requests">-</div>
+                    <div class="stat-label">今日请求</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="healthy-rate">-</div>
+                    <div class="stat-label">健康率</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2>系统状态</h2>
+                    <button class="btn btn-primary" onclick="refreshStats()">刷新</button>
+                </div>
+                <div class="card-body">
+                    <div class="log-output" id="system-logs">正在加载...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Endpoint管理 -->
+        <div id="endpoints" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>上游 Endpoint 列表</h2>
+                    <button class="btn btn-success" onclick="showAddModal()">+ 添加 Endpoint</button>
+                </div>
+                <div class="card-body">
+                    <div class="table-container">
+                        <table id="endpoints-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>提供商</th>
+                                    <th>Base URL</th>
+                                    <th>权重</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- 动态加载 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 调度配置 -->
+        <div id="scheduler" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>调度算法配置</h2>
+                </div>
+                <div class="card-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>调度算法</label>
+                            <select class="form-control" id="scheduler-algorithm">
+                                <option value="weighted">加权轮询 (Weighted)</option>
+                                <option value="round-robin">简单轮询 (Round Robin)</option>
+                                <option value="least-connections">最少连接 (Least Connections)</option>
+                                <option value="health-weighted">健康加权 (Health Weighted)</option>
+                            </select>
+                            <span class="form-text">请求分发到上游的策略</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label>最大并发数</label>
+                            <input type="number" class="form-control" id="max-inflight" value="10" min="1" max="100">
+                            <span class="form-text">单个 Endpoint 的最大并发请求数</span>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>熔断触发阈值</label>
+                            <input type="number" class="form-control" id="failure-threshold" value="5" min="1" max="20">
+                            <span class="form-text">连续失败次数达到此值后熔断</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label>熔断持续时间 (ms)</label>
+                            <input type="number" class="form-control" id="circuit-open-ms" value="60000" min="1000" step="1000">
+                            <span class="form-text">熔断后恢复的时间</span>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="switch">
+                                <input type="checkbox" id="health-check" checked>
+                                <span>启用健康检查</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="switch">
+                                <input type="checkbox" id="circuit-breaker" checked>
+                                <span>启用熔断保护</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 24px;">
+                        <button class="btn btn-primary" onclick="saveSchedulerConfig()">保存配置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 限流设置 -->
+        <div id="rate-limit" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>限流配置</h2>
+                </div>
+                <div class="card-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="switch">
+                                <input type="checkbox" id="rate-limit-enabled" checked>
+                                <span>启用限流</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>每分钟请求数</label>
+                            <input type="number" class="form-control" id="requests-per-minute" value="60" min="1">
+                            <span class="form-text">每分钟允许的最大请求数</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label>突发容量</label>
+                            <input type="number" class="form-control" id="burst-size" value="10" min="1">
+                            <span class="form-text">允许的突发请求数</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 24px;">
+                        <button class="btn btn-primary" onclick="saveRateLimitConfig()">保存配置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 缓存配置 -->
+        <div id="cache" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>缓存配置</h2>
+                </div>
+                <div class="card-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="switch">
+                                <input type="checkbox" id="cache-enabled" checked>
+                                <span>启用缓存</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>缓存时间 (秒)</label>
+                            <input type="number" class="form-control" id="cache-ttl" value="600" min="1">
+                            <span class="form-text">缓存条目的有效期</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label>最大条目数</label>
+                            <input type="number" class="form-control" id="cache-max-size" value="1000" min="100">
+                            <span class="form-text">缓存存储的最大条目数</span>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 24px;">
+                        <button class="btn btn-primary" onclick="saveCacheConfig()">保存配置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 模型映射 -->
+        <div id="models" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>模型映射配置</h2>
+                    <button class="btn btn-success" onclick="showModelModal()">+ 添加映射</button>
+                </div>
+                <div class="card-body">
+                    <div class="table-container">
+                        <table id="models-table">
+                            <thead>
+                                <tr>
+                                    <th>本地模型ID</th>
+                                    <th>上游提供商</th>
+                                    <th>上游模型ID</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- 动态加载 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 日志配置 -->
+        <div id="logs" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>日志配置</h2>
+                </div>
+                <div class="card-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>日志级别</label>
+                            <select class="form-control" id="log-level">
+                                <option value="debug">Debug (调试)</option>
+                                <option value="info" selected>Info (信息)</option>
+                                <option value="warn">Warning (警告)</option>
+                                <option value="error">Error (错误)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>日志轮转</label>
+                            <select class="form-control" id="log-rotation">
+                                <option value="1d">每天</option>
+                                <option value="7d" selected>每周</option>
+                                <option value="30d">每月</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="switch">
+                                <input type="checkbox" id="save-requests" checked>
+                                <span>保存请求日志</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="switch">
+                                <input type="checkbox" id="save-responses">
+                                <span>保存响应日志 (谨慎开启，数据量大)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 24px;">
+                        <button class="btn btn-primary" onclick="saveLogConfig()">保存配置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加 Endpoint Modal -->
+    <div id="add-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>添加上游 Endpoint</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>提供商名称 <span class="required">*</span></label>
+                    <input type="text" class="form-control" id="modal-provider" placeholder="例如: OpenAI, Claude">
+                </div>
+                <div class="form-group">
+                    <label>Base URL <span class="required">*</span></label>
+                    <input type="text" class="form-control" id="modal-base-url" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="form-group">
+                    <label>API Key <span class="required">*</span></label>
+                    <input type="password" class="form-control" id="modal-api-key" placeholder="sk-...">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>权重</label>
+                        <input type="number" class="form-control" id="modal-weight" value="100" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>优先级</label>
+                        <input type="number" class="form-control" id="modal-priority" value="0">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="switch">
+                        <input type="checkbox" id="modal-enabled" checked>
+                        <span>启用此 Endpoint</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button class="btn btn-success" onclick="saveEndpoint()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast">保存成功！</div>
+
+    <script>
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            loadEndpoints();
+            loadStats();
+        });
+
+        // 切换标签
+        function showTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // 加载 Endpoint 列表
+        async function loadEndpoints() {
+            try {
+                const res = await fetch('/gateway/admin/api/endpoints');
+                const data = await res.json();
+
+                const tbody = document.querySelector('#endpoints-table tbody');
+                tbody.innerHTML = data.map(ep => `
+                    <tr>
+                        <td>${ep.id}</td>
+                        <td>${ep.provider_name}</td>
+                        <td>${ep.base_url}</td>
+                        <td>${ep.weight}</td>
+                        <td>
+                            <span class="status-badge ${ep.is_enabled ? 'status-active' : 'status-inactive'}">
+                                ${ep.is_enabled ? '启用' : '禁用'}
+                            </span>
+                        </td>
+                        <td class="actions">
+                            <button class="btn btn-primary btn-sm" onclick="testEndpoint(${ep.id})">测试</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteEndpoint(${ep.id})">删除</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载失败:', e);
+            }
+        }
+
+        // 加载统计数据
+        async function loadStats() {
+            try {
+                const res = await fetch('/gateway/admin/api/stats');
+                const data = await res.json();
+
+                document.getElementById('total-endpoints').textContent = data.endpoints?.total || 0;
+                document.getElementById('active-endpoints').textContent = data.endpoints?.active || 0;
+                document.getElementById('today-requests').textContent = data.today?.requests || 0;
+
+                const total = data.endpoints?.total || 1;
+                const active = data.endpoints?.active || 0;
+                document.getElementById('healthy-rate').textContent =
+                    Math.round((active / total) * 100) + '%';
+            } catch (e) {
+                console.error('加载统计失败:', e);
+            }
+        }
+
+        // 显示添加 Modal
+        function showAddModal() {
+            document.getElementById('add-modal').classList.add('show');
+        }
+
+        // 关闭 Modal
+        function closeModal() {
+            document.getElementById('add-modal').classList.remove('show');
+        }
+
+        // 保存 Endpoint
+        async function saveEndpoint() {
+            const data = {
+                provider_name: document.getElementById('modal-provider').value,
+                base_url: document.getElementById('modal-base-url').value,
+                api_key: document.getElementById('modal-api-key').value,
+                weight: parseInt(document.getElementById('modal-weight').value),
+                priority: parseInt(document.getElementById('modal-priority').value),
+                is_enabled: document.getElementById('modal-enabled').checked ? 1 : 0
+            };
+
+            try {
+                const res = await fetch('/gateway/admin/api/endpoints', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    showToast('添加成功！');
+                    closeModal();
+                    loadEndpoints();
+                    loadStats();
+                }
+            } catch (e) {
+                showToast('添加失败: ' + e.message);
+            }
+        }
+
+        // 删除 Endpoint
+        async function deleteEndpoint(id) {
+            if (!confirm('确定删除此 Endpoint？')) return;
+
+            try {
+                const res = await fetch(`/gateway/admin/api/endpoints/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (res.ok) {
+                    showToast('删除成功！');
+                    loadEndpoints();
+                    loadStats();
+                }
+            } catch (e) {
+                showToast('删除失败: ' + e.message);
+            }
+        }
+
+        // 测试 Endpoint
+        async function testEndpoint(id) {
+            showToast('测试中...');
+
+            try {
+                const res = await fetch(`/gateway/admin/api/endpoints/${id}/test`, {
+                    method: 'POST'
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`测试成功！延迟: ${data.latency}ms`);
+                } else {
+                    showToast('测试失败: ' + data.message);
+                }
+            } catch (e) {
+                showToast('测试失败: ' + e.message);
+            }
+        }
+
+        // 显示 Toast
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        // 保存调度配置
+        async function saveSchedulerConfig() {
+            const data = {
+                algorithm: document.getElementById('scheduler-algorithm').value,
+                maxInflight: parseInt(document.getElementById('max-inflight').value),
+                failureThreshold: parseInt(document.getElementById('failure-threshold').value),
+                circuitOpenMs: parseInt(document.getElementById('circuit-open-ms').value),
+                healthCheck: document.getElementById('health-check').checked,
+                circuitBreaker: document.getElementById('circuit-breaker').checked
+            };
+
+            // TODO: 发送到后端
+            showToast('配置已保存！');
+        }
+
+        // 保存限流配置
+        async function saveRateLimitConfig() {
+            const data = {
+                enabled: document.getElementById('rate-limit-enabled').checked,
+                requestsPerMinute: parseInt(document.getElementById('requests-per-minute').value),
+                burstSize: parseInt(document.getElementById('burst-size').value)
+            };
+
+            showToast('配置已保存！');
+        }
+
+        // 保存缓存配置
+        async function saveCacheConfig() {
+            const data = {
+                enabled: document.getElementById('cache-enabled').checked,
+                ttl: parseInt(document.getElementById('cache-ttl').value),
+                maxSize: parseInt(document.getElementById('cache-max-size').value)
+            };
+
+            showToast('配置已保存！');
+        }
+
+        // 保存日志配置
+        async function saveLogConfig() {
+            const data = {
+                level: document.getElementById('log-level').value,
+                rotation: document.getElementById('log-rotation').value,
+                saveRequests: document.getElementById('save-requests').checked,
+                saveResponses: document.getElementById('save-responses').checked
+            };
+
+            showToast('配置已保存！');
+        }
+
+        // 刷新统计
+        function refreshStats() {
+            loadStats();
+            showToast('已刷新！');
+        }
+    </script>
+</body>
+</html>

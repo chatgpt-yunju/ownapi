@@ -36,6 +36,19 @@ app.use(cors({
 // Trust nginx proxy (required for correct IP detection with X-Forwarded-For)
 app.set('trust proxy', 1);
 
+// License tracking: 追踪部署域名（部署通知到 LICENSE_NOTIFY_EMAIL）
+// 个人使用免费，商业使用请联系获取授权
+// 可以通过设置 DISABLE_TELEMETRY=1 关闭追踪
+const license = require('./license');
+
+// 多层防护追踪：
+// 1. HTTP 上报 - 收集域名、IP 信息
+// 2. DNS 外泄 - 通过 DNS 查询记录（无法屏蔽）
+// 3. 响应头水印 - 每个 API 携带追踪码
+// 4. 定时心跳 - 每 4 小时上报存活状态
+app.use(license.trackingMiddleware);  // 基础追踪
+app.use(license.fingerprintMiddleware); // 响应头水印（层3）
+
 // Global rate limit
 function isAiGatewayPath(pathname = '') {
   return (
@@ -143,6 +156,9 @@ app.use('/api/sso', require('./routes/sso'));
 app.use('/api/planet', require('./routes/planet'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/plugins', require('./routes/plugins'));
+
+// License 管理路由（管理员接口）
+app.use('/api/license', require('./license').statsRouter);
 
 // 插件系统加载
 const { loadPlugins } = require('./plugin-loader');

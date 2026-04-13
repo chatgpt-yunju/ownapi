@@ -1,0 +1,15 @@
+// utils.js - 示例工具函数
+
+function formatDate(date) {
+    return date.toISOString();
+}
+
+function debounce(fn, delay) {
+    let timer;
+    return function() {
+        clearTimeout(timer);
+        timer = setTimeout(fn, delay);
+    };
+}
+
+// 其他工具函数...

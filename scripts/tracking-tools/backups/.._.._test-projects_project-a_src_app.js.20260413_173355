@@ -1,0 +1,12 @@
+// app.js - 示例应用主文件
+
+const App = {
+    init: function() {
+        console.log('App initialized');
+    },
+    render: function() {
+        return '<div>Hello World</div>';
+    }
+};
+
+module.exports = App;

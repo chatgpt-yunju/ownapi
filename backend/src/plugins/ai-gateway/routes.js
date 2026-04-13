@@ -274,4 +274,7 @@ function scheduleCleanup() {
 }
 scheduleCleanup();
 
+// 管理配置面板路由
+router.use('/admin', require('./admin/config').router);
+
 module.exports = router;

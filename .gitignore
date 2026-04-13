@@ -1,12 +1,35 @@
+# Dependencies
 node_modules/
+package-lock.json
+
+# Environment files
 .env
+.env.*
+*.env
+
+# Build output
 dist/
 __pycache__/
 venv/
+
+# Uploads and logs
 output/
 uploads/
 logs/
 *.log
 *.sqlite
-.gstack/
+
+# Secrets and credentials
+*.pem
+*.key
+secrets/
+credentials/
+
+# Backups
 backend/backups/
+.gstack/
+
+# Markdown documentation (except README and LICENSE)
+*.md
+!README.md
+!LICENSE
