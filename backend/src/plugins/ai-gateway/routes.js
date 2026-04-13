@@ -12,6 +12,7 @@ const {
   getDomesticAveragePricing,
   isSmartRouterModel,
 } = require('./utils/smartRouterPricing');
+const { applyDomesticModelDiscount } = require('./utils/domesticDiscount');
 const { createDebugRecorder, detectRequestedModel, detectRouteName } = require('./utils/requestDebug');
 const { getSchedulerSummary } = require('./utils/upstreamScheduler');
 const {
@@ -125,7 +126,7 @@ router.get('/api/models', async (req, res) => {
       isSmartRouterModel(model)
         ? applySmartRouterAveragePricing(model, smartRouterPricing)
         : model
-    )).map((model) => (
+    )).map((model) => applyDomesticModelDiscount(
       isSmartRouterModel(model)
         ? { ...model, model_category: 'smart_route' }
         : model
@@ -179,6 +180,9 @@ router.get('/api/blog/:id', async (req, res) => {
     res.status(500).json({ error: '获取文章失败' });
   }
 });
+
+// 公开：游客 Key 查询/订单查询/购买入口
+router.use('/api/guest', require('../../routes/guest'));
 
 // SSO 鉴权路由
 router.use('/api/user', authMiddleware, require('./routes/user'));

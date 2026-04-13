@@ -11,6 +11,7 @@ const {
   getDomesticAveragePricing,
   isSmartRouterModel,
 } = require('../utils/smartRouterPricing');
+const { applyDomesticModelDiscount } = require('../utils/domesticDiscount');
 const {
   adjustBalance,
   normalizeBillingMode,
@@ -125,6 +126,25 @@ function nl2brHtml(input = '') {
 function trimForLog(input, max = 1200) {
   const s = typeof input === 'string' ? input : JSON.stringify(input || '');
   return s.length > max ? `${s.slice(0, max)} ...[truncated]` : s;
+}
+
+function stripUntrustedSenderMetadata(input = '') {
+  const value = String(input || '');
+  return value
+    .replace(/\n?Sender \(untrusted metadata\):\s*\n```json[\s\S]*?\n```\s*/gi, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function sanitizeRequestPromptFields(row = {}) {
+  return {
+    ...row,
+    user_prompt_preview: stripUntrustedSenderMetadata(row.user_prompt_preview || ''),
+    user_prompt: stripUntrustedSenderMetadata(row.user_prompt || ''),
+    messages: stripUntrustedSenderMetadata(row.messages || ''),
+    system_prompt: stripUntrustedSenderMetadata(row.system_prompt || ''),
+    response_content: stripUntrustedSenderMetadata(row.response_content || ''),
+  };
 }
 
 async function runHttpJsonTest({ url, headers, body, timeoutMs = 45000 }) {
@@ -275,24 +295,24 @@ async function getRequestDebugTraceDetail(requestId) {
     [requestId]
   );
 
-  const summary = callLog || (steps[0] ? {
-    request_id: requestId,
-    model: steps[0].model,
-    user_id: steps[0].user_id,
-    api_key_id: steps[0].api_key_id,
-    created_at: steps[0].created_at,
+    const summary = callLog || (steps[0] ? {
+      request_id: requestId,
+      model: steps[0].model,
+      user_id: steps[0].user_id,
+      api_key_id: steps[0].api_key_id,
+      created_at: steps[0].created_at,
     status: steps.some(step => step.status === 'error') ? 'error' : 'success',
     route_name: steps[0].route_name,
   } : null);
 
-  return {
-    request_id: requestId,
-    summary,
-    steps: steps.map(step => ({
-      ...step,
-      detail: parseDetailJson(step.detail_json),
-    })),
-  };
+    return {
+      request_id: requestId,
+      summary: summary ? sanitizeRequestPromptFields(summary) : summary,
+      steps: steps.map(step => ({
+        ...step,
+        detail: parseDetailJson(step.detail_json),
+      })),
+    };
 }
 
 function buildManualDebugRelayRequest({ route_type, model, prompt, system, temperature, max_tokens }) {
@@ -718,6 +738,14 @@ router.get('/models', async (req, res) => {
         m.per_call_price = priced.per_call_price;
         m.model_category = priced.model_category;
       }
+      const discounted = applyDomesticModelDiscount(m);
+      m.input_price_per_1k = discounted.input_price_per_1k;
+      m.output_price_per_1k = discounted.output_price_per_1k;
+      m.base_input_price_per_1k = discounted.base_input_price_per_1k;
+      m.base_output_price_per_1k = discounted.base_output_price_per_1k;
+      m.discount_rate = discounted.discount_rate;
+      m.discount_label = discounted.discount_label;
+      m.is_domestic_discounted = discounted.is_domestic_discounted;
     }
     res.json(models);
   } catch (err) {
@@ -1052,7 +1080,10 @@ router.get('/users/:id/calls', async (req, res) => {
       [req.params.id, Number(limit), Number(offset)]
     );
     const [[{ total }]] = await db.query('SELECT COUNT(*) as total FROM openclaw_call_logs WHERE user_id = ?', [req.params.id]);
-    res.json({ logs, total });
+    res.json({
+      logs: logs.map(sanitizeRequestPromptFields),
+      total,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '获取调用日志失败' });
@@ -1168,7 +1199,7 @@ router.get('/logs/:requestId', async (req, res) => {
     if (!log) return res.status(404).json({ error: '日志不存在' });
     const trace = await getRequestDebugTraceDetail(req.params.requestId);
     log.debug_steps = trace.steps;
-    res.json(log);
+    res.json(sanitizeRequestPromptFields(log));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '获取日志详情失败' });
@@ -1418,13 +1449,13 @@ router.post('/ccclub/messages/send-email', async (req, res) => {
       <div><b>费用:</b> ¥${Number(row.total_cost || 0).toFixed(6)}</div>
       <div><b>错误:</b> ${escapeHtml(row.error_message || '-')}</div>
       <div style="margin-top:8px;"><b>User Prompt</b></div>
-      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;">${escapeHtml(row.user_prompt || '')}</pre>
+      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;">${escapeHtml(stripUntrustedSenderMetadata(row.user_prompt || ''))}</pre>
       <div style="margin-top:8px;"><b>System Prompt</b></div>
-      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;">${escapeHtml(row.system_prompt || '')}</pre>
+      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;">${escapeHtml(stripUntrustedSenderMetadata(row.system_prompt || ''))}</pre>
       <div style="margin-top:8px;"><b>Messages</b></div>
-      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;max-height:420px;overflow:auto;">${escapeHtml(row.messages || '')}</pre>
+      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;max-height:420px;overflow:auto;">${escapeHtml(stripUntrustedSenderMetadata(row.messages || ''))}</pre>
       <div style="margin-top:8px;"><b>Response</b></div>
-      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;max-height:420px;overflow:auto;">${escapeHtml(row.response_content || '')}</pre>
+      <pre style="white-space:pre-wrap;background:#f7f7f9;border:1px solid #eee;padding:8px;border-radius:6px;max-height:420px;overflow:auto;">${escapeHtml(stripUntrustedSenderMetadata(row.response_content || ''))}</pre>
     `).join('<hr style="margin:22px 0;border:none;border-top:1px solid #ddd;">');
 
     const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
@@ -2800,6 +2831,97 @@ db.query(`CREATE TABLE IF NOT EXISTS openclaw_nvidia_keys (
   created_at DATETIME DEFAULT NOW()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`).catch(() => {});
 
+const NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1';
+
+async function getCanonicalNvidiaApiKeys() {
+  const [rows] = await db.query(
+    `SELECT DISTINCT u.api_key, u.sort_order, u.id
+     FROM openclaw_model_upstreams u
+     JOIN openclaw_models m ON m.id = u.model_id
+     WHERE m.model_id = 'minimax-m2.7'
+       AND (u.provider_name = 'nvidia' OR u.base_url LIKE '%nvidia%')
+       AND u.status = 'active'
+     ORDER BY u.sort_order, u.id`
+  );
+
+  const keys = [];
+  const seen = new Set();
+  for (const row of rows) {
+    if (!row.api_key || seen.has(row.api_key)) continue;
+    seen.add(row.api_key);
+    keys.push(String(row.api_key).trim());
+  }
+
+  if (keys.length !== 8) {
+    throw new Error(`Canonical NVIDIA key set is incomplete: expected 8, got ${keys.length}`);
+  }
+
+  return keys;
+}
+
+async function syncNvidiaUpstreamsForAllModels() {
+  const apiKeys = await getCanonicalNvidiaApiKeys();
+  const [models] = await db.query(
+    `SELECT id, model_id, upstream_model_id
+     FROM openclaw_models
+     WHERE status = 'active' AND provider = 'nvidia'
+     ORDER BY sort_order, id`
+  );
+
+  const conn = await db.getConnection();
+  let insertedRows = 0;
+  let touchedModels = 0;
+
+  try {
+    await conn.beginTransaction();
+
+    for (const model of models) {
+      await conn.query(
+        `DELETE FROM openclaw_model_upstreams
+         WHERE model_id = ?
+           AND (provider_name = 'nvidia' OR base_url LIKE '%nvidia%')`,
+        [model.id]
+      );
+
+      const upstreamModelId = model.upstream_model_id || model.model_id;
+      const rows = apiKeys.map((apiKey, index) => ([
+        model.id,
+        `nvidia-${index + 1}`,
+        NVIDIA_BASE_URL,
+        apiKey,
+        upstreamModelId,
+        1,
+        'active',
+        index,
+      ]));
+
+      await conn.query(
+        `INSERT INTO openclaw_model_upstreams
+         (model_id, provider_name, base_url, api_key, upstream_model_id, weight, status, sort_order)
+         VALUES ?`,
+        [rows]
+      );
+
+      insertedRows += rows.length;
+      touchedModels += 1;
+    }
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback().catch(() => {});
+    throw err;
+  } finally {
+    conn.release();
+  }
+
+  await cache.delByPrefix('upstreams:');
+  return {
+    touched_models: touchedModels,
+    inserted_rows: insertedRows,
+    api_keys: apiKeys.length,
+  };
+}
+
 // GET /admin/nvidia/keys — 列出所有 NVIDIA 密钥
 router.get('/nvidia/keys', async (req, res) => {
   try {
@@ -2860,6 +2982,7 @@ router.post('/nvidia/keys', async (req, res) => {
     }
 
     await db.query('INSERT INTO openclaw_nvidia_keys (api_key, notes) VALUES (?, ?)', [apiKey, notes]);
+
     await cache.delByPrefix('upstreams:');
 
     res.json({ ok: true, api_key: apiKey, upstream_rows: templateRows.length });
@@ -2932,6 +3055,17 @@ router.delete('/nvidia/keys', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: '删除失败: ' + err.message });
+  }
+});
+
+// POST /admin/nvidia/keys/sync — 以 minimax-m2.7 的 8 把 key 为准，补齐所有 NVIDIA 模型
+router.post('/nvidia/keys/sync', async (_req, res) => {
+  try {
+    const syncResult = await syncNvidiaUpstreamsForAllModels();
+    res.json({ ok: true, ...syncResult });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: '同步 NVIDIA 密钥失败: ' + err.message });
   }
 });
 

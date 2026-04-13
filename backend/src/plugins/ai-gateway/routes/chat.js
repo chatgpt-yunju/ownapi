@@ -30,6 +30,7 @@ const {
   recordUpstreamSuccess,
   releaseEndpointLease,
 } = require('../utils/upstreamScheduler');
+const { applyDomesticModelDiscount } = require('../utils/domesticDiscount');
 
 const MODEL_CACHE_TTL = 10 * 60 * 1000;          // 模型配置缓存 10 分钟
 const UPSTREAM_CACHE_TTL = 10 * 60 * 1000;       // 上游配置缓存 10 分钟
@@ -81,17 +82,7 @@ const DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG = Object.freeze({
   pingTimeoutMs: 2200,
 });
 
-const DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG = Object.freeze({
-  ...DEFAULT_NVIDIA_FAST_CONFIG,
-  maxTokens: 80,
-  temperature: 0.12,
-  topP: 0.68,
-  connectTimeoutMs: 4200,
-  idleTimeoutMs: 12000,
-  requestTimeoutMs: 9000,
-  pingIntervalMs: 120,
-  pingTimeoutMs: 1500,
-});
+const DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG = DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG;
 
 let glm5SettingsCacheLoadedAt = 0;
 let glm5SettingsCache = { ...DEFAULT_GLM5_FAST_START_CONFIG };
@@ -175,7 +166,7 @@ function isNvidiaLatencyCriticalModel(model, modelConfig) {
 function getNvidiaLatencyProfileName(model) {
   const normalized = normalizeModelIdForLatency(model);
   if (normalized.includes('step35flash')) return 'nvidia_step_35_flash';
-  if (normalized.includes('minimaxm27') || normalized.includes('minimax27')) return 'nvidia_minimax_m27_fast';
+  if (normalized.includes('minimaxm27') || normalized.includes('minimax27')) return 'nvidia_minimax_m25';
   if (normalized.includes('minimaxm25') || normalized.includes('minimax25')) return 'nvidia_minimax_m25';
   if (normalized.includes('deepseekv32') || normalized.includes('deepseekv3251201')) return 'nvidia_deepseek_v32';
   if (/(405b|675b|253b|120b|90b|70b|51b|49b|36b|32b|27b|24b|22b)/.test(normalized)) return 'nvidia_large';
@@ -232,13 +223,11 @@ async function getNvidiaDeepseekFastConfig() {
 }
 
 async function getNvidiaMinimaxFastConfig(model) {
-  const normalized = normalizeModelIdForLatency(model);
-  if (normalized.includes('minimaxm27') || normalized.includes('minimax27')) return { ...DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG };
   return { ...DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG };
 }
 
 function resolveNvidiaMinimaxM27MaxTokens(requestedMaxTokens) {
-  const cap = DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.maxTokens;
+  const cap = DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG.maxTokens;
   if (requestedMaxTokens === undefined || requestedMaxTokens === null || requestedMaxTokens === '') {
     return cap;
   }
@@ -247,13 +236,21 @@ function resolveNvidiaMinimaxM27MaxTokens(requestedMaxTokens) {
   return Math.max(1, Math.min(Math.floor(parsed), cap));
 }
 
+function resolveMinimaxUpstreamModelId(model, fallbackModel) {
+  const normalized = normalizeModelIdForLatency(model);
+  if (normalized.includes('minimaxm27') || normalized.includes('minimax27')) {
+    return 'minimaxai/minimax-m2.7';
+  }
+  return fallbackModel;
+}
+
 // ========== 模型 & 上游缓存查询 ==========
 async function getModelConfig(modelId) {
   const cacheKey = `model:${modelId}`;
   const cached = await cache.get(cacheKey);
   if (cached !== undefined) return cached;
   const [[row]] = await db.query('SELECT * FROM openclaw_models WHERE model_id = ? AND status = "active"', [modelId]);
-  const result = row || null;
+  const result = row ? applyDomesticModelDiscount(row) : null;
   await cache.set(cacheKey, result, MODEL_CACHE_TTL);
   return result;
 }
@@ -406,6 +403,21 @@ function removeEndpointCandidate(candidates, selected) {
   return (candidates || []).filter((item) => getEndpointIdentity(item) !== selectedKey);
 }
 
+function getEndpointRetryDecision({ err, is429, remaining, selected, attempt }) {
+  if (attempt >= MAX_RETRIES || !isRetryableUpstreamError(err)) {
+    return { action: 'break' };
+  }
+
+  if (is429) {
+    if (remaining.length > 1) {
+      return { action: 'rotate', remaining: removeEndpointCandidate(remaining, selected) };
+    }
+    return { action: 'break' };
+  }
+
+  return { action: 'retry_same', remaining: [selected] };
+}
+
 function getUpstreamFailureKey(endpointOrId) {
   if (endpointOrId && typeof endpointOrId === 'object') return getEndpointIdentity(endpointOrId);
   if (endpointOrId === undefined || endpointOrId === null || endpointOrId === '') return 'unknown';
@@ -501,13 +513,6 @@ const NVIDIA_FAST_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
   baseDelayMs: 180,
   backoffFactor: 1.15,
   maxDelayMs: 600,
-});
-
-const NVIDIA_MINIMAX_M27_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
-  maxRetries: 1,
-  baseDelayMs: 120,
-  backoffFactor: 1,
-  maxDelayMs: 120,
 });
 
 const NVIDIA_MINIMAX_M25_STREAM_RELAY_RETRY_CONFIG = Object.freeze({
@@ -638,10 +643,10 @@ function getMessagesRelayRetryConfig({ model, modelConfig, stream, isUpstreamAnt
   if (stream && isGlm5Model(model) && !isUpstreamAnthropic) {
     return GLM5_STREAM_RELAY_RETRY_CONFIG;
   }
-  if (stream && isUpstreamNvidia && isMinimaxM27Model) {
-    return NVIDIA_MINIMAX_M27_STREAM_RELAY_RETRY_CONFIG;
+  if (isUpstreamNvidia && isMinimaxM27Model) {
+    return NVIDIA_MINIMAX_M25_STREAM_RELAY_RETRY_CONFIG;
   }
-  if (stream && isUpstreamNvidia && isNvidiaMinimaxM25Model(model)) {
+  if (stream && isUpstreamNvidia && (isNvidiaMinimaxM25Model(model) || isMinimaxM27Model)) {
     return NVIDIA_MINIMAX_M25_STREAM_RELAY_RETRY_CONFIG;
   }
   if (stream && isUpstreamNvidia && isNvidiaLatencyCriticalModel(model, modelConfig)) {
@@ -671,16 +676,16 @@ function getMessagesUpstreamTimeoutConfig({
       requestTimeoutMs: 60000,
     });
   }
-  if (stream && isUpstreamNvidia && isMinimaxM27Model) {
-    const config = nvidiaMinimaxFastConfig || DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG;
+  if (isUpstreamNvidia && isMinimaxM27Model) {
+    const config = nvidiaMinimaxFastConfig || DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG;
     return getUpstreamTimeouts({
-      stream: true,
+      stream,
       connectTimeoutMs: config.connectTimeoutMs,
       idleTimeoutMs: config.idleTimeoutMs,
       requestTimeoutMs: config.requestTimeoutMs,
     });
   }
-  if (stream && isUpstreamNvidia && isNvidiaMinimaxM25Model(model)) {
+  if (stream && isUpstreamNvidia && (isNvidiaMinimaxM25Model(model) || isMinimaxM27Model)) {
     return getUpstreamTimeouts({
       stream: true,
       connectTimeoutMs: 6500,
@@ -1492,7 +1497,10 @@ router.post('/embeddings', async (req, res) => {
     const apiKey = selected.api_key;
     const selectedUpstreamId = selected.id || null;
     const selectedProviderName = selected.provider_name || modelConfig.provider || null;
-    const upstreamModel = selected.upstream_model_id || modelConfig.upstream_model_id || model;
+    const upstreamModel = resolveMinimaxUpstreamModelId(
+      model,
+      selected.upstream_model_id || modelConfig.upstream_model_id || model
+    );
     const upstreamUrl = resolveOpenAICompatibleUpstreamUrl(baseUrl, 'embeddings');
     const upstreamBody = { model: upstreamModel, input };
     if (encoding_format !== undefined) upstreamBody.encoding_format = encoding_format;
@@ -1518,7 +1526,7 @@ router.post('/embeddings', async (req, res) => {
     try {
       if (attempt > 0) {
         await debug.step(8, 'success', {
-          reason: 'retry_switch_endpoint',
+          reason: 'retry_attempt',
           attempt: attempt + 1,
           selected_upstream_id: selectedUpstreamId,
         });
@@ -1638,10 +1646,20 @@ router.post('/embeddings', async (req, res) => {
         status_code: err.response?.status || null,
       }, { errorMessage: errMsg });
 
-      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
-        remaining = removeEndpointCandidate(remaining, selected);
+      const retryDecision = getEndpointRetryDecision({ err, is429, remaining, selected, attempt });
+      if (retryDecision.action === 'rotate') {
+        remaining = retryDecision.remaining;
         await debug.step(8, 'success', {
-          reason: is429 ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
+          reason: 'rate_limit_retry_available',
+          failed_upstream_id: selectedUpstreamId,
+          remaining_candidates: remaining.length,
+        });
+        continue;
+      }
+      if (retryDecision.action === 'retry_same') {
+        remaining = retryDecision.remaining;
+        await debug.step(8, 'success', {
+          reason: 'retry_same_endpoint',
           failed_upstream_id: selectedUpstreamId,
           remaining_candidates: remaining.length,
         });
@@ -1810,7 +1828,10 @@ router.post('/chat/completions', async (req, res) => {
     const apiKey = selected.api_key;
     const selectedUpstreamId = selected.id || null;
     const selectedProviderName = selected.provider_name || modelConfig.provider || null;
-    const upstreamModel = selected.upstream_model_id || modelConfig.upstream_model_id || model;
+    const upstreamModel = resolveMinimaxUpstreamModelId(
+      model,
+      selected.upstream_model_id || modelConfig.upstream_model_id || model
+    );
     const upstreamApiFormat = detectUpstreamApiFormat(model, selectedProviderName || modelConfig.provider, baseUrl);
     const isAnthropicAPI = upstreamApiFormat === 'anthropic';
     const isGoogleNativeAPI = upstreamApiFormat === 'google_native';
@@ -1927,7 +1948,7 @@ router.post('/chat/completions', async (req, res) => {
       if (attempt > 0) {
         console.log(`[Chat Retry] attempt ${attempt + 1}, endpoint ${selectedUpstreamId || getEndpointIdentity(selected)}`);
         await debug.step(8, 'success', {
-          reason: 'retry_switch_endpoint',
+          reason: 'retry_attempt',
           attempt: attempt + 1,
           selected_upstream_id: selectedUpstreamId,
         });
@@ -2479,10 +2500,20 @@ router.post('/chat/completions', async (req, res) => {
         status_code: err.response?.status || null,
       }, { errorMessage: errMsg });
 
-      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
-        remaining = removeEndpointCandidate(remaining, selected);
+      const retryDecision = getEndpointRetryDecision({ err, is429, remaining, selected, attempt });
+      if (retryDecision.action === 'rotate') {
+        remaining = retryDecision.remaining;
         await debug.step(8, 'success', {
-          reason: is429 ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
+          reason: 'rate_limit_retry_available',
+          failed_upstream_id: selectedUpstreamId,
+          remaining_candidates: remaining.length,
+        });
+        continue;
+      }
+      if (retryDecision.action === 'retry_same') {
+        remaining = retryDecision.remaining;
+        await debug.step(8, 'success', {
+          reason: 'retry_same_endpoint',
           failed_upstream_id: selectedUpstreamId,
           remaining_candidates: remaining.length,
         });
@@ -2684,7 +2715,10 @@ router.post('/messages', async (req, res) => {
     const apiKey = selected.api_key;
     const selectedUpstreamId = selected.id || null;
     const selectedProviderName = selected.provider_name || modelConfig.provider || null;
-    const upstreamModel = selected.upstream_model_id || modelConfig.upstream_model_id || model;
+    const upstreamModel = resolveMinimaxUpstreamModelId(
+      model,
+      selected.upstream_model_id || modelConfig.upstream_model_id || model
+    );
     const isClaudeModel = model.includes('claude');
     const isUpstreamAnthropic = isClaudeModel && (
       selectedProviderName === 'ccclub'
@@ -2739,7 +2773,7 @@ router.post('/messages', async (req, res) => {
       if (attempt > 0) {
         console.log(`[Messages Retry] attempt ${attempt + 1}, endpoint ${selectedUpstreamId || getEndpointIdentity(selected)}`);
         await debug.step(8, 'success', {
-          reason: 'retry_switch_endpoint',
+          reason: 'retry_attempt',
           attempt: attempt + 1,
           selected_upstream_id: selectedUpstreamId,
         });
@@ -2751,7 +2785,11 @@ router.post('/messages', async (req, res) => {
           : resolveAnthropicCompatibleUpstreamUrl(baseUrl);
         markMessagesRequestPrepared(latencyTracker);
         const requestedMaxTokens = isMinimaxM27Model
-          ? resolveNvidiaMinimaxM27MaxTokens(max_tokens !== undefined ? max_tokens : nvidiaMinimaxFastConfig.maxTokens)
+          ? resolveNvidiaMinimaxM27MaxTokens(
+            max_tokens !== undefined
+              ? max_tokens
+              : (nvidiaMinimaxFastConfig?.maxTokens ?? DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.maxTokens)
+          )
           : (max_tokens || 4096);
         const upstreamBody = { model: upstreamModel, messages, max_tokens: requestedMaxTokens };
         if (system) upstreamBody.system = system;
@@ -2974,7 +3012,7 @@ router.post('/messages', async (req, res) => {
         latencyTracker.latencyProfile = nvidiaLatencyProfile;
       }
       if (useNvidiaMinimaxFastProfile) {
-        latencyTracker.latencyProfile = isMinimaxM27Model ? 'nvidia_minimax_m27_fast' : 'nvidia_minimax_m25_fast';
+        latencyTracker.latencyProfile = 'nvidia_minimax_m25_fast';
       }
       if (stream) openaiBody.stream_options = { include_usage: true };
       openaiBody.temperature = temperature !== undefined
@@ -3322,10 +3360,20 @@ router.post('/messages', async (req, res) => {
         ...latencyDetail,
       }, { errorMessage: errMsg });
 
-      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
-        remaining = removeEndpointCandidate(remaining, selected);
+      const retryDecision = getEndpointRetryDecision({ err, is429, remaining, selected, attempt });
+      if (retryDecision.action === 'rotate') {
+        remaining = retryDecision.remaining;
         await debug.step(8, 'success', {
-          reason: is429 ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
+          reason: 'rate_limit_retry_available',
+          failed_upstream_id: selectedUpstreamId,
+          remaining_candidates: remaining.length,
+        });
+        continue;
+      }
+      if (retryDecision.action === 'retry_same') {
+        remaining = retryDecision.remaining;
+        await debug.step(8, 'success', {
+          reason: 'retry_same_endpoint',
           failed_upstream_id: selectedUpstreamId,
           remaining_candidates: remaining.length,
         });

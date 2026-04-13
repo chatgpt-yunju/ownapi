@@ -36,12 +36,13 @@ const { enqueueDebugStepRecord } = require('../utils/requestDebug');
 
 const MAX_RETRIES = 2;
 const PRE_RESERVE = 0.01;
-const DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG = Object.freeze({
-  maxTokens: 96,
-  connectTimeoutMs: 5000,
-  idleTimeoutMs: 14000,
-  requestTimeoutMs: 10000,
+const DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG = Object.freeze({
+  maxTokens: 128,
+  connectTimeoutMs: 6500,
+  idleTimeoutMs: 20000,
+  requestTimeoutMs: 15000,
 });
+const DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG = DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG;
 const FORWARDED_CLIENT_HEADERS = [
   'openai-beta',
   'anthropic-beta',
@@ -88,6 +89,14 @@ function isNvidiaMinimaxM27Model(model) {
   return normalized.includes('minimaxm27') || normalized.includes('minimax27');
 }
 
+function resolveMinimaxUpstreamModelId(model, fallbackModel) {
+  const normalized = normalizeModelIdForLatency(model);
+  if (normalized.includes('minimaxm27') || normalized.includes('minimax27')) {
+    return 'minimaxai/minimax-m2.7';
+  }
+  return fallbackModel;
+}
+
 function withForwardedClientHeaders(req, headers) {
   const merged = { ...headers };
   for (const headerName of FORWARDED_CLIENT_HEADERS) {
@@ -107,9 +116,9 @@ function getResponsesTimeoutConfig({ stream = false, isMinimaxM27Model = false }
   if (isMinimaxM27Model) {
     return getUpstreamTimeouts({
       stream,
-      connectTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.connectTimeoutMs,
-      idleTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.idleTimeoutMs,
-      requestTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.requestTimeoutMs,
+      connectTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG.connectTimeoutMs,
+      idleTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG.idleTimeoutMs,
+      requestTimeoutMs: DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG.requestTimeoutMs,
     });
   }
   return getUpstreamTimeouts({ stream });
@@ -254,7 +263,7 @@ function buildResponsesTimingPayload(tracker, endedAt = Date.now()) {
 }
 
 function resolveResponsesMaxOutputTokens(maxOutputTokens, isMinimaxM27Model) {
-  const cap = isMinimaxM27Model ? DEFAULT_NVIDIA_MINIMAX_M27_FAST_CONFIG.maxTokens : 4096;
+  const cap = isMinimaxM27Model ? DEFAULT_NVIDIA_MINIMAX_M25_FAST_CONFIG.maxTokens : 4096;
   if (maxOutputTokens === undefined || maxOutputTokens === null || maxOutputTokens === '') return cap;
   const parsed = Number(maxOutputTokens);
   if (!Number.isFinite(parsed) || parsed <= 0) return cap;
@@ -673,6 +682,21 @@ function is429Error(err) {
   return status === 429 || msg.includes('429') || msg.includes('rate limit');
 }
 
+function getEndpointRetryDecision({ err, is429, remaining, selected, attempt }) {
+  if (attempt >= MAX_RETRIES || !isRetryableUpstreamError(err)) {
+    return { action: 'break' };
+  }
+
+  if (is429) {
+    if (remaining.length > 1) {
+      return { action: 'rotate', remaining: remaining.filter((item) => getEndpointIdentity(item) !== getEndpointIdentity(selected)) };
+    }
+    return { action: 'break' };
+  }
+
+  return { action: 'retry_same', remaining: [selected] };
+}
+
 // ── Messages → Anthropic 格式 ───────────────────────────────────────────────
 function messagesToAnthropic(messages) {
   let system;
@@ -795,7 +819,7 @@ router.post('/responses', async (req, res) => {
     balance_after: billingContext.balanceAfter,
   });
 
-  const upstreamModel = modelConfig.upstream_model_id || model;
+  const upstreamModel = resolveMinimaxUpstreamModelId(model, modelConfig.upstream_model_id || model);
   const messages = responsesInputToMessages(input, instructions);
   const chatTools = convertTools(tools);
   let remaining = [...allEndpoints];
@@ -877,13 +901,13 @@ router.post('/responses', async (req, res) => {
 
     try {
       if (attempt > 0) {
-        console.log(`[Responses 429 Retry] attempt ${attempt + 1}, endpoint ${selected.id}`);
+        console.log(`[Responses Retry] attempt ${attempt + 1}, endpoint ${selected.id}`);
         await debug.step(8, 'success', {
-          reason: 'retry_switch_endpoint',
+          reason: 'retry_attempt',
           attempt: attempt + 1,
           selected_upstream_id: selected.id,
         });
-        await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'rate_limit_error', `429重试: 端点 ${selected.id}`, requestId, {
+        await logCall(req.apiUserId, req.apiKeyId, model, 0, 0, 0, req.ip, 'upstream_retry', `重试: 端点 ${selected.id}`, requestId, {
           billingMode: billingMeta.billingMode,
           chargedBalanceType: billingMeta.balanceType,
           chargedAmount: 0,
@@ -944,11 +968,21 @@ router.post('/responses', async (req, res) => {
           })
         ]);
       }
-      if (isRetryableUpstreamError(err) && remaining.length > 1 && attempt < MAX_RETRIES) {
-        remaining = remaining.filter((item) => getEndpointIdentity(item) !== getEndpointIdentity(selected));
+      const retryDecision = getEndpointRetryDecision({ err, is429, remaining, selected, attempt });
+      if (retryDecision.action === 'rotate') {
+        remaining = retryDecision.remaining;
         console.log(`[Responses 429] 端点 ${selected.id} 限流, 剩余 ${remaining.length} 个可用`);
         await debug.step(8, 'success', {
-          reason: is429Error(err) ? 'rate_limit_retry_available' : 'retryable_upstream_failure',
+          reason: 'rate_limit_retry_available',
+          failed_upstream_id: selected.id,
+          remaining_candidates: remaining.length,
+        });
+        continue;
+      }
+      if (retryDecision.action === 'retry_same') {
+        remaining = retryDecision.remaining;
+        await debug.step(8, 'success', {
+          reason: 'retry_same_endpoint',
           failed_upstream_id: selected.id,
           remaining_candidates: remaining.length,
         });

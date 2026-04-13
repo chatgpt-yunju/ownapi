@@ -5,9 +5,11 @@
 
 const router = require('express').Router();
 const db = require('../../../config/db');
+const nodemailer = require('nodemailer');
 const { formatPemKey, makeTradeNo, isMobile } = require('../utils/alipay');
 const { generateApiKey, hashApiKey, maskApiKey } = require('../utils/crypto');
 const { adjustBalance } = require('../utils/billing');
+const { getRechargePricing } = require('../utils/rechargePricing');
 const { getChinaDateString } = require('../../../utils/chinaTime');
 const { grantFirstPaidInviteReward } = require('../utils/inviteRewards');
 
@@ -29,24 +31,83 @@ function getInviteEligiblePaidAmount(order) {
   return Number(order.actual_paid || order.amount || 0);
 }
 
-const RECHARGE_TIERS = [
-  { min: 1999, rate: 1.55, label: '加赠55%' },
-  { min: 999, rate: 1.38, label: '加赠38%' },
-  { min: 499, rate: 1.25, label: '加赠25%' },
-  { min: 199, rate: 1.15, label: '加赠15%' },
-  { min: 99, rate: 1.18, label: '加赠18%' },
-  { min: 50, rate: 1.14, label: '加赠14%' },
-  { min: 10, rate: 1.10, label: '加赠10%' },
-  { min: 1, rate: 1.20, label: '加赠20%' },
-];
+let smtpTransporter = null;
+async function getMailer() {
+  if (smtpTransporter) return smtpTransporter;
+  const host = await getSetting('smtp_host');
+  const port = parseInt(await getSetting('smtp_port'), 10) || 465;
+  const user = await getSetting('smtp_user');
+  const pass = await getSetting('smtp_pass');
+  if (!host || !user || !pass) return null;
+  smtpTransporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465,
+    auth: { user, pass }
+  });
+  return smtpTransporter;
+}
 
-function getRechargePricing(payAmount) {
-  const tier = RECHARGE_TIERS.find(t => payAmount >= t.min) || { rate: 1, label: '无赠送', min: 0 };
-  const creditAmount = Math.round(payAmount * tier.rate * 100) / 100;
+async function sendGuestDeliveryMail({ email, orderNo, quotaAmount, bonusAmount, apiKey, apiKeyDisplay }) {
+  const transporter = await getMailer();
+  if (!transporter) return false;
+  const smtpUser = await getSetting('smtp_user');
+  const siteUrl = process.env.PUBLIC_SITE_URL || 'https://api.yunjunet.cn';
+  const docsUrl = `${siteUrl}/docs.html`;
+  const guestUrl = `${siteUrl}/guest.html`;
+  await transporter.sendMail({
+    from: `"云聚平台" <${smtpUser}>`,
+    to: email,
+    subject: '【云聚】API Key 已发货',
+    html: `
+      <div style="max-width:560px;margin:0 auto;padding:24px;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#1f2937">
+        <h2 style="margin:0 0 12px;color:#111827">您的 API Key 已自动发货</h2>
+        <p style="margin:0 0 8px;">订单号：<strong>${orderNo}</strong></p>
+        <p style="margin:0 0 8px;">到账额度：<strong>$${Number(quotaAmount || 0).toFixed(2)}</strong>（加赠 $${Number(bonusAmount || 0).toFixed(2)}）</p>
+        <p style="margin:0 0 8px;">API Key：<code style="padding:2px 6px;background:#f3f4f6;border-radius:6px;">${apiKey || ''}</code></p>
+        <p style="margin:0 0 16px;">脱敏展示：<code>${apiKeyDisplay || ''}</code></p>
+        <p style="margin:0 0 16px;">复制后即可直接使用，使用文档：<a href="${docsUrl}">${docsUrl}</a></p>
+        <p style="margin:0 0 16px;">游客查询页：<a href="${guestUrl}">${guestUrl}</a></p>
+        <p style="margin:0;color:#6b7280;font-size:12px;">如未收到邮件，请检查垃圾箱或返回页面查询订单状态。</p>
+      </div>`,
+  });
+  return true;
+}
+
+async function fulfillGuestKeyOrder(conn, order, tradeNo) {
+  const totalQuota = Number(order.amount || 0);
+  if (totalQuota > 0) {
+    await adjustBalance(
+      order.user_id,
+      'quota',
+      totalQuota,
+      'recharge',
+      `游客购买额度成功，获得 $${totalQuota}`,
+      { source: 'guest_key_order', out_trade_no: order.out_trade_no },
+      conn
+    );
+  }
+
+  const key = generateApiKey();
+  const keyHash = hashApiKey(key);
+  const keyDisplay = maskApiKey(key);
+  const keyPrefix = key.slice(0, 7);
+  const keyName = `游客额度包 - ${getChinaDateString()}`;
+  const [keyResult] = await conn.query(
+    'INSERT INTO openclaw_api_keys (user_id, package_id, key_prefix, key_hash, key_display, name) VALUES (?, NULL, ?, ?, ?, ?)',
+    [order.user_id, keyPrefix, keyHash, keyDisplay, keyName]
+  );
+  await conn.query(
+    'UPDATE recharge_orders SET guest_key_id = ?, delivery_status = "pending" WHERE out_trade_no = ?',
+    [keyResult.insertId, order.out_trade_no]
+  );
+
   return {
-    creditAmount,
-    bonusAmount: Math.max(0, Math.round((creditAmount - payAmount) * 100) / 100),
-    tier,
+    apiKey: key,
+    apiKeyDisplay: keyDisplay,
+    quotaAmount: totalQuota,
+    bonusAmount: Number(order.bonus_quota || 0),
+    tradeNo,
   };
 }
 
@@ -147,8 +208,8 @@ router.post('/create-package', async (req, res) => {
         await grantFirstPaidInviteReward({
           conn,
           inviteeUserId: userId,
-          outTradeNo: out_trade_no,
-          paidAmount: getInviteEligiblePaidAmount(order),
+          outTradeNo,
+          paidAmount: packagePrice,
         });
 
         await conn.commit();
@@ -356,6 +417,8 @@ router.post('/alipay/notify', async (req, res) => {
               conn
             );
           }
+        } else if (order.order_type === 'guest_key') {
+          guestDelivery = await fulfillGuestKeyOrder(conn, order, trade_no);
         }
 
         await grantFirstPaidInviteReward({
@@ -371,6 +434,29 @@ router.post('/alipay/notify', async (req, res) => {
         throw err;
       } finally {
         conn.release();
+      }
+
+      if (guestDelivery) {
+        try {
+          await sendGuestDeliveryMail({
+            email: order.guest_email || '',
+            orderNo: out_trade_no,
+            quotaAmount: guestDelivery.quotaAmount,
+            bonusAmount: guestDelivery.bonusAmount,
+            apiKey: guestDelivery.apiKey,
+            apiKeyDisplay: guestDelivery.apiKeyDisplay,
+          });
+          await db.query(
+            'UPDATE recharge_orders SET delivery_status = "shipped", delivery_sent_at = NOW(), delivery_message = ? WHERE out_trade_no = ?',
+            ['已自动发货', out_trade_no]
+          );
+        } catch (mailErr) {
+          console.error('[guest-order] email send failed:', mailErr.message);
+          await db.query(
+            'UPDATE recharge_orders SET delivery_status = "failed", delivery_message = ? WHERE out_trade_no = ?',
+            [String(mailErr.message || '邮件发送失败').slice(0, 500), out_trade_no]
+          );
+        }
       }
     }
 
@@ -485,6 +571,7 @@ router.post('/verify/:out_trade_no', async (req, res) => {
     const trade_no = queryResult?.tradeNo || queryResult?.alipay_trade_query_response?.trade_no;
 
     const conn = await db.getConnection();
+    let guestDelivery = null;
     try {
       await conn.beginTransaction();
 
@@ -602,6 +689,48 @@ router.post('/verify/:out_trade_no', async (req, res) => {
           success: true,
           message: `额度充值成功！已到账 $${totalQuota}`,
           amount: totalQuota
+        });
+      }
+
+      if (order.order_type === 'guest_key') {
+        guestDelivery = await fulfillGuestKeyOrder(conn, order, trade_no);
+
+        await grantFirstPaidInviteReward({
+          conn,
+          inviteeUserId: userId,
+          outTradeNo: out_trade_no,
+          paidAmount: getInviteEligiblePaidAmount(order),
+        });
+
+        await conn.commit();
+
+        try {
+          await sendGuestDeliveryMail({
+            email: order.guest_email || '',
+            orderNo: out_trade_no,
+            quotaAmount: guestDelivery.quotaAmount,
+            bonusAmount: guestDelivery.bonusAmount,
+            apiKey: guestDelivery.apiKey,
+            apiKeyDisplay: guestDelivery.apiKeyDisplay,
+          });
+          await db.query(
+            'UPDATE recharge_orders SET delivery_status = "shipped", delivery_sent_at = NOW(), delivery_message = ? WHERE out_trade_no = ?',
+            ['已自动发货', out_trade_no]
+          );
+        } catch (mailErr) {
+          console.error('[guest-order] email send failed:', mailErr.message);
+          await db.query(
+            'UPDATE recharge_orders SET delivery_status = "failed", delivery_message = ? WHERE out_trade_no = ?',
+            [String(mailErr.message || '邮件发送失败').slice(0, 500), out_trade_no]
+          );
+        }
+
+        return res.json({
+          success: true,
+          message: '游客订单已支付并自动发货',
+          order_type: 'guest_key',
+          key_display: guestDelivery.apiKeyDisplay,
+          quota_amount: guestDelivery.quotaAmount
         });
       }
 

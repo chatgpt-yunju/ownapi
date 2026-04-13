@@ -85,18 +85,18 @@ function genInviteCode() {
 const { verifyEmailCode, maskEmail, isAllowedEmailDomain } = require('./emailCode');
 const TEMP_TOKEN_EXPIRE = '5m';
 
-function signTempToken(user) {
+function signTempToken(user, purpose = 'login_verify') {
   return jwt.sign(
-    { id: user.id, username: user.username, role: user.role, purpose: 'login_verify' },
+    { id: user.id, username: user.username, role: user.role, purpose },
     process.env.JWT_SECRET,
     { expiresIn: TEMP_TOKEN_EXPIRE }
   );
 }
 
-function verifyTempToken(token) {
+function verifyTempToken(token, expectedPurpose = null) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.purpose !== 'login_verify') return null;
+    if (expectedPurpose && decoded.purpose !== expectedPurpose) return null;
     return decoded;
   } catch { return null; }
 }
@@ -125,7 +125,7 @@ router.post('/login', async (req, res) => {
   }
   clearFailure(username);
 
-  const tempToken = signTempToken(user);
+  const tempToken = signTempToken(user, 'login_verify');
 
   if (user.email) {
     // 有邮箱: 发验证码
@@ -154,7 +154,7 @@ router.post('/login', async (req, res) => {
   }
 
   // 无邮箱: 强制绑定
-  res.json({ step: 'bind_email', temp_token: tempToken });
+  res.json({ step: 'bind_email', temp_token: signTempToken(user, 'bind_email') });
 });
 
 // POST /api/auth/login/verify — Step2: 邮箱验证码 → 正式 JWT
@@ -162,7 +162,7 @@ router.post('/login/verify', async (req, res) => {
   const { temp_token, email_code } = req.body;
   if (!temp_token || !email_code) return res.status(400).json({ message: '参数缺失' });
 
-  const decoded = verifyTempToken(temp_token);
+  const decoded = verifyTempToken(temp_token, 'login_verify');
   if (!decoded) return res.status(401).json({ message: '临时令牌无效或已过期，请重新登录' });
 
   const [[user]] = await db.query('SELECT id, username, role, email FROM users WHERE id = ?', [decoded.id]);
@@ -180,13 +180,54 @@ router.post('/login/verify', async (req, res) => {
   res.json({ token, user: { id: user.id, username: user.username, role: user.role, email: user.email } });
 });
 
+// POST /api/auth/email-login/send-code — 游客/新账号邮箱验证码登录
+router.post('/email-login/send-code', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: '请输入邮箱' });
+  if (!isAllowedEmailDomain(email)) return res.status(400).json({ message: '仅支持国内主流邮箱（QQ、163、126、新浪、搜狐等）' });
+
+  const [[user]] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+  if (!user) return res.status(404).json({ message: '该邮箱未绑定账户，请先购买或注册' });
+
+  try {
+    const { sendEmailCode } = require('./emailCode');
+    const masked = await sendEmailCode(email, 'login');
+    return res.json({ message: '验证码已发送', masked_email: masked });
+  } catch (e) {
+    const message = String(e?.message || '验证码发送失败');
+    const status = message.includes('请60秒后再试') ? 429 : 500;
+    return res.status(status).json({ message });
+  }
+});
+
+// POST /api/auth/email-login/verify — 仅凭邮箱验证码登录
+router.post('/email-login/verify', async (req, res) => {
+  const { email, email_code } = req.body;
+  if (!email || !email_code) return res.status(400).json({ message: '参数缺失' });
+  if (!isAllowedEmailDomain(email)) return res.status(400).json({ message: '仅支持国内主流邮箱（QQ、163、126、新浪、搜狐等）' });
+
+  const [[user]] = await db.query('SELECT id, username, role, email FROM users WHERE email = ?', [email]);
+  if (!user) return res.status(404).json({ message: '账户不存在' });
+
+  const valid = await verifyEmailCode(email, email_code, 'login');
+  if (!valid) return res.status(400).json({ message: '验证码错误或已过期' });
+
+  const jwtExpiry = await getSettingCached('jwt_expiry', '7d');
+  const token = jwt.sign(
+    { id: user.id, username: user.username, role: user.role, email: user.email },
+    process.env.JWT_SECRET,
+    { expiresIn: jwtExpiry }
+  );
+  res.json({ token, user: { id: user.id, username: user.username, role: user.role, email: user.email } });
+});
+
 // POST /api/auth/bind-email — 老用户绑定邮箱 + 完成登录
 router.post('/bind-email', async (req, res) => {
   const { temp_token, email, email_code } = req.body;
   if (!temp_token || !email || !email_code) return res.status(400).json({ message: '参数缺失' });
   if (!isAllowedEmailDomain(email)) return res.status(400).json({ message: '仅支持国内主流邮箱（QQ、163、126、新浪、搜狐等）' });
 
-  const decoded = verifyTempToken(temp_token);
+  const decoded = verifyTempToken(temp_token, 'bind_email');
   if (!decoded) return res.status(401).json({ message: '临时令牌无效或已过期，请重新登录' });
 
   // 检查邮箱是否已被占用
@@ -439,7 +480,7 @@ router.get('/qq/callback', async (req, res) => {
     const qqNickname = infoRes.data.nickname || '';
     const qqAvatar = infoRes.data.figureurl_qq_1 || '';
     // Step 4: find or create user
-    let [[user]] = await db.query('SELECT id, username, role FROM users WHERE qq_openid=?', [openid]);
+    let [[user]] = await db.query('SELECT id, username, role, email FROM users WHERE qq_openid=?', [openid]);
     if (!user) {
       const username = `qq_${openid.slice(-8)}`;
       const myCode = genInviteCode();
@@ -447,13 +488,21 @@ router.get('/qq/callback', async (req, res) => {
         'INSERT INTO users (username, password, role, invite_code, qq_openid, qq_nickname, qq_avatar) VALUES (?,?,?,?,?,?,?)',
         [username, '', 'user', myCode, openid, qqNickname, qqAvatar]
       );
-      user = { id: result.insertId, username, role: 'user' };
+      user = { id: result.insertId, username, role: 'user', email: null };
     } else {
       await db.query('UPDATE users SET qq_nickname=?, qq_avatar=? WHERE id=?', [qqNickname, qqAvatar, user.id]);
     }
+    if (!user.email) {
+      const bindToken = signTempToken(user, 'bind_email');
+      const redirectTarget = new URL(returnUrl, process.env.PUBLIC_SITE_URL || 'https://api.yunjunet.cn');
+      redirectTarget.searchParams.set('step', 'bind_email');
+      redirectTarget.searchParams.set('temp_token', bindToken);
+      redirectTarget.searchParams.set('msg', 'qq_bind_email_required');
+      return res.redirect(redirectTarget.toString());
+    }
     const jwtExpiry = await getSettingCached('jwt_expiry', '7d');
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
+      { id: user.id, username: user.username, role: user.role, email: user.email },
       process.env.JWT_SECRET,
       { expiresIn: jwtExpiry }
     );

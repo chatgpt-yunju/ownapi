@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>开发者文档 - 云聚API 网关</title>
   <link rel="stylesheet" href="/css/style.css">
+  
+  <script>
+    try {
+      localStorage.setItem('openclaw-theme', 'light');
+      localStorage.setItem('openclaw-theme-auto', 'manual');
+    } catch (error) {}
+    document.documentElement.setAttribute('data-theme', 'light');
+  </script>
   <script src="/js/theme.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -209,6 +217,106 @@
       .doc-nav { padding: 0.8rem; }
       .doc-nav a { padding: 0.7rem 0.8rem; }
     }
+  
+    html[data-theme="light"] {
+      background:
+        radial-gradient(circle at top left, rgba(15, 111, 255, 0.10), transparent 34%),
+        radial-gradient(circle at top right, rgba(11, 199, 184, 0.10), transparent 28%),
+        linear-gradient(180deg, #f9fcff 0%, #eef4fb 100%);
+    }
+    html[data-theme="light"] body {
+      color: #16324f;
+      background: transparent;
+    }
+    html[data-theme="light"] .docs-hero,
+    html[data-theme="light"] .docs-entry-card,
+    html[data-theme="light"] .quickstart-topbar,
+    html[data-theme="light"] .quickstart-card,
+    html[data-theme="light"] .docs-cta,
+    html[data-theme="light"] .docs-governance-item,
+    html[data-theme="light"] .doc-nav,
+    html[data-theme="light"] .doc-section,
+    html[data-theme="light"] .oc-card,
+    html[data-theme="light"] .doc-meta-card {
+      background: rgba(255, 255, 255, 0.84) !important;
+      border-color: rgba(34, 84, 145, 0.12) !important;
+      box-shadow: 0 18px 50px rgba(28, 61, 102, 0.08) !important;
+    }
+    html[data-theme="light"] .docs-hero::before {
+      background: radial-gradient(circle, rgba(15, 111, 255, 0.12), rgba(15, 111, 255, 0));
+    }
+    html[data-theme="light"] .docs-entry-card:hover {
+      background: rgba(255, 255, 255, 0.98) !important;
+      border-color: rgba(34, 84, 145, 0.18) !important;
+    }
+    html[data-theme="light"] .docs-entry-card h3,
+    html[data-theme="light"] .quickstart-card h3,
+    html[data-theme="light"] .docs-governance-item strong,
+    html[data-theme="light"] .doc-nav .oc-sidebar-section,
+    html[data-theme="light"] .doc-section h2,
+    html[data-theme="light"] .doc-section h3,
+    html[data-theme="light"] .doc-meta-card div {
+      color: #133050 !important;
+    }
+    html[data-theme="light"] .docs-entry-card p,
+    html[data-theme="light"] .quickstart-card p,
+    html[data-theme="light"] .docs-governance-item p,
+    html[data-theme="light"] .doc-nav a,
+    html[data-theme="light"] .doc-section p,
+    html[data-theme="light"] .doc-section li,
+    html[data-theme="light"] .docs-cta p,
+    html[data-theme="light"] .quickstart-topbar p,
+    html[data-theme="light"] .quickstart-note,
+    html[data-theme="light"] .docs-quickbar {
+      color: #5d6f83 !important;
+    }
+    html[data-theme="light"] .docs-quickbar span,
+    html[data-theme="light"] .doc-nav a,
+    html[data-theme="light"] .doc-nav,
+    html[data-theme="light"] .quickstart-note,
+    html[data-theme="light"] .quickstart-topbar,
+    html[data-theme="light"] .docs-governance-item,
+    html[data-theme="light"] .quickstart-card,
+    html[data-theme="light"] .docs-entry-card,
+    html[data-theme="light"] .docs-cta,
+    html[data-theme="light"] .doc-meta-card {
+      border: 1px solid rgba(34, 84, 145, 0.12) !important;
+    }
+    html[data-theme="light"] .docs-quickbar span {
+      background: rgba(255, 255, 255, 0.88) !important;
+    }
+    html[data-theme="light"] .docs-quickbar .badge-accent {
+      background: rgba(15, 111, 255, 0.10) !important;
+      color: #0f6fff !important;
+      border-color: rgba(15, 111, 255, 0.18) !important;
+    }
+    html[data-theme="light"] .doc-nav a:hover,
+    html[data-theme="light"] .doc-nav a:focus-visible {
+      background: rgba(15, 111, 255, 0.08) !important;
+      color: #0f6fff !important;
+    }
+    html[data-theme="light"] .doc-main .oc-code,
+    html[data-theme="light"] .oc-code,
+    html[data-theme="light"] .doc-main .oc-code pre {
+      background: #f8fbff !important;
+      color: #18324c !important;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+    }
+    html[data-theme="light"] .copy-btn,
+    html[data-theme="light"] .doc-main .copy-btn {
+      background: rgba(255, 255, 255, 0.95) !important;
+      color: #0f6fff !important;
+      border-color: rgba(15, 111, 255, 0.16) !important;
+    }
+    html[data-theme="light"] .doc-method.post {
+      background: rgba(15, 111, 255, 0.12) !important;
+      color: #0f6fff !important;
+    }
+    html[data-theme="light"] .doc-method.get {
+      background: rgba(11, 199, 184, 0.12) !important;
+      color: #0b9f91 !important;
+    }
+
   </style>
 </head>
 <body>

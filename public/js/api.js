@@ -28,7 +28,16 @@ const api = {
       window.location.href = getLoginUrl();
       throw new Error('未登录');
     }
-    const data = await res.json();
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      const text = await res.text().catch(() => '');
+      if (!res.ok) {
+        throw new Error(text || `请求失败 (${res.status})`);
+      }
+      throw new Error('响应格式错误');
+    }
     if (!res.ok) {
       const err = new Error(data.error || data.message || '请求失败');
       if (data.needSetPassword) err.needSetPassword = true;
@@ -72,6 +81,18 @@ const api = {
   getPackages() { return this.get('/package/list'); },
   buyPackage(package_id) { return this.post('/package/buy', { package_id }); },
   getMyPackages() { return this.get('/package/my'); },
+
+  // Guest
+  guestQueryKey(key) { return this.post('/guest/key-query', { key }); },
+  guestQueryKeyLogs(key, page = 1, limit = 10) {
+    return this.post('/guest/key-logs', { key, page, limit });
+  },
+  guestCreateRecharge(email, amount, mobile = null) {
+    const body = { email, amount };
+    if (typeof mobile === 'boolean') body.mobile = mobile;
+    return this.post('/guest/create-recharge', body);
+  },
+  guestGetOrder(out_trade_no) { return this.get('/guest/order/' + out_trade_no); },
 
   // Payment
   createPackagePayment(package_id) { return this.post('/payment/create-package', { package_id }); },
@@ -167,7 +188,14 @@ const api = {
   adminDeleteBlogPost(id) { return this.del('/admin/blog/' + id); },
   adminBlogAiChat(id, payload) { return this.post('/admin/blog/' + id + '/ai-chat', payload); },
   adminBlogAiRewrite(id, payload) { return this.post('/admin/blog/' + id + '/ai-rewrite-sentence', payload); },
+
+  // Email login
+  sendEmailLoginCode(email) { return this.post('/auth/email-login/send-code', { email }); },
+  verifyEmailLoginCode(email, email_code) { return this.post('/auth/email-login/verify', { email, email_code }); },
 };
+
+// Expose a stable global reference for classic script pages.
+window.api = api;
 
 // Check SSO callback token
 (function checkSSOCallback() {

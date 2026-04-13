@@ -3,1144 +3,941 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>云聚API | 统一接入主流模型，快速上线并统一治理</title>
-  <meta name="description" content="云聚API 为开发团队提供统一大模型接入层，兼容 OpenAI、Anthropic、Gemini 接口，帮助更快接入、更稳运营，并把路由、计费、观测与控制集中到一个平台。">
-  <link rel="stylesheet" href="/css/style.css">
-  <script src="/js/theme.js"></script>
+  <title>云聚API | 直达前沿 AI 模型</title>
+  <meta name="description" content="云聚API 将前沿 AI 模型整合到一个简洁的 OpenAI 兼容网关中，提供透明定价、快速接入和从注册到首个请求的顺畅路径。">
+  <meta name="theme-color" content="#060708">
+  <link rel="stylesheet" href="/css/style.css?v=20260413">
+  <script src="/js/theme.js?v=20260413"></script>
   <style>
-    .landing-shell { max-width: 1260px; margin: 0 auto; }
+    :root {
+      --home-bg: #060708;
+      --home-bg-soft: #0c1113;
+      --home-surface: rgba(12, 17, 19, 0.9);
+      --home-surface-strong: rgba(15, 20, 23, 0.96);
+      --home-border: rgba(255, 255, 255, 0.1);
+      --home-border-strong: rgba(255, 255, 255, 0.16);
+      --home-text: #f4f2eb;
+      --home-text-soft: rgba(244, 242, 235, 0.76);
+      --home-text-muted: rgba(244, 242, 235, 0.56);
+      --home-accent: #f2d18d;
+      --home-accent-2: #cfd7ff;
+      --home-accent-3: #88f1c9;
+      --home-shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+      --home-radius: 26px;
+      --home-radius-sm: 18px;
+      --home-grid: rgba(255, 255, 255, 0.035);
+    }
+
+    html[data-theme="light"] {
+      --home-bg: #f4f1ea;
+      --home-bg-soft: #ece7dc;
+      --home-surface: rgba(255, 251, 244, 0.9);
+      --home-surface-strong: rgba(255, 255, 255, 0.96);
+      --home-border: rgba(18, 23, 27, 0.08);
+      --home-border-strong: rgba(18, 23, 27, 0.14);
+      --home-text: #111416;
+      --home-text-soft: rgba(17, 20, 22, 0.72);
+      --home-text-muted: rgba(17, 20, 22, 0.56);
+      --home-accent: #a86e28;
+      --home-accent-2: #4762d8;
+      --home-accent-3: #14745c;
+      --home-shadow: 0 20px 42px rgba(36, 24, 6, 0.1);
+      --home-grid: rgba(18, 23, 27, 0.035);
+    }
+
+    html[data-theme="dark"] {
+      --home-bg: #060708;
+      --home-bg-soft: #0c1113;
+      --home-surface: rgba(12, 17, 19, 0.9);
+      --home-surface-strong: rgba(15, 20, 23, 0.96);
+      --home-border: rgba(255, 255, 255, 0.1);
+      --home-border-strong: rgba(255, 255, 255, 0.16);
+      --home-text: #f4f2eb;
+      --home-text-soft: rgba(244, 242, 235, 0.76);
+      --home-text-muted: rgba(244, 242, 235, 0.56);
+      --home-accent: #f2d18d;
+      --home-accent-2: #cfd7ff;
+      --home-accent-3: #88f1c9;
+      --home-shadow: 0 22px 60px rgba(0, 0, 0, 0.34);
+      --home-grid: rgba(255, 255, 255, 0.035);
+    }
+
+    body.homepage {
+      background:
+        radial-gradient(circle at 15% 15%, rgba(242, 209, 141, 0.12), transparent 18%),
+        radial-gradient(circle at 84% 8%, rgba(136, 241, 201, 0.12), transparent 17%),
+        radial-gradient(circle at 76% 74%, rgba(207, 215, 255, 0.12), transparent 20%),
+        linear-gradient(180deg, var(--home-bg) 0%, var(--home-bg-soft) 100%);
+      color: var(--home-text);
+    }
+
+    body.homepage::before {
+      background-image:
+        linear-gradient(var(--home-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--home-grid) 1px, transparent 1px);
+      background-size: 84px 84px;
+      opacity: 0.7;
+    }
+
+    body.homepage::after {
+      background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.18));
+    }
+
+    .home-shell {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 24px 16px 28px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(340px, 0.85fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-top: 16px;
+    }
+
+    .hero-main,
+    .hero-side,
+    .feature-card,
+    .pricing-card,
+    .compare-card,
+    .steps-card,
+    .cta-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--home-radius);
+      border: 1px solid var(--home-border);
+      background: linear-gradient(180deg, var(--home-surface), var(--home-surface-strong));
+      box-shadow: var(--home-shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .hero-main,
+    .hero-side {
+      padding: 28px;
+    }
+
+    .hero-main::before,
+    .hero-side::before,
+    .cta-card::before {
+      content: '';
+      position: absolute;
+      inset: auto -18% -24% auto;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(242, 209, 141, 0.12), transparent 68%);
+      pointer-events: none;
+    }
+
     .eyebrow {
       display: inline-flex;
       align-items: center;
-      gap: 0.55rem;
-      padding: 0.45rem 0.8rem;
+      gap: 0.45rem;
+      padding: 0.42rem 0.7rem;
       border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: var(--surface-soft);
-      color: var(--accent-light);
-      font-size: 0.78rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      border: 1px solid var(--home-border);
+      color: var(--home-accent);
+      background: rgba(255, 255, 255, 0.02);
+      font-size: 0.74rem;
       font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
     }
-    .eyebrow::before {
-      content: '';
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--accent), var(--accent-light));
-      box-shadow: 0 0 14px var(--accent-glow);
-    }
-    .landing-hero {
-      padding: 3rem 1.5rem 1.75rem;
-    }
-    .landing-hero-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
-      gap: 1.2rem;
-      align-items: stretch;
-      margin-top: 1.2rem;
-    }
-    .hero-copy,
-    .hero-side {
-      min-width: 0;
-    }
-    .hero-copy-card,
-    .hero-side-card,
-    .hero-band,
-    .capability-card,
-    .protocol-card,
-    .journey-card,
-    .governance-card,
-    .scenario-card,
-    .contact-panel,
-    .support-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-soft);
-      backdrop-filter: blur(16px);
-    }
-    .hero-copy-card {
-      padding: 2rem;
-      position: relative;
-      overflow: hidden;
-      box-shadow: var(--shadow-glow);
-    }
-    .hero-copy-card::before {
-      content: '';
-      position: absolute;
-      inset: auto -12% -24% auto;
-      width: 260px;
-      height: 260px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(108, 92, 231, 0.24), transparent 68%);
-      pointer-events: none;
-    }
+
     .hero-title {
+      margin: 16px 0 16px;
+      font-size: clamp(3rem, 6vw, 5.7rem);
+      line-height: 0.95;
+      letter-spacing: -0.07em;
       max-width: 760px;
-      font-size: clamp(2.8rem, 4.6vw, 4.9rem);
-      line-height: 0.96;
-      margin: 1rem 0 1.2rem;
     }
+
     .hero-title span {
-      background: var(--gradient-primary);
+      display: inline-block;
+      color: transparent;
+      background: linear-gradient(135deg, var(--home-accent) 0%, var(--home-accent-2) 58%, var(--home-accent-3) 100%);
       -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
+
+    .hero-subtitle,
+    .section-copy,
+    .card-copy,
+    .step-copy,
+    .cta-copy,
+    .fineprint,
+    .price-note {
+      color: var(--home-text-soft);
+      line-height: 1.85;
+    }
+
     .hero-subtitle {
-      max-width: 760px;
-      color: var(--text-secondary);
+      max-width: 700px;
       font-size: 1.02rem;
-      line-height: 1.78;
+      margin-bottom: 22px;
     }
+
     .hero-actions,
-    .hero-notes,
-    .hero-links,
-    .panel-tags,
-    .contact-actions,
-    .quickstart-tabs {
+    .hero-stats,
+    .pill-row,
+    .cta-actions {
       display: flex;
-      gap: 0.8rem;
       flex-wrap: wrap;
+      gap: 10px;
     }
+
     .hero-actions {
-      margin-top: 1.4rem;
+      margin-bottom: 18px;
     }
-    .hero-links {
-      margin-top: 1rem;
+
+    .hero-stats {
+      margin-top: 18px;
     }
-    .hero-link-chip,
-    .panel-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.48rem 0.72rem;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: var(--surface-soft);
-      color: var(--text-secondary);
-      font-size: 0.82rem;
+
+    .stat {
+      flex: 1 1 180px;
+      min-width: 0;
+      padding: 14px 16px;
+      border-radius: var(--home-radius-sm);
+      border: 1px solid var(--home-border);
+      background: rgba(255, 255, 255, 0.025);
     }
-    .hero-link-chip:hover {
-      color: var(--text-primary);
-      border-color: var(--border-strong);
+
+    .stat strong {
+      display: block;
+      font-size: 1.05rem;
+      color: var(--home-text);
+      margin-bottom: 4px;
     }
-    .hero-notes {
-      margin-top: 1.2rem;
+
+    .stat span {
+      color: var(--home-text-muted);
+      font-size: 0.84rem;
     }
-    .hero-note {
-      padding: 0.55rem 0.78rem;
-      border-radius: 999px;
-      background: var(--surface-soft);
-      border: 1px solid var(--border-color);
-      color: var(--text-muted);
-      font-size: 0.82rem;
-    }
-    .hero-side-card {
-      padding: 1.5rem;
+
+    .hero-side {
       display: grid;
-      gap: 1rem;
+      gap: 16px;
+      align-content: start;
     }
-    .side-kicker {
+
+    .panel-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      gap: 1rem;
-      margin-bottom: 0.2rem;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
     }
-    .side-kicker strong {
-      font-size: 1rem;
+
+    .panel-header h2,
+    .section-head h2 {
+      margin: 0;
+      letter-spacing: -0.04em;
+      font-size: clamp(1.6rem, 2.8vw, 2.5rem);
     }
-    .status-pill {
+
+    .panel-kicker {
+      font-size: 0.76rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--home-text-muted);
+    }
+
+    .panel-badge {
       display: inline-flex;
       align-items: center;
-      gap: 0.42rem;
-      padding: 0.42rem 0.65rem;
+      gap: 0.35rem;
+      padding: 0.42rem 0.68rem;
       border-radius: 999px;
-      background: var(--surface-accent);
-      color: var(--accent-light);
-      font-size: 0.76rem;
+      border: 1px solid rgba(136, 241, 201, 0.24);
+      background: rgba(136, 241, 201, 0.08);
+      color: var(--home-accent-3);
       font-family: var(--font-mono);
+      font-size: 0.73rem;
+      white-space: nowrap;
     }
-    .status-pill::before {
-      content: '';
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--accent);
-      box-shadow: 0 0 12px var(--accent-glow);
-    }
-    .panel-summary {
-      color: var(--text-secondary);
-      font-size: 0.92rem;
-      line-height: 1.8;
-    }
-    .hero-side-grid {
+
+    .panel-list {
       display: grid;
-      gap: 0.85rem;
+      gap: 10px;
+      margin-top: 8px;
     }
-    .hero-side-item {
-      padding: 0.95rem 1rem;
-      border-radius: var(--radius);
-      background: var(--surface-soft);
-      border: 1px solid var(--border-color);
+
+    .panel-item {
+      padding: 14px 15px;
+      border-radius: 18px;
+      border: 1px solid var(--home-border);
+      background: rgba(255, 255, 255, 0.03);
     }
-    .hero-side-item strong {
+
+    .panel-item strong {
       display: block;
-      font-size: 0.92rem;
-      margin-bottom: 0.2rem;
+      margin-bottom: 4px;
+      font-size: 0.94rem;
     }
-    .hero-side-item p {
-      color: var(--text-muted);
-      font-size: 0.82rem;
-      line-height: 1.65;
-    }
-    .metric-grid,
-    .capability-grid,
-    .protocol-grid,
-    .journey-grid,
-    .governance-grid,
-    .scenario-grid,
-    .support-grid {
-      display: grid;
-      gap: 1rem;
-    }
-    .metric-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      margin-top: 1rem;
-    }
-    .metric-card {
-      padding: 1.15rem;
-      border-radius: 20px;
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      box-shadow: var(--shadow-soft);
-    }
-    .metric-card strong {
-      display: block;
-      font-size: 1.5rem;
-      color: var(--text-primary);
-      letter-spacing: -0.04em;
-      margin-bottom: 0.25rem;
-    }
-    .metric-card span {
-      color: var(--text-muted);
-      font-size: 0.8rem;
-      line-height: 1.55;
-    }
-    .hero-band {
-      margin-top: 1rem;
-      padding: 1rem 1.2rem;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.9rem;
-    }
-    .hero-band-item {
-      padding-right: 0.8rem;
-      border-right: 1px solid var(--border-color);
-    }
-    .hero-band-item:last-child {
-      border-right: 0;
-      padding-right: 0;
-    }
-    .hero-band-item strong {
-      display: block;
-      margin-bottom: 0.28rem;
-      font-size: 0.9rem;
-    }
-    .hero-band-item p {
-      color: var(--text-muted);
-      font-size: 0.82rem;
+
+    .panel-item p {
+      margin: 0;
+      color: var(--home-text-muted);
+      font-size: 0.84rem;
       line-height: 1.6;
     }
-    .section-block {
-      padding: 1.5rem;
+
+    .section {
+      margin-top: 18px;
     }
+
+    .section-card {
+      padding: 24px;
+    }
+
     .section-head {
-      max-width: 820px;
-      margin-bottom: 1.25rem;
-    }
-    .section-head h2 {
-      font-size: clamp(1.9rem, 3vw, 2.8rem);
-      margin: 0.7rem 0 0.8rem;
-    }
-    .section-head p {
-      color: var(--text-secondary);
-    }
-    .capability-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .capability-card,
-    .protocol-card,
-    .journey-card,
-    .governance-card,
-    .scenario-card,
-    .support-card {
-      padding: 1.3rem;
-    }
-    .capability-card p,
-    .protocol-card p,
-    .journey-card p,
-    .governance-card p,
-    .scenario-card p,
-    .support-card p {
-      color: var(--text-secondary);
-      font-size: 0.9rem;
-    }
-    .capability-card ul,
-    .governance-card ul,
-    .journey-card ul {
-      margin: 0.85rem 0 0;
-      padding-left: 1.15rem;
-      color: var(--text-muted);
-      font-size: 0.86rem;
-      line-height: 1.8;
-    }
-    .protocol-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .protocol-label,
-    .journey-step {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      padding: 0.24rem 0.56rem;
-      margin-bottom: 0.7rem;
-      border-radius: 999px;
-      background: var(--surface-accent);
-      color: var(--accent-light);
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .journey-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-    .governance-grid,
-    .scenario-grid,
-    .support-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .quickstart-shell {
-      padding: 1.5rem;
-      border-radius: var(--radius-lg);
-      background: var(--gradient-panel);
-      border: 1px solid var(--border-color);
-      box-shadow: var(--shadow);
-    }
-    .quickstart-tabs {
-      margin-top: 1rem;
-      margin-bottom: 1rem;
-    }
-    .quickstart-tabs button {
-      padding: 0.7rem 1rem;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: var(--surface-soft);
-      color: var(--text-secondary);
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .quickstart-tabs button.active {
-      background: var(--gradient-primary);
-      border-color: transparent;
-      color: #fff;
-      font-weight: 700;
-      box-shadow: var(--shadow-glow);
-    }
-    .quickstart-meta {
       display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 1rem;
-      align-items: start;
+      gap: 8px;
+      max-width: 760px;
+      margin-bottom: 14px;
     }
-    .quickstart-note {
-      padding: 1rem 1.1rem;
-      border-radius: 18px;
-      background: var(--surface-soft);
-      border: 1px solid var(--border-color);
-      color: var(--text-secondary);
-      font-size: 0.88rem;
+
+    .section-head p {
+      color: var(--home-text-soft);
+      margin: 0;
       line-height: 1.8;
     }
-    .quickstart-note strong {
-      color: var(--text-primary);
-    }
-    .pricing-head {
+
+    .section-toolbar {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      gap: 1rem;
-      margin-bottom: 1rem;
-      flex-wrap: wrap;
-    }
-    .pricing-head p {
-      color: var(--text-secondary);
-      max-width: 720px;
-    }
-    .search-bar {
-      display: flex;
-      gap: 0.8rem;
+      gap: 12px;
       align-items: center;
       flex-wrap: wrap;
+      margin: 16px 0 12px;
     }
-    .search-bar .oc-input {
-      width: min(360px, 100%);
-    }
-    .legal-note {
-      margin-top: 1rem;
-      padding: 1rem 1.1rem;
-      border-radius: 18px;
-      background: rgba(255, 191, 123, 0.09);
-      border: 1px solid rgba(255, 191, 123, 0.18);
-      color: var(--text-secondary);
-      font-size: 0.85rem;
-      line-height: 1.8;
-    }
-    .contact-shell {
-      display: grid;
-      grid-template-columns: 1.1fr 0.9fr;
-      gap: 1rem;
-      align-items: stretch;
-    }
-    .contact-panel {
-      padding: 1.5rem;
-    }
-    .contact-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.9rem;
-      margin-top: 1rem;
-    }
-    .contact-card {
-      padding: 1rem;
-      border-radius: 18px;
-      background: var(--surface-soft);
-      border: 1px solid var(--border-color);
-      cursor: pointer;
-      transition: transform 0.2s ease, border-color 0.2s ease;
-    }
-    .contact-card:hover {
-      transform: translateY(-2px);
-      border-color: var(--border-strong);
-    }
-    .contact-card span {
-      display: block;
-      color: var(--text-muted);
-      font-size: 0.8rem;
-      margin-bottom: 0.35rem;
-    }
-    .contact-card strong {
-      display: block;
-      font-size: 0.96rem;
-      word-break: break-all;
-    }
-    .footer-nav {
-      display: flex;
-      justify-content: center;
-      gap: 1.5rem;
-      flex-wrap: wrap;
-      margin-bottom: 0.9rem;
-    }
-    .theme-fab {
-      position: fixed;
-      right: 22px;
-      bottom: 22px;
-      z-index: 140;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.55rem;
-      min-height: 48px;
-      padding: 0.78rem 1rem;
-      border: 1px solid var(--border-color);
+
+    .search {
+      flex: 1 1 320px;
+      min-width: 260px;
+      height: 48px;
       border-radius: 999px;
-      background: var(--bg-card-strong);
-      color: var(--text-primary);
-      box-shadow: var(--shadow-glow);
-      backdrop-filter: blur(16px);
-      cursor: pointer;
-      font-size: 0.88rem;
+      border: 1px solid var(--home-border);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--home-text);
+      padding: 0 18px;
+      outline: none;
+      transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+    }
+
+    .search::placeholder {
+      color: var(--home-text-muted);
+    }
+
+    .search:focus {
+      border-color: rgba(242, 209, 141, 0.34);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: 22px;
+      border: 1px solid var(--home-border);
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .pricing-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+    }
+
+    .pricing-table th,
+    .pricing-table td {
+      padding: 15px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .pricing-table th {
+      color: var(--home-text-muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .pricing-table td {
+      color: var(--home-text);
+      font-size: 0.92rem;
+    }
+
+    .pricing-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .model-name {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--home-text);
       font-weight: 700;
-      transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
     }
-    .theme-fab:hover {
-      transform: translateY(-2px);
-      border-color: var(--border-strong);
-      color: var(--accent-light);
+
+    .model-sub {
+      color: var(--home-text-muted);
+      font-size: 0.8rem;
     }
-    .theme-fab .theme-fab-icon {
+
+    .mono {
+      font-family: var(--font-mono);
+    }
+
+    .price-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.34rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid var(--home-border);
+      background: rgba(255, 255, 255, 0.03);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--home-text);
+    }
+
+    .price-saved {
+      color: var(--home-accent-3);
+    }
+
+    .pill-row .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.72rem;
+      border-radius: 999px;
+      border: 1px solid var(--home-border);
+      background: rgba(255, 255, 255, 0.025);
+      color: var(--home-text-soft);
+      font-size: 0.82rem;
+    }
+
+    .pill strong {
+      color: var(--home-text);
+    }
+
+    .feature-grid,
+    .compare-grid,
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .feature-card,
+    .compare-card,
+    .steps-card {
+      padding: 20px;
+    }
+
+    .feature-card h3,
+    .compare-card h3,
+    .steps-card h3 {
+      margin: 0 0 8px;
+      font-size: 1.08rem;
+      letter-spacing: -0.02em;
+    }
+
+    .feature-card p,
+    .compare-card p,
+    .steps-card p {
+      margin: 0;
+      color: var(--home-text-muted);
+      line-height: 1.75;
+    }
+
+    .feature-index,
+    .step-index {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      background: var(--surface-soft);
-      font-size: 0.95rem;
-      line-height: 1;
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      margin-bottom: 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--home-border);
+      color: var(--home-accent);
+      font-family: var(--font-mono);
+      font-weight: 700;
     }
-    @media (max-width: 1120px) {
-      .landing-hero-grid,
-      .contact-shell,
-      .quickstart-meta {
+
+    .compare-card ul {
+      list-style: none;
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .compare-card li {
+      color: var(--home-text-soft);
+      line-height: 1.6;
+    }
+
+    .compare-card li strong {
+      color: var(--home-text);
+    }
+
+    .cta-card {
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .cta-copy {
+      max-width: 700px;
+    }
+
+    .cta-copy h2 {
+      margin: 10px 0 10px;
+      font-size: clamp(1.5rem, 2.5vw, 2.3rem);
+      letter-spacing: -0.04em;
+    }
+
+    .home-footer {
+      max-width: 1220px;
+      margin: 16px auto 0;
+      padding: 0 16px 30px;
+    }
+
+    .home-footer .footer-nav {
+      justify-content: flex-start;
+      gap: 14px 22px;
+    }
+
+    .home-footer p:last-child {
+      margin-top: 10px;
+    }
+
+    html[data-theme="light"] .panel-item {
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    }
+
+    html[data-theme="light"] .search {
+      background: rgba(255, 255, 255, 0.82);
+      color: var(--home-text);
+    }
+
+    html[data-theme="light"] .search:focus {
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    html[data-theme="light"] .table-wrap {
+      background: rgba(255, 255, 255, 0.84);
+    }
+
+    html[data-theme="light"] .pricing-table th,
+    html[data-theme="light"] .pricing-table td {
+      border-bottom-color: rgba(47, 140, 255, 0.08);
+    }
+
+    html[data-theme="light"] .pill,
+    html[data-theme="light"] .price-pill,
+    html[data-theme="light"] .panel-badge,
+    html[data-theme="light"] .feature-index,
+    html[data-theme="light"] .step-index {
+      background: rgba(255, 255, 255, 0.84);
+      border-color: rgba(47, 140, 255, 0.16);
+    }
+
+    @media (max-width: 1024px) {
+      .hero,
+      .feature-grid,
+      .compare-grid,
+      .steps-grid {
         grid-template-columns: 1fr;
       }
-      .metric-grid,
-      .capability-grid,
-      .protocol-grid,
-      .journey-grid,
-      .governance-grid,
-      .scenario-grid,
-      .support-grid,
-      .contact-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+
+      .hero-main,
+      .hero-side {
+        padding: 24px;
       }
     }
-    @media (max-width: 760px) {
-      .landing-hero {
-        padding: 2.2rem 1rem 1.25rem;
+
+    @media (max-width: 720px) {
+      .home-shell {
+        padding-inline: 12px;
       }
-      .hero-copy-card,
-      .hero-side-card,
-      .section-block,
-      .quickstart-shell,
-      .contact-panel {
-        padding: 1.2rem;
+
+      .hero-main,
+      .hero-side,
+      .section-card,
+      .cta-card {
+        padding: 18px;
       }
-      .metric-grid,
-      .capability-grid,
-      .protocol-grid,
-      .journey-grid,
-      .governance-grid,
-      .scenario-grid,
-      .support-grid,
-      .contact-grid,
-      .hero-band {
-        grid-template-columns: 1fr;
-      }
-      .hero-band-item {
-        padding-right: 0;
-        border-right: 0;
-        border-bottom: 1px solid var(--border-color);
-        padding-bottom: 0.8rem;
-      }
-      .hero-band-item:last-child {
-        padding-bottom: 0;
-        border-bottom: 0;
-      }
-      .quickstart-tabs button,
-      .hero-actions a,
-      .contact-actions a {
-        width: 100%;
-      }
-    }
-    @media (max-width: 560px) {
-      .landing-hero {
-        padding: 1.4rem 0.85rem 1rem;
-      }
-      .hero-copy-card,
-      .hero-side-card,
-      .section-block,
-      .quickstart-shell,
-      .contact-panel {
-        padding: 1rem;
-        border-radius: 20px;
-      }
+
       .hero-title {
-        font-size: clamp(2.2rem, 11vw, 3.1rem);
-        line-height: 1.01;
+        font-size: clamp(2.5rem, 11vw, 3.6rem);
       }
-      .hero-subtitle {
-        font-size: 0.95rem;
-        line-height: 1.72;
-      }
-      .hero-link-chip,
-      .hero-note,
-      .panel-tag {
+
+      .btn-accent,
+      .btn-outline,
+      .theme-fab {
         width: 100%;
-        justify-content: center;
-        text-align: center;
       }
-      .metric-card strong {
-        font-size: 1.32rem;
-      }
-      .pricing-head,
-      .search-bar {
+
+      .section-toolbar {
         align-items: stretch;
       }
-      .search-bar .oc-input {
-        width: 100%;
-      }
-      .quickstart-tabs {
-        gap: 0.55rem;
-      }
-      .quickstart-tabs button {
-        min-height: 42px;
-      }
-      .theme-fab {
-        right: 14px;
-        bottom: 14px;
-        min-height: 44px;
-        padding: 0.72rem 0.9rem;
-        font-size: 0.82rem;
+
+      .search {
+        flex-basis: 100%;
       }
     }
   </style>
 </head>
-<body>
+<body class="homepage">
   <nav class="oc-navbar nav-collapsible">
-    <a href="/" class="oc-logo">
-      <div class="oc-logo-icon">&gt;_</div>
+    <a href="/" class="oc-logo" aria-label="云聚API 首页">
+      <div class="oc-logo-icon">DR</div>
       <span>云聚API</span>
     </a>
-    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')">
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')" aria-label="打开导航菜单">
       <span></span><span></span><span></span>
     </div>
     <div class="oc-nav-links">
-      <a href="/" class="active">平台首页</a>
-      <a href="/app-market.html">应用市场</a>
-      <a href="/blog.html">技术博客</a>
-      <a href="#capabilities">核心能力</a>
-      <a href="#quickstart">接入方式</a>
-      <a href="#pricing">模型与计费</a>
-      <a href="/pipeline.html">路由架构</a>
-      <a href="/docs.html">文档中心</a>
-      <a href="#support">支持与合作</a>
+      <a href="/" class="active">首页</a>
+      <a href="#models">模型</a>
+      <a href="#pricing">价格</a>
+      <a href="#compare">对比</a>
+      <a href="#start">开始使用</a>
     </div>
     <div class="oc-nav-right">
-      <a href="/login.html?return_url=%2Fconsole.html&v=20260329" class="btn-accent">进入控制台</a>
+      <a href="/login.html?return_url=%2Fconsole.html&v=20260413" class="btn-accent">立即开始</a>
     </div>
   </nav>
 
-  <main class="landing-shell">
-    <section class="landing-hero">
-      <span class="eyebrow">Unified Model Access Layer</span>
-      <div class="landing-hero-grid">
-        <div class="hero-copy">
-          <div class="hero-copy-card">
-            <h1 class="hero-title">统一接入主流模型，<span>一站管理协议、路由、计费与控制</span></h1>
-            <p class="hero-subtitle">一个 API Key 即可覆盖 SDK、CLI、第三方客户端与内部网关接入，把模型切换、价格核对、日志排查和运行期控制统一收口到控制台。模型目录、价格、可用性与限制说明，以控制台和接口返回为准。</p>
-            <div class="hero-actions">
-              <a href="/login.html?return_url=%2Fconsole.html&v=20260329" class="btn-accent">立即开通并创建 API Key</a>
-              <a href="/docs.html#quickstart" class="btn-outline">查看 5 分钟接入模板</a>
-            </div>
-            <div class="hero-links">
-              <a class="hero-link-chip" href="/docs.html#claude-code">Claude Code CLI</a>
-              <a class="hero-link-chip" href="/docs.html#codex-cli">Codex CLI</a>
-              <a class="hero-link-chip" href="/docs.html#quickstart-sdk">OpenAI SDK</a>
-              <a class="hero-link-chip" href="/docs.html#messages">Anthropic Messages</a>
-              <a class="hero-link-chip" href="/docs.html#gemini-api">Gemini API</a>
-            </div>
-            <div class="hero-notes">
-              <span class="hero-note">减少多模型重复对接，优先把时间投入业务开发</span>
-              <span class="hero-note">支持 SDK、CLI、IDE 与第三方客户端统一接入</span>
-            </div>
-            <div class="metric-grid">
-              <div class="metric-card">
-                <strong>3 类协议</strong>
-                <span>OpenAI、Anthropic、Gemini 兼容入口并行提供</span>
-              </div>
-              <div class="metric-card">
-                <strong>1 套控制台</strong>
-                <span>统一 API Key、模型目录、日志、套餐、余额与账单明细</span>
-              </div>
-              <div class="metric-card">
-                <strong>多端接入</strong>
-                <span>支持 SDK、CLI、IDE 插件与第三方客户端快速联调</span>
-              </div>
-              <div class="metric-card">
-                <strong>平台治理</strong>
-                <span>接入、路由、限流、队列、计费与观测集中管理</span>
-              </div>
-            </div>
+  <main class="home-shell">
+    <section class="hero">
+      <div class="hero-main">
+        <span class="eyebrow">前沿 AI 路由</span>
+        <h1 class="hero-title">无需额外折腾，直接接入 <span>前沿模型</span>。</h1>
+        <p class="hero-subtitle">
+          一个入口连接 Claude、GPT、Gemini 等模型。保留你现有的 SDK 和工作流，用一个账号、一把 Key 和更清晰的价格，更快进入生产。
+        </p>
+        <div class="hero-actions">
+          <a href="/login.html?return_url=%2Fconsole.html&v=20260413" class="btn-accent">开始使用</a>
+          <a href="/docs.html" class="btn-outline">查看文档</a>
+        </div>
+        <div class="pill-row" aria-label="核心优势">
+          <span class="pill"><strong>兼容 OpenAI</strong> 同一客户端，切换新路由</span>
+          <span class="pill"><strong>价格透明</strong> 没有隐藏订阅</span>
+          <span class="pill"><strong>快速接入</strong> 几分钟完成首个请求</span>
+          <span class="pill"><strong>适合团队</strong> 一把 Key 覆盖整个团队</span>
+        </div>
+        <div class="hero-stats">
+          <div class="stat">
+            <strong>前沿模型</strong>
+            <span>Claude、GPT、Gemini，以及偏代码优化的模型。</span>
           </div>
-          <div class="hero-band">
-            <div class="hero-band-item">
-              <strong>平台定位</strong>
-              <p>统一大模型接入层，帮助团队把“先接上、再治理、后扩展”放到同一平台完成。</p>
-            </div>
-            <div class="hero-band-item">
-              <strong>适用对象</strong>
-              <p>个人开发者、AI 产品团队、内部共享网关与多客户端接入场景均可直接使用。</p>
-            </div>
-            <div class="hero-band-item">
-              <strong>官方口径</strong>
-              <p>能力、价格、权益和限制均以控制台配置、接口文档与实际账户状态为准。</p>
-            </div>
+          <div class="stat">
+            <strong>简单路由</strong>
+            <span>先选对模型，后面就能持续交付。</span>
+          </div>
+          <div class="stat">
+            <strong>为团队而生</strong>
+            <span>共享访问、清晰成本、简洁的运维路径。</span>
           </div>
         </div>
-
-        <aside class="hero-side">
-          <div class="hero-side-card">
-            <div class="side-kicker">
-              <strong>为什么先接入平台层</strong>
-              <span class="status-pill">operational ready</span>
-            </div>
-            <p class="panel-summary">多数团队真正需要统一的不是“某一个模型”，而是接入方式、调用策略、计费口径和运行期控制。平台层的价值在于先缩短接入周期，再降低后续迁移、排障与运营成本。</p>
-            <div class="hero-side-grid">
-              <div class="hero-side-item">
-                <strong>协议差异在平台层消化</strong>
-                <p>对接 SDK、CLI 与第三方客户端时，减少为不同上游分别维护接入逻辑的成本。</p>
-              </div>
-              <div class="hero-side-item">
-                <strong>模型切换从硬编码变为运行期选择</strong>
-                <p>模型、路由、价格和可用性在控制台与平台层统一呈现，业务入口无需频繁重构。</p>
-              </div>
-              <div class="hero-side-item">
-                <strong>计费与日志统一归档</strong>
-                <p>调用日志、额度消耗、套餐权益和异常状态可以在同一控制面查看，便于快速定位问题。</p>
-              </div>
-            </div>
-            <div class="panel-tags">
-              <span class="panel-tag">统一 API Key</span>
-              <span class="panel-tag">统一控制台</span>
-              <span class="panel-tag">统一路由策略</span>
-              <span class="panel-tag">统一计费口径</span>
-            </div>
-          </div>
-        </aside>
       </div>
+
+      <aside class="hero-side">
+        <div>
+          <div class="panel-header">
+            <div>
+              <div class="panel-kicker">热门模型</div>
+              <h2>随时可用</h2>
+            </div>
+            <span class="panel-badge">实时路由</span>
+          </div>
+          <p class="card-copy">
+            从你已经信任的模型开始，也可以在不同提供方之间切换而无需修改技术栈。首页把路径缩短到最少：发现、比较、启动。
+          </p>
+        </div>
+
+        <div class="panel-list">
+          <div class="panel-item">
+            <strong>Claude Opus 4.6</strong>
+            <p>适合深度推理、分析和高要求写作。</p>
+          </div>
+          <div class="panel-item">
+            <strong>GPT-5.4</strong>
+            <p>通用旗舰，能力全面，稳定性强。</p>
+          </div>
+          <div class="panel-item">
+            <strong>Gemini 2.5 Pro</strong>
+            <p>适合长上下文工作流和多模态任务。</p>
+          </div>
+          <div class="panel-item">
+            <strong>Codex 模型</strong>
+            <p>将偏代码模型与同一入口和 Key 管理方式配套使用。</p>
+          </div>
+        </div>
+      </aside>
     </section>
 
-    <section class="oc-container" id="capabilities">
-      <div class="section-block">
+    <section class="section" id="models">
+      <div class="pricing-card section-card">
         <div class="section-head">
-          <span class="eyebrow">Core Platform</span>
-          <h2>围绕“接入、路由、观测、计费”形成统一平台能力</h2>
-          <p>页面重点不是堆概念，而是回答三件事：能否尽快接入、上线后是否好治理、后续扩容和切换是否省成本。</p>
+          <span class="eyebrow">模型目录</span>
+          <h2>常用模型的清晰价格</h2>
+          <p>
+            下方表格的呈现方式尽量像一个真实的路由目录：行结构简洁、节省一目了然、没有强推导购。用户可以快速扫一眼成本，与官方价格对比后继续往下看。
+          </p>
         </div>
-        <div class="capability-grid">
-          <div class="capability-card">
-            <h3>统一接入</h3>
-            <p>控制台提供统一 API Key、模型目录与接口入口。开发者可以按 SDK、CLI 或第三方客户端选择最短适配路径。</p>
-            <ul>
-              <li>OpenAI Chat / Responses</li>
-              <li>Anthropic Messages</li>
-              <li>Gemini Compatible Endpoints</li>
-            </ul>
-          </div>
-          <div class="capability-card">
-            <h3>统一治理</h3>
-            <p>把接入规范、套餐权益、额度、日志、通知和模型可见性集中到控制台，便于团队内部统一口径与权限管理。</p>
-            <ul>
-              <li>用户侧控制台</li>
-              <li>管理后台与运营视图</li>
-              <li>套餐、订单、邀请与站点设置</li>
-            </ul>
-          </div>
-          <div class="capability-card">
-            <h3>统一运行期控制</h3>
-            <p>平台层承接路由、限流、队列、健康度与故障切换逻辑，帮助业务方把运行期复杂度留在平台侧管理。</p>
-            <ul>
-              <li>请求排队与并发控制</li>
-              <li>上游健康与失败切换</li>
-              <li>日志与观测指标输出</li>
-            </ul>
-          </div>
+        <div class="section-toolbar">
+          <input id="model-search" class="search" type="search" placeholder="搜索模型" aria-label="搜索模型" oninput="filter模型()">
+          <div class="price-note" id="model-count">显示 5 个模型</div>
         </div>
+        <div class="table-wrap">
+          <table class="pricing-table" aria-label="模型 pricing table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>输入</th>
+                <th>输出</th>
+                <th>缓存输入</th>
+                <th>缓存输出</th>
+                <th>官方</th>
+                <th>路由</th>
+                <th>节省</th>
+              </tr>
+            </thead>
+            <tbody id="pricing-body">
+              <tr>
+                <td>
+                  <span class="model-name">Claude Opus 4.6</span>
+                  <span class="model-sub">推理 / 高端</span>
+                </td>
+                <td class="mono">$15.00</td>
+                <td class="mono">$75.00</td>
+                <td class="mono">$1.50</td>
+                <td class="mono">$7.50</td>
+                <td><span class="price-pill">$18.75 / $93.75</span></td>
+                <td><span class="price-pill">$15.00 / $75.00</span></td>
+                <td class="price-saved mono">立省 20%</td>
+              </tr>
+              <tr>
+                <td>
+                  <span class="model-name">Claude Sonnet 4.6</span>
+                  <span class="model-sub">均衡 / 快速</span>
+                </td>
+                <td class="mono">$3.00</td>
+                <td class="mono">$15.00</td>
+                <td class="mono">$0.30</td>
+                <td class="mono">$1.50</td>
+                <td><span class="price-pill">$3.75 / $18.75</span></td>
+                <td><span class="price-pill">$3.00 / $15.00</span></td>
+                <td class="price-saved mono">立省 20%</td>
+              </tr>
+              <tr>
+                <td>
+                  <span class="model-name">Claude Haiku 4.5</span>
+                  <span class="model-sub">低延迟 / 高并发</span>
+                </td>
+                <td class="mono">$0.25</td>
+                <td class="mono">$1.25</td>
+                <td class="mono">$0.03</td>
+                <td class="mono">$0.13</td>
+                <td><span class="price-pill">$0.31 / $1.56</span></td>
+                <td><span class="price-pill">$0.25 / $1.25</span></td>
+                <td class="price-saved mono">立省 20%</td>
+              </tr>
+              <tr>
+                <td>
+                  <span class="model-name">GPT-5.4</span>
+                  <span class="model-sub">通用旗舰</span>
+                </td>
+                <td class="mono">$1.25</td>
+                <td class="mono">$10.00</td>
+                <td class="mono">$0.13</td>
+                <td class="mono">$1.00</td>
+                <td><span class="price-pill">$1.56 / $12.50</span></td>
+                <td><span class="price-pill">$1.25 / $10.00</span></td>
+                <td class="price-saved mono">立省 20%</td>
+              </tr>
+              <tr>
+                <td>
+                  <span class="model-name">GPT-5.3 Codex</span>
+                  <span class="model-sub">编码 / Agent 工作流</span>
+                </td>
+                <td class="mono">$1.25</td>
+                <td class="mono">$10.00</td>
+                <td class="mono">$0.13</td>
+                <td class="mono">$1.00</td>
+                <td><span class="price-pill">$1.56 / $12.50</span></td>
+                <td><span class="price-pill">$1.25 / $10.00</span></td>
+                <td class="price-saved mono">立省 20%</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="fineprint" style="margin-top: 12px;">
+          价格 above is displayed for a clean marketing homepage and should be treated as presentation copy unless you wire it to live product data later.
+        </p>
       </div>
     </section>
 
-    <section class="oc-container">
-      <div class="section-block">
+    <section class="section" id="compare">
+      <div class="section-head">
+        <span class="eyebrow">团队为什么会切换</span>
+        <h2>少一点流程，多一点交付</h2>
+        <p>
+          路由器的价值不是新奇，而是把模型层变得“足够无聊”：一个地方比较、一个地方付款、一个地方接入。
+        </p>
+      </div>
+      <div class="feature-grid">
+        <article class="feature-card">
+          <div class="feature-index">01</div>
+          <h3>一个 API 连接多个提供方</h3>
+          <p>保留现有客户端库，只替换模型，而不是把每个集成都重做一遍。</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-index">02</div>
+          <h3>成本透明</h3>
+          <p>先把真实成本结构展示清楚，再把账务细节交给控制台。</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-index">03</div>
+          <h3>更适合运维与管理</h3>
+          <p>模型选择、使用可见性和账户管理都集中在一个团队真正能维护的地方。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="compare-grid">
+        <article class="compare-card">
+          <h3>官方 API 路径</h3>
+          <p>多个提供方、不同 Key、分散仪表盘，以及每个模型家族都不同的计费形态。</p>
+          <ul>
+            <li><strong>更多准备：</strong> 每个提供方都有自己的接入流程。</li>
+            <li><strong>更多切换：</strong> 价格、额度和接口都分散在不同地方。</li>
+            <li><strong>更多维护：</strong> 模型变化时需要反复调整集成。</li>
+          </ul>
+        </article>
+        <article class="compare-card">
+          <h3>云路由路径</h3>
+          <p>一个网关、一把 Key、一个清楚的地方先评估成本，再决定要不要切到某个模型或方案。</p>
+          <ul>
+            <li><strong>更少准备：</strong> 一个账号更快完成首个请求。</li>
+            <li><strong>更少切换：</strong> 在一个地方比较模型。</li>
+            <li><strong>更少偏差：</strong> 价格与权限保持统一。</li>
+          </ul>
+        </article>
+        <article class="compare-card">
+          <h3>适用人群</h3>
+          <p>这个首页刻意保持简单：信息足够用户快速判断，但又不会让第一次点击显得负担太重。</p>
+          <ul>
+            <li><strong>开发者：</strong> 希望快速验证价值。</li>
+            <li><strong>团队：</strong> 需要共享控制与清晰用量。</li>
+            <li><strong>负责人：</strong> 关注成本、稳定性和速度。</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="start">
+      <div class="steps-card section-card">
         <div class="section-head">
-          <span class="eyebrow">Protocol Surfaces</span>
-          <h2>按工具链选择协议入口，而不是为每个客户端重做一套接入</h2>
-          <p>当前平台面向主流开发工作流提供三类入口。先匹配你的工具链，再根据目标模型与请求格式选择对应协议，能更快完成首轮联调。</p>
+          <span class="eyebrow">开始使用</span>
+          <h2>三步完成首个请求</h2>
+          <p>把接入流程尽量缩短并做得一目了然。这也符合 derouter 风格的承诺：发现、选择、启动。</p>
         </div>
-        <div class="protocol-grid">
-          <div class="protocol-card">
-            <div class="protocol-label">OpenAI</div>
-            <h3>面向 SDK、Web 应用与多数客户端</h3>
-            <p>适合 OpenAI SDK、OpenAI 兼容客户端、Chat Completions 与 Responses 风格调用。通常是业务后端和多数桌面客户端的默认入口。</p>
-          </div>
-          <div class="protocol-card">
-            <div class="protocol-label">Anthropic</div>
-            <h3>面向 Claude Code 与原生 Messages 工作流</h3>
-            <p>适合 Claude Code、Anthropic SDK、偏 Messages 协议的编码 Agent 与需要保持 Anthropic 调用体验的场景。</p>
-          </div>
-          <div class="protocol-card">
-            <div class="protocol-label">Gemini</div>
-            <h3>面向 Gemini CLI 与兼容多模态调用</h3>
-            <p>适合 Gemini 风格端点或需要与 Gemini 兼容客户端对接的场景。具体模型与能力范围以控制台目录为准。</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="oc-container">
-      <div class="section-block">
-        <div class="section-head">
-          <span class="eyebrow">Operational Journey</span>
-          <h2>从创建 Key 到运行治理，接入路径应该短且清晰</h2>
-          <p>把真正的接入动作拆成清晰路径，能显著减少试错时间，也更适合团队内部标准化推进。</p>
-        </div>
-        <div class="journey-grid">
-          <div class="journey-card">
-            <div class="journey-step">Step 01</div>
-            <h3>创建账户并进入控制台</h3>
-            <p>登录或注册后进入统一控制台，获取 API Key，并先确认模型目录、套餐与计费权益。</p>
-          </div>
-          <div class="journey-card">
-            <div class="journey-step">Step 02</div>
-            <h3>按工具链选择接入方式</h3>
-            <p>SDK 用户通常走 OpenAI 兼容入口，CLI 用户优先查看 Claude Code、Codex 或 Gemini 的对应配置章节。</p>
-          </div>
-          <div class="journey-card">
-            <div class="journey-step">Step 03</div>
-            <h3>根据任务选择模型与路由策略</h3>
-            <p>模型选择、价格和调用限制统一呈现在平台层，便于后续在不改业务入口的情况下持续调整与扩展。</p>
-          </div>
+        <div class="steps-grid">
+          <article class="steps-card">
+            <div class="step-index">01</div>
+            <h3>创建账号</h3>
+            <p class="step-copy">登录后打开控制台，先确认账号状态，再把 Key 接入你的工作流。</p>
+          </article>
+          <article class="steps-card">
+            <div class="step-index">02</div>
+            <h3>选择模型</h3>
+            <p class="step-copy">按延迟、推理或编码需求选择合适的模型，然后接入你现有的客户端。</p>
+          </article>
+          <article class="steps-card">
+            <div class="step-index">03</div>
+            <h3>发送首个请求</h3>
+            <p class="step-copy">请求跑通后，就可以在控制台里调整路由、用量和计费，而不用重写应用。</p>
+          </article>
         </div>
       </div>
     </section>
 
-    <section class="oc-container" id="quickstart">
-      <div class="quickstart-shell">
-        <div class="section-head" style="margin-bottom:0;">
-          <span class="eyebrow">Quickstart</span>
-          <h2>先跑通一次请求，再进入控制台做正式治理</h2>
-          <p>下面给出最常用的接入模板，目标是让你先在最短时间内验证链路可用，再按控制台口径完成正式上线配置。生产接入前，请以文档中心和控制台内实际模型目录、价格与限制说明为准。</p>
+    <section class="section">
+      <div class="cta-card">
+        <div class="cta-copy">
+          <span class="eyebrow">下一步</span>
+          <h2>从你已经熟悉的模型开始，并把集成面尽量做小。</h2>
+          <p>
+            如果这是在替换旧首页，这样能让访客更容易继续往下看：比较价格、查看路由、从同一个地方启动。
+          </p>
         </div>
-
-        <div class="quickstart-tabs">
-          <button class="active" data-code="openai" onclick="showCode('openai', this)">OpenAI SDK</button>
-          <button data-code="anthropic" onclick="showCode('anthropic', this)">Anthropic SDK</button>
-          <button data-code="claudecode" onclick="showCode('claudecode', this)">Claude Code</button>
-          <button data-code="codex" onclick="showCode('codex', this)">Codex CLI</button>
-          <button data-code="gemini" onclick="showCode('gemini', this)">Gemini CLI</button>
-        </div>
-
-        <div class="quickstart-meta">
-          <div class="oc-code" id="code-openai">
-            <button class="copy-btn" onclick="copyCode('openai')">复制</button>
-            <pre>from openai import OpenAI
-
-client = OpenAI(
-    base_url="https://api.yunjunet.cn/v1",
-    api_key="sk-your-api-key"
-)
-
-resp = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "你好"}]
-)
-
-print(resp.choices[0].message.content)</pre>
-          </div>
-
-          <div class="oc-code" id="code-anthropic" style="display:none;">
-            <button class="copy-btn" onclick="copyCode('anthropic')">复制</button>
-            <pre>import anthropic
-
-client = anthropic.Anthropic(
-    base_url="https://api.yunjunet.cn",
-    api_key="sk-your-api-key"
-)
-
-message = client.messages.create(
-    model="claude-sonnet-4-6",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "你好"}]
-)
-
-print(message.content)</pre>
-          </div>
-
-          <div class="oc-code" id="code-claudecode" style="display:none;">
-            <button class="copy-btn" onclick="copyCode('claudecode')">复制</button>
-            <pre>export ANTHROPIC_BASE_URL=https://api.yunjunet.cn
-export ANTHROPIC_AUTH_TOKEN=sk-your-api-key
-
-claude</pre>
-          </div>
-
-          <div class="oc-code" id="code-codex" style="display:none;">
-            <button class="copy-btn" onclick="copyCode('codex')">复制</button>
-            <pre>[model_providers.openclaw]
-name = "openclaw"
-base_url = "https://api.yunjunet.cn/v1"
-wire_api = "responses"
-env_key = "OPENAI_API_KEY"
-
-[profiles.default]
-model = "gpt-4o-mini"
-model_provider = "openclaw"</pre>
-          </div>
-
-          <div class="oc-code" id="code-gemini" style="display:none;">
-            <button class="copy-btn" onclick="copyCode('gemini')">复制</button>
-            <pre>export GEMINI_API_KEY=sk-your-api-key
-export GEMINI_BASE_URL=https://api.yunjunet.cn/v1beta
-
-gemini</pre>
-          </div>
-
-          <div class="quickstart-note">
-            <strong>默认推荐路径</strong><br>
-            对于多数应用后端，先用 OpenAI 兼容入口跑通一次请求，最快完成首轮验证。对于终端编码工作流，直接进入 Claude Code 或 Codex CLI 章节。多模态或 Gemini 风格客户端，使用 Gemini 兼容入口。<br><br>
-            <strong>生产接入前需确认</strong><br>
-            1. 控制台中可见的模型目录与套餐权益。<br>
-            2. 文档中心中的认证方式、限流与错误码说明。<br>
-            3. 当前账户对应的可用余额、配额或加油包状态。
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="oc-container" id="pricing">
-      <div class="section-block">
-        <div class="pricing-head">
-          <div>
-            <span class="eyebrow">Model Catalog</span>
-            <h2 style="margin:0.7rem 0 0.55rem;">模型目录与价格展示用于辅助决策，不替代控制台结算口径</h2>
-            <p>下方价格表从公开模型目录接口拉取，便于快速筛选模型与预算区间。实际计费币种、单价、套餐优惠和账户权益，以控制台、订单记录和实际结算逻辑为准。</p>
-          </div>
-          <div class="search-bar">
-            <input class="oc-input" id="model-search" placeholder="搜索模型 ID 或显示名称" oninput="filterModels()">
-            <span id="model-count" style="color:var(--text-muted);font-size:0.85rem;">加载中...</span>
-          </div>
-        </div>
-        <div class="oc-card">
-          <div class="table-scroll">
-            <table class="oc-table">
-              <thead>
-                <tr>
-                  <th>模型 ID</th>
-                  <th style="text-align:right;">输入价格 / 1M</th>
-                  <th style="text-align:right;">输出价格 / 1M</th>
-                </tr>
-              </thead>
-              <tbody id="models-pricing-tbody">
-                <tr>
-                  <td colspan="3" style="text-align:center;color:var(--text-muted);padding:2rem;">正在加载模型目录...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="legal-note">
-          <strong>说明：</strong> 页面展示价格按公开模型目录换算展示。若模型价格以人民币维护，页面会按展示汇率换算为美元口径用于便于比较；实际扣费、权益抵扣和最终结算请以控制台与订单记录为准。
-        </div>
-      </div>
-    </section>
-
-    <section class="oc-container">
-      <div class="section-block">
-        <div class="section-head">
-          <span class="eyebrow">Governance & Scope</span>
-          <h2>把能力边界写清楚，才是真正的官方与合规</h2>
-          <p>页面表达必须服务于接入决策，而不是制造不必要的误解。下面这些说明会在首页、文档和控制台中保持统一口径。</p>
-        </div>
-        <div class="governance-grid">
-          <div class="governance-card">
-            <h3>能力边界</h3>
-            <p>平台提供的是统一接入层与控制台能力，不直接承诺第三方模型的长期可用性、响应效果或特定输出结果。模型能力与质量由所选模型及其上游服务决定。</p>
-            <ul>
-              <li>模型目录以控制台当前可用项为准</li>
-              <li>实际响应时间受模型、负载与调用方式影响</li>
-              <li>兼容接口不等于所有第三方客户端功能完全一致</li>
-            </ul>
-          </div>
-          <div class="governance-card">
-            <h3>计费与权益</h3>
-            <p>平台支持按账户权益、套餐、钱包或加油包等口径管理使用成本。用户在进行生产接入前，应优先核对控制台中的价格、配额、套餐状态和结算记录。</p>
-            <ul>
-              <li>展示页价格用于参考，不替代最终结算记录</li>
-              <li>不同模型和计费模式的费用口径可能不同</li>
-              <li>余额、套餐和调用限制由控制台与接口共同决定</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="oc-container">
-      <div class="section-block">
-        <div class="section-head">
-          <span class="eyebrow">Scenarios</span>
-          <h2>适合哪些接入场景</h2>
-          <p>当你同时面对多协议、多模型和多客户端时，平台层的价值会比较明确。下面这些是当前最典型的使用场景。</p>
-        </div>
-        <div class="scenario-grid">
-          <div class="scenario-card">
-            <h3>CLI 与编码 Agent 工作流</h3>
-            <p>需要在 Claude Code、Codex、Gemini CLI 等终端工作流中统一账户、统一模型入口与统一结算口径。</p>
-          </div>
-          <div class="scenario-card">
-            <h3>AI 产品或业务服务接入</h3>
-            <p>需要通过 OpenAI 或 Anthropic 兼容方式快速完成后端接入，同时保留后续调整模型和路由的空间。</p>
-          </div>
-          <div class="scenario-card">
-            <h3>团队统一治理</h3>
-            <p>多个成员使用不同工具链，但希望把 API Key、使用记录、模型目录与套餐管理统一收口到同一控制台。</p>
-          </div>
-          <div class="scenario-card">
-            <h3>内部共享网关与平台化建设</h3>
-            <p>希望把接入规范、计费和运行期能力沉淀为内部基础设施，而不是为每个项目单独集成一遍模型供应商。</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="oc-container" id="support">
-      <div class="contact-shell">
-        <div class="contact-panel">
-          <span class="eyebrow">Support & Conversion</span>
-          <h2 style="margin:0.9rem 0 0.7rem;">文档、控制台、技术支持和商务合作入口保持一致</h2>
-          <p style="color:var(--text-secondary);">页面中出现的联系信息仅用于技术支持、商务沟通和接入咨询。若涉及价格、权益、模型目录或异常排查，请优先提供控制台信息、订单号、请求 ID 或相关截图，以便快速定位。已明确接入计划的团队，建议直接带上使用场景、预估调用规模和目标工具链，以提升沟通效率。</p>
-          <div class="contact-grid">
-            <div class="contact-card" onclick="copyContact('2042132648')">
-              <span>QQ 技术支持</span>
-              <strong>2042132648</strong>
-            </div>
-            <div class="contact-card" onclick="copyContact('665889946')">
-              <span>QQ 交流群</span>
-              <strong>665889946</strong>
-            </div>
-            <div class="contact-card" onclick="copyContact('15953077610')">
-              <span>微信咨询</span>
-              <strong>15953077610</strong>
-            </div>
-            <div class="contact-card" onclick="copyContact('cyjlnk@foxmail.com')">
-              <span>邮箱</span>
-              <strong>cyjlnk@foxmail.com</strong>
-            </div>
-          </div>
-        </div>
-        <div class="contact-panel">
-          <span class="eyebrow">Next Step</span>
-          <h2 style="margin:0.9rem 0 0.7rem;">已经准备开始时，按这个顺序推进最省时间</h2>
-          <div class="support-grid">
-            <div class="support-card">
-              <h3>先创建 API Key</h3>
-              <p>进入控制台确认账户状态、API Key 和模型目录，这是任何正式接入前的第一步。</p>
-            </div>
-            <div class="support-card">
-              <h3>再选接入协议</h3>
-              <p>根据你的 SDK、CLI 或客户端类型，进入文档中心对应章节，不建议混用不同协议的参数结构。</p>
-            </div>
-            <div class="support-card">
-              <h3>最后核对结算口径</h3>
-              <p>上线前确认模型价格、套餐、余额和限制说明，避免把展示页文案当作最终结算依据。</p>
-            </div>
-            <div class="support-card">
-              <h3>需要帮助时携带上下文</h3>
-              <p>如需支持，请一并提供请求 ID、模型名称、错误信息、账户状态或订单号，有助于快速定位问题并缩短处理时间。</p>
-            </div>
-          </div>
-          <div class="contact-actions" style="margin-top:1rem;">
-            <a href="/console.html" class="btn-accent">进入控制台开始接入</a>
-            <a href="/docs.html" class="btn-outline">先看文档再接入</a>
-          </div>
+        <div class="cta-actions">
+          <a href="/console.html" class="btn-accent">进入控制台</a>
+          <a href="/docs.html" class="btn-outline">查看文档</a>
+          <a href="/guest.html" class="btn-outline">游客入口</a>
         </div>
       </div>
     </section>
   </main>
 
-  <button class="theme-fab" id="theme-fab" type="button" onclick="toggleThemePreference()" aria-label="切换白天或夜间模式">
+  <button class="theme-fab" id="theme-fab" type="button" onclick="toggleThemePreference()" aria-label="切换明暗模式">
     <span class="theme-fab-icon" id="theme-fab-icon">🌙</span>
     <span id="theme-fab-label">夜间模式</span>
   </button>
 
-  <footer class="oc-footer">
+  <footer class="oc-footer home-footer">
     <div class="footer-nav">
-      <a href="/">平台首页</a>
-      <a href="/app-market.html">应用市场</a>
-      <a href="/blog.html">技术博客</a>
-      <a href="/docs.html">文档中心</a>
-      <a href="/pipeline.html">路由架构</a>
+      <a href="/">首页</a>
+      <a href="#models">模型</a>
+      <a href="#pricing">价格</a>
+      <a href="#compare">对比</a>
+      <a href="#start">开始使用</a>
+      <a href="/docs.html">Docs</a>
       <a href="/console.html">控制台</a>
-      <a href="/login.html?return_url=%2Fconsole.html&v=20260329">登录</a>
     </div>
     <p>&copy; 2024-2026 云聚API</p>
-    <p style="margin-top:0.45rem;">本页面内容用于说明平台能力、接入方式与控制台入口，不构成对第三方模型效果、持续可用性或特定响应时间的单独承诺。</p>
+    <p class="fineprint">这个首页是对旧落地页的展示型替换，并保留了现有站内链接。</p>
   </footer>
 
   <script>
-    function showCode(type, button) {
-      document.querySelectorAll('.quickstart-tabs button').forEach((item) => item.classList.remove('active'));
-      if (button) button.classList.add('active');
-      ['openai', 'anthropic', 'claudecode', 'codex', 'gemini'].forEach((key) => {
-        document.getElementById('code-' + key).style.display = key === type ? 'block' : 'none';
+    const MODEL_ROWS = [
+      'claude opus 4.6',
+      'claude sonnet 4.6',
+      'claude haiku 4.5',
+      'gpt-5.4',
+      'gpt-5.3 codex'
+    ];
+
+    function filter模型() {
+      const query = (document.getElementById('model-search').value || '').trim().toLowerCase();
+      const rows = document.querySelectorAll('#pricing-body tr');
+      let visible = 0;
+
+      rows.forEach((row, index) => {
+        const haystack = MODEL_ROWS[index];
+        const match = !query || haystack.includes(query);
+        row.style.display = match ? '' : 'none';
+        if (match) visible += 1;
       });
+
+      document.getElementById('model-count').textContent = `显示 ${visible} 个模型`;
     }
 
-    function copyCode(type) {
-      const code = document.querySelector('#code-' + type + ' pre').textContent;
-      navigator.clipboard.writeText(code).then(() => {
-        showToast('代码已复制到剪贴板');
-      });
-    }
-
-    function copyContact(text) {
-      navigator.clipboard.writeText(text).then(() => {
-        showToast('已复制：' + text);
-      });
-    }
-
-    function showToast(message) {
-      const toast = document.createElement('div');
-      toast.textContent = message;
-      toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:12px 18px;border-radius:999px;background:rgba(12,24,38,0.94);border:1px solid rgba(132,187,222,0.18);color:#f2f7fb;box-shadow:0 18px 42px rgba(2,11,19,0.34);z-index:999;';
-      document.body.appendChild(toast);
-      setTimeout(() => toast.remove(), 1800);
-    }
-
-    let allModelsList = [];
-    const RATE = 7.2;
-
-    function toUsdPerM(pricePerK, currency) {
-      const price = parseFloat(pricePerK || 0) * 1000;
-      return currency === 'CNY' ? price / RATE : price;
-    }
-
-    function fmtPrice(value) {
-      if (value >= 1) return '$' + value.toFixed(2);
-      if (value >= 0.01) return '$' + value.toFixed(3);
-      return '$' + value.toFixed(4);
-    }
-
-    function filterModels() {
-      const search = (document.getElementById('model-search').value || '').trim().toLowerCase();
-      const filtered = allModelsList.filter((item) => {
-        const id = String(item.model_id || '').toLowerCase();
-        const name = String(item.display_name || '').toLowerCase();
-        return !search || id.includes(search) || name.includes(search);
-      });
-      const tbody = document.getElementById('models-pricing-tbody');
-      const count = document.getElementById('model-count');
-      count.textContent = `${filtered.length} / ${allModelsList.length} 个模型`;
-
-      if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:2rem;">未找到匹配模型，请调整搜索关键词</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = filtered.map((item) => {
-        const inputPrice = toUsdPerM(item.input_price_per_1k, item.price_currency);
-        const outputPrice = toUsdPerM(item.output_price_per_1k, item.price_currency);
-        return `<tr>
-          <td><code style="color:var(--accent-strong);">${item.model_id}</code></td>
-          <td style="text-align:right;font-family:var(--font-mono);">${fmtPrice(inputPrice)}</td>
-          <td style="text-align:right;font-family:var(--font-mono);">${fmtPrice(outputPrice)}</td>
-        </tr>`;
-      }).join('');
-    }
-
-    (async function loadModels() {
-      try {
-        const res = await fetch('/api/models');
-        allModelsList = await res.json();
-        filterModels();
-      } catch (error) {
-        document.getElementById('models-pricing-tbody').innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:2rem;">模型目录加载失败，请前往控制台或文档中心查看最新信息</td></tr>';
-        document.getElementById('model-count').textContent = '加载失败';
-      }
-    })();
+    filter模型();
   </script>
 </body>
 </html>

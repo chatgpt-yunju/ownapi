@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>应用市场 - 云聚API</title>
-  <link rel="stylesheet" href="/css/style.css">
-  <script src="/js/theme.js"></script>
+  <link rel="stylesheet" href="/css/style.css?v=20260413">
+  <script src="/js/theme.js?v=20260413"></script>
   <style>
     .market-shell { max-width: 1180px; margin: 0 auto; padding: 2rem 1rem 3rem; }
     .market-hero { padding: 1.8rem; border: 1px solid var(--border-color); border-radius: 24px; background: linear-gradient(135deg, rgba(9, 28, 44, 0.94), rgba(4, 16, 31, 0.92)); box-shadow: var(--shadow-soft); }
@@ -17,6 +17,15 @@
     .market-card p { margin: 0; color: var(--text-secondary); font-size: 0.86rem; line-height: 1.75; }
     .market-url { font-family: var(--font-mono); font-size: 0.76rem; color: var(--accent-light); word-break: break-all; }
     .market-empty { margin-top: 1.5rem; text-align: center; padding: 2rem; color: var(--text-muted); }
+    :root[data-theme="light"] .market-hero {
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(239, 247, 255, 0.94));
+      box-shadow: 0 18px 42px rgba(47, 140, 255, 0.08);
+    }
+
+    :root[data-theme="light"] .market-card {
+      background: rgba(255, 255, 255, 0.84);
+    }
+
     @media (max-width: 640px) {
       .market-shell { padding: 1rem 1rem 2rem; }
       .market-hero { padding: 1.25rem; }

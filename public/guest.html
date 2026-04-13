@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>游客查询 - 云聚API</title>
+  <meta name="description" content="游客可直接查询 API Key 状态、请求日志和余额。">
+  <link rel="stylesheet" href="/css/style.css?v=20260413">
+  <script src="/js/theme.js?v=20260413"></script>
+  <script src="/js/api.js?v=20260413.4"></script>
+  <style>
+    .guest-shell { max-width: 1180px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .guest-hero {
+      position: relative;
+      overflow: hidden;
+      padding: 2rem;
+      border: 1px solid var(--border-color);
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(47, 230, 196, 0.16), transparent 28%),
+        radial-gradient(circle at 86% 10%, rgba(47, 140, 255, 0.16), transparent 26%),
+        linear-gradient(135deg, rgba(10, 16, 28, 0.92), rgba(8, 14, 24, 0.96));
+      box-shadow: var(--shadow);
+    }
+    .guest-hero::after {
+      content: '';
+      position: absolute;
+      inset: auto -14% -30% auto;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(123, 231, 255, 0.16), rgba(123, 231, 255, 0));
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.35rem 0.72rem;
+      margin-bottom: 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+      color: var(--accent-light);
+      font-size: 0.76rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .guest-hero h1 { margin: 0; font-size: clamp(2rem, 3.8vw, 4rem); line-height: 1.02; max-width: 760px; }
+    .guest-hero h1 span { background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .guest-hero p { margin: 1rem 0 0; max-width: 760px; color: var(--text-secondary); line-height: 1.85; }
+    .hero-actions { display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:1.3rem; }
+    .hero-chips { display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:1rem; }
+    .chip { padding:0.42rem 0.7rem; border-radius:999px; border:1px solid var(--border-color); background: rgba(255,255,255,0.03); color:var(--text-secondary); font-size:0.78rem; }
+    .guest-grid { display:grid; grid-template-columns: 1.1fr 0.9fr; gap:1rem; margin-top:1rem; }
+    .guest-card {
+      padding:1.35rem;
+      border-radius:24px;
+      border:1px solid var(--border-color);
+      background: var(--bg-card);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(14px);
+    }
+    .guest-card h2 { margin:0 0 0.55rem; font-size:1.3rem; }
+    .guest-card p.desc { margin:0 0 1rem; color:var(--text-secondary); line-height:1.75; font-size:0.9rem; }
+    .form-grid { display:grid; gap:0.85rem; }
+    .preset-row { display:flex; gap:0.6rem; flex-wrap:wrap; }
+    .preset-row button { min-width: 92px; }
+    .result-box {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 18px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-secondary);
+      line-height: 1.75;
+    }
+    .result-box strong { color: var(--text-primary); }
+    .pay-help {
+      margin-top: 0.9rem;
+      padding: 0.95rem 1rem;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+    .pay-help.warning {
+      border-color: rgba(255, 184, 107, 0.45);
+      background: rgba(255, 184, 107, 0.08);
+    }
+    .pay-help strong { color: var(--text-primary); }
+    .pay-actions { display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:0.85rem; }
+    .pay-link {
+      word-break: break-all;
+      font-size: 0.8rem;
+      padding: 0.65rem 0.75rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-muted);
+    }
+    .result-empty {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 16px;
+      border: 1px dashed var(--border-color);
+      color: var(--text-muted);
+    }
+    .steps-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
+    .step-card {
+      padding:1rem 1.05rem;
+      border-radius:18px;
+      border:1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+    }
+    .step-card strong { display:block; margin-bottom:0.35rem; }
+    .step-card p { margin:0; color:var(--text-secondary); font-size:0.84rem; line-height:1.65; }
+    .split-note { margin-top:0.85rem; color:var(--text-muted); font-size:0.8rem; line-height:1.7; }
+    .order-meta { display:flex; gap:0.55rem; flex-wrap:wrap; margin-top:0.75rem; }
+    .order-meta span { padding:0.35rem 0.65rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary); font-size:0.76rem; }
+    .log-list { display:grid; gap:0.7rem; margin-top:1rem; }
+    .log-card {
+      padding:0.95rem 1rem;
+      border-radius:16px;
+      border:1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+    }
+    .log-head { display:flex; justify-content:space-between; gap:0.8rem; align-items:center; flex-wrap:wrap; }
+    .log-title { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; color:var(--text-primary); font-weight:700; }
+    .log-meta { display:flex; gap:0.45rem; flex-wrap:wrap; margin-top:0.55rem; color:var(--text-secondary); font-size:0.78rem; }
+    .log-meta span { padding:0.28rem 0.5rem; border-radius:999px; border:1px solid var(--border-color); }
+    .log-preview {
+      margin-top:0.6rem;
+      color:var(--text-muted);
+      font-size:0.8rem;
+      line-height:1.6;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+    .log-pagination { display:flex; gap:0.45rem; flex-wrap:wrap; margin-top:0.9rem; }
+    .log-pagination button {
+      min-width: 34px;
+      height: 34px;
+      padding: 0 0.55rem;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .log-pagination button.active {
+      background: var(--gradient-primary);
+      color: white;
+      border-color: transparent;
+    }
+    .log-pagination button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    :root[data-theme="light"] .guest-hero {
+      background:
+        radial-gradient(circle at 12% 18%, rgba(47, 140, 255, 0.14), transparent 28%),
+        radial-gradient(circle at 86% 10%, rgba(10, 167, 143, 0.12), transparent 26%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 247, 255, 0.94));
+      box-shadow: 0 22px 48px rgba(47, 140, 255, 0.08);
+    }
+
+    :root[data-theme="light"] .guest-hero::after {
+      background: radial-gradient(circle, rgba(47, 140, 255, 0.12), rgba(47, 140, 255, 0));
+    }
+
+    :root[data-theme="light"] .eyebrow {
+      background: rgba(47, 140, 255, 0.08);
+      color: var(--accent-strong);
+    }
+
+    :root[data-theme="light"] .chip,
+    :root[data-theme="light"] .result-box,
+    :root[data-theme="light"] .pay-help,
+    :root[data-theme="light"] .pay-link,
+    :root[data-theme="light"] .result-empty,
+    :root[data-theme="light"] .step-card,
+    :root[data-theme="light"] .log-card,
+    :root[data-theme="light"] .log-pagination button {
+      background: rgba(255, 255, 255, 0.84);
+      border-color: rgba(47, 140, 255, 0.14);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+    }
+
+    :root[data-theme="light"] .pay-help.warning {
+      background: rgba(255, 184, 107, 0.12);
+    }
+
+    :root[data-theme="light"] .log-pagination button.active {
+      background: var(--gradient-primary);
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 12px 24px rgba(47, 140, 255, 0.18);
+    }
+
+    @media (max-width: 960px) {
+      .guest-grid, .steps-grid { grid-template-columns:1fr; }
+    }
+    @media (max-width: 640px) {
+      .guest-shell { padding: 1rem 0.9rem 2rem; }
+      .guest-hero { padding: 1.25rem; border-radius: 22px; }
+      .guest-card { padding: 1.1rem; border-radius: 20px; }
+      .guest-hero h1 { font-size: 1.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="oc-navbar nav-collapsible">
+    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div><span>云聚API</span></a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <div class="oc-nav-links">
+      <a href="/">首页</a>
+      <a href="/guest.html" class="active">游客查询</a>
+      <a href="/guest-buy.html">购买额度</a>
+      <a href="/docs.html">文档</a>
+      <a href="/login.html?return_url=%2Fconsole.html">登录</a>
+      <a href="/register.html?return_url=%2Fconsole.html">注册</a>
+    </div>
+    <div class="oc-nav-right">
+      <a href="/console.html" class="btn-outline">控制台</a>
+    </div>
+  </nav>
+
+  <main class="guest-shell">
+    <section class="guest-hero">
+      <div class="eyebrow">Guest Access</div>
+      <h1>游客可直接 <span>查询 Key</span>，查看余额和请求日志</h1>
+      <p>输入 Key 即可查看有效性、剩余额度和请求日志；如果需要购买额度，可以直接前往购买页，支付成功后自动发货。</p>
+      <div class="hero-actions">
+        <a class="btn-accent" href="#query">查询 API Key</a>
+        <a class="btn-outline" href="/guest-buy.html">前往购买页</a>
+      </div>
+      <div class="hero-chips">
+        <span class="chip">无需登录即可查询</span>
+        <span class="chip">国产模型 5 折</span>
+        <span class="chip">请求日志分页</span>
+        <span class="chip">Key 状态 / 额度</span>
+      </div>
+    </section>
+
+    <section class="guest-grid">
+      <div class="guest-card" id="query">
+        <h2>输入 Key 查询</h2>
+        <p class="desc">只需要完整粘贴 API Key，就能查看状态、余额和最近使用时间。</p>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>API Key</label>
+            <input class="oc-input" id="query-key" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+          </div>
+          <button class="btn-accent" onclick="queryKey()">立即查询</button>
+        </div>
+        <div id="query-result" class="result-empty">等待输入 Key 后查询。</div>
+      </div>
+
+      <div class="guest-card" id="request-logs">
+        <h2>全部请求日志</h2>
+        <p class="desc">查询 Key 后，这里会分页显示该 Key 的全部请求记录。</p>
+        <div id="request-logs-empty" class="result-empty">请先输入 Key，再查看请求日志。</div>
+        <div id="request-logs-list" class="log-list"></div>
+        <div id="request-logs-pagination" class="log-pagination"></div>
+      </div>
+    </section>
+
+    <section class="guest-card" style="margin-top:1rem;">
+      <h2>还没有 Key？</h2>
+      <p class="desc">如果你需要购买额度并自动发卡，请前往购买页继续。</p>
+      <a class="btn-accent" href="/guest-buy.html">前往购买页</a>
+    </section>
+  </main>
+
+  <script>
+    const apiBase = window.api || {};
+    const request = typeof apiBase.request === 'function'
+      ? apiBase.request.bind(apiBase)
+      : async (path, opts = {}) => {
+          const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+          const token = localStorage.getItem('token') || localStorage.getItem('openclaw_token');
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const res = await fetch('/api' + path, { ...opts, headers });
+          let data = null;
+          try {
+            data = await res.json();
+          } catch {
+            const text = await res.text().catch(() => '');
+            if (!res.ok) throw new Error(text || `请求失败 (${res.status})`);
+            throw new Error('响应格式错误');
+          }
+          if (!res.ok) throw new Error(data.error || data.message || '请求失败');
+          return data;
+        };
+    const get = typeof apiBase.get === 'function'
+      ? apiBase.get.bind(apiBase)
+      : (path) => request(path);
+    const post = typeof apiBase.post === 'function'
+      ? apiBase.post.bind(apiBase)
+      : (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) });
+
+    const guestApi = {
+      ...apiBase,
+      request,
+      get,
+      post,
+      guestQueryKey: typeof apiBase.guestQueryKey === 'function'
+        ? apiBase.guestQueryKey.bind(apiBase)
+        : (key) => post('/guest/key-query', { key }),
+      guestQueryKeyLogs: typeof apiBase.guestQueryKeyLogs === 'function'
+        ? apiBase.guestQueryKeyLogs.bind(apiBase)
+        : (key, page, limit) => post('/guest/key-logs', { key, page, limit }),
+      guestCreateRecharge: typeof apiBase.guestCreateRecharge === 'function'
+        ? apiBase.guestCreateRecharge.bind(apiBase)
+        : (email, amount, mobile) => post('/guest/create-recharge', { email, amount, mobile }),
+      guestGetOrder: typeof apiBase.guestGetOrder === 'function'
+        ? apiBase.guestGetOrder.bind(apiBase)
+        : (out_trade_no) => get('/guest/order/' + out_trade_no),
+    };
+
+    window.api = guestApi;
+
+    let currentGuestKey = '';
+    let currentGuestKeyLogsPage = 1;
+    let currentGuestKeyLogsTotal = 0;
+    let currentGuestKeyLogsLimit = 10;
+
+    function normalizeKey(input) {
+      return String(input || '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .trim()
+        .replace(/^Bearer\s+/i, '');
+    }
+
+    function fmtMoney(n) {
+      return '$' + Number(n || 0).toFixed(2);
+    }
+
+    function escapeHtml(input = '') {
+      return String(input)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatDate(value) {
+      if (!value) return '-';
+      return String(value).replace('T', ' ').slice(0, 19);
+    }
+
+    function formatPreview(text) {
+      const value = String(text || '').trim();
+      if (!value) return '无预览内容';
+      return value
+        .replace(/\n?Sender \(untrusted metadata\):\s*\n```json[\s\S]*?\n```\s*/gi, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim() || '无预览内容';
+    }
+
+    async function queryKey() {
+      const key = normalizeKey(document.getElementById('query-key').value);
+      const box = document.getElementById('query-result');
+      if (!key) {
+        box.className = 'result-empty';
+        box.textContent = '请输入完整 Key。';
+        return;
+      }
+      box.className = 'result-box';
+      box.textContent = '查询中...';
+      try {
+        const data = await guestApi.guestQueryKey(key);
+        currentGuestKey = key;
+        currentGuestKeyLogsPage = 1;
+        currentGuestKeyLogsTotal = 0;
+        currentGuestKeyLogsLimit = 10;
+        box.innerHTML = `
+          <div><strong>状态：</strong>${data.status || '-'}</div>
+          <div><strong>Key：</strong><code>${data.key_display || '-'}</code></div>
+          <div><strong>名称：</strong>${data.name || '-'}</div>
+          <div><strong>到账额度：</strong>${fmtMoney(data.total_quota || 0)}</div>
+          <div><strong>剩余额度：</strong>${fmtMoney(data.quota_balance || 0)}</div>
+          <div><strong>已用额度：</strong>${fmtMoney(data.used_quota || 0)}</div>
+          <div><strong>最近使用：</strong>${data.last_used_at || '-'}</div>
+          <div><strong>创建时间：</strong>${data.created_at || '-'}</div>
+        `;
+        await loadKeyLogs(1);
+      } catch (e) {
+        box.className = 'result-empty';
+        box.textContent = e.message || '查询失败';
+        currentGuestKey = '';
+        currentGuestKeyLogsPage = 1;
+        currentGuestKeyLogsTotal = 0;
+        currentGuestKeyLogsLimit = 10;
+        renderKeyLogs([]);
+      }
+    }
+
+    function renderKeyLogs(logs = []) {
+      const list = document.getElementById('request-logs-list');
+      const empty = document.getElementById('request-logs-empty');
+      const pagination = document.getElementById('request-logs-pagination');
+      if (!currentGuestKey) {
+        empty.style.display = 'block';
+        empty.textContent = '请先输入 Key，再查看请求日志。';
+        list.innerHTML = '';
+        pagination.innerHTML = '';
+        return;
+      }
+      if (!logs.length) {
+        empty.style.display = 'block';
+        empty.textContent = currentGuestKeyLogsTotal ? '当前页暂无日志。' : '暂无请求日志。';
+        list.innerHTML = '';
+      } else {
+        empty.style.display = 'none';
+        list.innerHTML = logs.map((log) => {
+          const ok = String(log.status || '').toLowerCase() === 'success';
+          const cost = Number(log.total_cost || 0).toFixed(6);
+          const tokens = `${Number(log.prompt_tokens || 0)} / ${Number(log.completion_tokens || 0)}`;
+          const preview = formatPreview(log.user_prompt_preview || log.request_id || '');
+          return `
+            <div class="log-card">
+              <div class="log-head">
+                <div class="log-title">
+                  <span class="badge-model">${escapeHtml(log.model || '-')}</span>
+                  <span>${escapeHtml(log.request_id || '-')}</span>
+                </div>
+                <div>${ok ? '<span class="badge-active">成功</span>' : '<span class="badge-disabled">失败</span>'}</div>
+              </div>
+              <div class="log-meta">
+                <span>${escapeHtml(formatDate(log.created_at))}</span>
+                <span>Tokens: ${escapeHtml(tokens)}</span>
+                <span>费用: $${cost}</span>
+                <span>IP: ${escapeHtml(log.ip || '-')}</span>
+              </div>
+              <div class="log-preview">${escapeHtml(preview)}</div>
+            </div>
+          `;
+        }).join('');
+      }
+      const totalPages = Math.max(1, Math.ceil(currentGuestKeyLogsTotal / currentGuestKeyLogsLimit));
+      pagination.innerHTML = buildPagination(totalPages, currentGuestKeyLogsPage);
+    }
+
+    function buildPagination(totalPages, currentPage) {
+      if (totalPages <= 1) return '';
+      const buttons = [];
+      const pushBtn = (label, page, active = false, disabled = false) => {
+        buttons.push(`<button class="${active ? 'active' : ''}" ${disabled ? 'disabled' : ''} onclick="goToLogsPage(${page})">${label}</button>`);
+      };
+      pushBtn('上一页', Math.max(1, currentPage - 1), false, currentPage <= 1);
+      const start = Math.max(1, currentPage - 2);
+      const end = Math.min(totalPages, start + 4);
+      const realStart = Math.max(1, Math.min(start, Math.max(1, totalPages - 4)));
+      if (realStart > 1) {
+        pushBtn('1', 1, currentPage === 1);
+        if (realStart > 2) buttons.push('<button disabled>...</button>');
+      }
+      for (let i = realStart; i <= end; i++) {
+        pushBtn(String(i), i, i === currentPage);
+      }
+      if (end < totalPages) {
+        if (end < totalPages - 1) buttons.push('<button disabled>...</button>');
+        pushBtn(String(totalPages), totalPages, currentPage === totalPages);
+      }
+      pushBtn('下一页', Math.min(totalPages, currentPage + 1), false, currentPage >= totalPages);
+      return buttons.join('');
+    }
+
+    async function loadKeyLogs(page = 1) {
+      const key = currentGuestKey;
+      if (!key) {
+        renderKeyLogs([]);
+        return;
+      }
+      const logsEmpty = document.getElementById('request-logs-empty');
+      const list = document.getElementById('request-logs-list');
+      logsEmpty.style.display = 'block';
+      logsEmpty.textContent = '请求日志加载中...';
+      list.innerHTML = '';
+      try {
+        const data = await guestApi.guestQueryKeyLogs(key, page, 10);
+        currentGuestKeyLogsPage = Number(data.page || page || 1);
+        currentGuestKeyLogsTotal = Number(data.total || 0);
+        currentGuestKeyLogsLimit = Number(data.limit || 10);
+        renderKeyLogs(data.logs || []);
+      } catch (e) {
+        logsEmpty.style.display = 'block';
+        logsEmpty.textContent = e.message || '请求日志加载失败';
+        document.getElementById('request-logs-list').innerHTML = '';
+        document.getElementById('request-logs-pagination').innerHTML = '';
+      }
+    }
+
+    function goToLogsPage(page) {
+      const totalPages = Math.max(1, Math.ceil(currentGuestKeyLogsTotal / currentGuestKeyLogsLimit));
+      const target = Math.min(totalPages, Math.max(1, Number(page) || 1));
+      if (!currentGuestKey) return;
+      if (target === currentGuestKeyLogsPage) return;
+      loadKeyLogs(target);
+    }
+  </script>
+</body>
+</html>

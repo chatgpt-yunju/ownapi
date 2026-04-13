@@ -75,6 +75,17 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Nginx 会把 /api/* 改写成 /api/plugins/ai-gateway/api/*。
+// 这里先剥掉兼容前缀，让后面的现有路由继续按 /api/pay、/api/guest 等原始路径工作。
+app.use((req, _res, next) => {
+  const compatPrefix = '/api/plugins/ai-gateway';
+  if (typeof req.url === 'string' && req.url.startsWith(compatPrefix)) {
+    const stripped = req.url.slice(compatPrefix.length) || '/';
+    req.url = stripped.startsWith('/') ? stripped : `/${stripped}`;
+  }
+  next();
+});
+
 // QQ OAuth relay: login.yunjunet.cn 302→ api.yunjunet.cn/return.php，转发到实际回调
 app.get('/return.php', (req, res) => {
   const qs = require('querystring').stringify(req.query);
@@ -94,6 +105,7 @@ app.get(/^\/blog\/(\d+)\.html$/, (req, res) => {
 
 app.use('/api/captcha', require('./routes/captcha'));
 app.use('/api/email-code', require('./routes/emailCode'));
+app.use('/api/guest', require('./routes/guest'));
 // Start scheduler
 try { require('./scheduler'); } catch (e) { console.error('Scheduler error:', e.message); }
 
@@ -169,6 +181,7 @@ try {
       p.startsWith('/api/package') ||
       p.startsWith('/api/payment') ||
       p.startsWith('/api/user-extend') ||
+      p.startsWith('/api/guest') ||
       p.startsWith('/api/admin') ||
       p === '/api/app-market' ||
       p.startsWith('/api/blog') ||

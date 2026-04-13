@@ -21,6 +21,26 @@ function isMobile(req) {
   return /mobile|android|iphone|ipad|ipod|windows phone/i.test(ua);
 }
 
+function getH5OrderMeta(order) {
+  const amount = Number(order.actual_paid || order.amount || 0);
+  if (order.order_type === 'vip') {
+    return {
+      amount,
+      subject: `VIP会员 ${order.vip_days}天`,
+    };
+  }
+  if (order.order_type === 'guest_key') {
+    return {
+      amount,
+      subject: 'OpenClaw AI - 游客自动发卡',
+    };
+  }
+  return {
+    amount,
+    subject: 'OpenClaw AI 额度充值',
+  };
+}
+
 // GET /api/pay/options — 公开获取充值套餐和签到奖励
 router.get('/options', async (req, res) => {
   const optionsStr = await getSetting('recharge_options');
@@ -379,13 +399,13 @@ router.get('/h5/:tradeNo', async (req, res) => {
 
   const notifyUrl = await getSetting('alipay_notify_url') || '';
   const returnUrl = await getSetting('alipay_return_url') || '';
-  const subject = order.order_type === 'vip' ? `VIP会员 ${order.vip_days}天` : `视频领取配额 x${order.quota}`;
+  const { amount: payAmount, subject } = getH5OrderMeta(order);
   const bizParams = {
     method: 'GET',
     bizContent: {
       outTradeNo: order.out_trade_no,
       productCode: 'QUICK_WAP_WAY',
-      totalAmount: String(order.amount),
+      totalAmount: payAmount.toFixed(2),
       subject,
     },
   };

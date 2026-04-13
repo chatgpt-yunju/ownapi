@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>购买额度 - 云聚API</title>
+  <meta name="description" content="游客可直接购买 API Key 额度包，邮件收到后即可直接使用，并附使用文档。">
+  <link rel="stylesheet" href="/css/style.css?v=20260413">
+  <script src="/js/theme.js?v=20260413"></script>
+  <script src="/js/api.js?v=20260413.4"></script>
+  <style>
+    .guest-shell { max-width: 1180px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .guest-hero {
+      position: relative;
+      overflow: hidden;
+      padding: 2rem;
+      border: 1px solid var(--border-color);
+      border-radius: 28px;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(47, 230, 196, 0.16), transparent 28%),
+        radial-gradient(circle at 86% 10%, rgba(47, 140, 255, 0.16), transparent 26%),
+        linear-gradient(135deg, rgba(10, 16, 28, 0.92), rgba(8, 14, 24, 0.96));
+      box-shadow: var(--shadow);
+    }
+    .guest-hero::after {
+      content: '';
+      position: absolute;
+      inset: auto -14% -30% auto;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(123, 231, 255, 0.16), rgba(123, 231, 255, 0));
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.35rem 0.72rem;
+      margin-bottom: 0.9rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+      color: var(--accent-light);
+      font-size: 0.76rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .guest-hero h1 { margin: 0; font-size: clamp(2rem, 3.8vw, 4rem); line-height: 1.02; max-width: 760px; }
+    .guest-hero h1 span { background: var(--gradient-primary); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .guest-hero p { margin: 1rem 0 0; max-width: 760px; color: var(--text-secondary); line-height: 1.85; }
+    .hero-actions { display:flex; gap:0.8rem; flex-wrap:wrap; margin-top:1.3rem; }
+    .hero-chips { display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:1rem; }
+    .chip { padding:0.42rem 0.7rem; border-radius:999px; border:1px solid var(--border-color); background: rgba(255,255,255,0.03); color:var(--text-secondary); font-size:0.78rem; }
+    .guest-grid { display:grid; grid-template-columns: 1.1fr 0.9fr; gap:1rem; margin-top:1rem; }
+    .guest-card {
+      padding:1.35rem;
+      border-radius:24px;
+      border:1px solid var(--border-color);
+      background: var(--bg-card);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(14px);
+    }
+    .guest-card h2 { margin:0 0 0.55rem; font-size:1.3rem; }
+    .guest-card p.desc { margin:0 0 1rem; color:var(--text-secondary); line-height:1.75; font-size:0.9rem; }
+    .form-grid { display:grid; gap:0.85rem; }
+    .preset-row { display:flex; gap:0.6rem; flex-wrap:wrap; }
+    .preset-row button { min-width: 92px; }
+    .result-box {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 18px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-secondary);
+      line-height: 1.75;
+    }
+    .result-box strong { color: var(--text-primary); }
+    .pay-help {
+      margin-top: 0.9rem;
+      padding: 0.95rem 1rem;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.04);
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+    .pay-help.warning {
+      border-color: rgba(255, 184, 107, 0.45);
+      background: rgba(255, 184, 107, 0.08);
+    }
+    .pay-help strong { color: var(--text-primary); }
+    .pay-actions { display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:0.85rem; }
+    .pay-link {
+      word-break: break-all;
+      font-size: 0.8rem;
+      padding: 0.65rem 0.75rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+      color: var(--text-muted);
+    }
+    .result-empty {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 16px;
+      border: 1px dashed var(--border-color);
+      color: var(--text-muted);
+    }
+    .steps-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:1rem; margin-top:1rem; }
+    .step-card {
+      padding:1rem 1.05rem;
+      border-radius:18px;
+      border:1px solid var(--border-color);
+      background: rgba(255,255,255,0.03);
+    }
+    .step-card strong { display:block; margin-bottom:0.35rem; }
+    .step-card p { margin:0; color:var(--text-secondary); font-size:0.84rem; line-height:1.65; }
+    .split-note { margin-top:0.85rem; color:var(--text-muted); font-size:0.8rem; line-height:1.7; }
+    .order-meta { display:flex; gap:0.55rem; flex-wrap:wrap; margin-top:0.75rem; }
+    .order-meta span { padding:0.35rem 0.65rem; border-radius:999px; border:1px solid var(--border-color); color:var(--text-secondary); font-size:0.76rem; }
+
+    :root[data-theme="light"] .guest-hero {
+      background:
+        radial-gradient(circle at 12% 18%, rgba(47, 140, 255, 0.14), transparent 28%),
+        radial-gradient(circle at 86% 10%, rgba(10, 167, 143, 0.12), transparent 26%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(239, 247, 255, 0.94));
+      box-shadow: 0 22px 48px rgba(47, 140, 255, 0.08);
+    }
+
+    :root[data-theme="light"] .guest-hero::after {
+      background: radial-gradient(circle, rgba(47, 140, 255, 0.12), rgba(47, 140, 255, 0));
+    }
+
+    :root[data-theme="light"] .eyebrow {
+      background: rgba(47, 140, 255, 0.08);
+      color: var(--accent-strong);
+    }
+
+    :root[data-theme="light"] .chip,
+    :root[data-theme="light"] .result-box,
+    :root[data-theme="light"] .pay-help,
+    :root[data-theme="light"] .pay-link,
+    :root[data-theme="light"] .result-empty,
+    :root[data-theme="light"] .step-card {
+      background: rgba(255, 255, 255, 0.84);
+      border-color: rgba(47, 140, 255, 0.14);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+    }
+
+    :root[data-theme="light"] .pay-help.warning {
+      background: rgba(255, 184, 107, 0.12);
+    }
+
+    @media (max-width: 960px) {
+      .guest-grid, .steps-grid { grid-template-columns:1fr; }
+    }
+    @media (max-width: 640px) {
+      .guest-shell { padding: 1rem 0.9rem 2rem; }
+      .guest-hero { padding: 1.25rem; border-radius: 22px; }
+      .guest-card { padding: 1.1rem; border-radius: 20px; }
+      .guest-hero h1 { font-size: 1.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="oc-navbar nav-collapsible">
+    <a href="/" class="oc-logo"><div class="oc-logo-icon">&gt;_</div><span>云聚API</span></a>
+    <div class="oc-menu-toggle" onclick="document.querySelector('.oc-nav-links').classList.toggle('active')"><span></span><span></span><span></span></div>
+    <div class="oc-nav-links">
+      <a href="/">首页</a>
+      <a href="/guest.html">游客查询</a>
+      <a href="/guest-buy.html" class="active">购买额度</a>
+      <a href="/docs.html">文档</a>
+    </div>
+    <div class="oc-nav-right">
+      <a href="/docs.html" class="btn-outline">使用文档</a>
+      <a href="/console.html" class="btn-outline">控制台</a>
+    </div>
+  </nav>
+
+  <main class="guest-shell">
+    <section class="guest-hero">
+      <div class="eyebrow">Guest Purchase</div>
+      <h1>购买额度并 <span>直接使用</span> 邮件里的 Key</h1>
+      <p>支付成功后系统会自动创建账号、生成 API Key，并把完整 Key 发送到你的邮箱。打开邮件复制后即可直接接入，文档也已一并附上。</p>
+      <div class="hero-actions">
+        <a class="btn-accent" href="#purchase">立即购买</a>
+        <a class="btn-outline" href="/docs.html">使用文档</a>
+        <a class="btn-outline" href="/guest.html">前往查询页</a>
+      </div>
+      <div class="hero-chips">
+        <span class="chip">支付后自动发 Key</span>
+        <span class="chip">邮件里直接可用</span>
+        <span class="chip">国产模型 5 折</span>
+        <span class="chip">手机 H5 支付</span>
+        <span class="chip">电脑新窗口支付</span>
+      </div>
+    </section>
+
+    <section class="guest-grid">
+      <div class="guest-card" id="purchase">
+        <h2>购买 API Key 额度包</h2>
+        <p class="desc">无需邮箱验证码，支付后自动创建账号、直接把完整 Key 发到你的邮箱，并附上使用文档。</p>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>邮箱</label>
+            <input class="oc-input" id="buy-email" type="email" placeholder="用于接收发货邮件">
+          </div>
+          <div class="form-group">
+            <label>购买金额</label>
+            <input class="oc-input" id="buy-amount" type="number" min="1" step="1" value="99" oninput="syncTier()">
+          </div>
+          <div class="preset-row">
+            <button class="btn-outline btn-sm" onclick="setAmount(99)">¥99</button>
+            <button class="btn-outline btn-sm" onclick="setAmount(199)">¥199</button>
+            <button class="btn-outline btn-sm" onclick="setAmount(499)">¥499</button>
+            <button class="btn-outline btn-sm" onclick="setAmount(999)">¥999</button>
+          </div>
+          <div class="split-note" id="tier-hint">支付 ¥99，预计到账 $118.80（加赠20%）</div>
+          <button class="btn-accent" onclick="buyKey()">支付并发送 Key</button>
+        </div>
+        <div id="buy-result" class="result-empty">下单后会显示订单号和支付入口。</div>
+      </div>
+    </section>
+
+    <section class="guest-card" style="margin-top:1rem;">
+      <h2>三步完成</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <strong>1. 输入邮箱与金额</strong>
+          <p>选择充值金额后直接下单，不需要额外验证邮箱验证码。</p>
+        </div>
+        <div class="step-card">
+          <strong>2. 完成支付</strong>
+          <p>支付成功后系统会自动创建账号、生成 Key，并执行发货。</p>
+        </div>
+        <div class="step-card">
+          <strong>3. 收邮件直接使用</strong>
+          <p>邮件里会带上完整 Key、额度和使用文档，复制 Key 后即可直接接入。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="guest-card" style="margin-top:1rem;">
+      <h2>使用文档</h2>
+      <p class="desc">邮件收到后直接复制 `sk-` 开头的 API Key，按文档里的示例替换即可开始调用。</p>
+      <div class="hero-actions" style="margin-top:0;">
+        <a class="btn-accent" href="/docs.html">打开使用文档</a>
+        <a class="btn-outline" href="/guest.html">查询 Key 状态</a>
+      </div>
+      <div class="split-note">支持 OpenAI / Anthropic / Gemini 等兼容请求头示例，建议先按文档跑最小请求再接入生产环境。</div>
+    </section>
+  </main>
+
+  <script>
+    const apiBase = window.api || {};
+    const request = typeof apiBase.request === 'function'
+      ? apiBase.request.bind(apiBase)
+      : async (path, opts = {}) => {
+          const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+          const token = localStorage.getItem('token') || localStorage.getItem('openclaw_token');
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const res = await fetch('/api' + path, { ...opts, headers });
+          let data = null;
+          try {
+            data = await res.json();
+          } catch {
+            const text = await res.text().catch(() => '');
+            if (!res.ok) throw new Error(text || `请求失败 (${res.status})`);
+            throw new Error('响应格式错误');
+          }
+          if (!res.ok) throw new Error(data.error || data.message || '请求失败');
+          return data;
+        };
+    const get = typeof apiBase.get === 'function'
+      ? apiBase.get.bind(apiBase)
+      : (path) => request(path);
+    const post = typeof apiBase.post === 'function'
+      ? apiBase.post.bind(apiBase)
+      : (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) });
+
+    const guestApi = {
+      ...apiBase,
+      request,
+      get,
+      post,
+      guestCreateRecharge: typeof apiBase.guestCreateRecharge === 'function'
+        ? apiBase.guestCreateRecharge.bind(apiBase)
+        : (email, amount, mobile) => post('/guest/create-recharge', { email, amount, mobile }),
+      guestGetOrder: typeof apiBase.guestGetOrder === 'function'
+        ? apiBase.guestGetOrder.bind(apiBase)
+        : (out_trade_no) => get('/guest/order/' + out_trade_no),
+    };
+
+    window.api = guestApi;
+
+    let currentTier = null;
+    let currentGuestPay = null;
+
+    function isMobileBrowser() {
+      return /mobile|android|iphone|ipad|ipod|windows phone/i.test(String(navigator.userAgent || ''));
+    }
+
+    function isInAppBrowser() {
+      const ua = String(navigator.userAgent || '').toLowerCase();
+      return /micromessenger|qq\/|qzone|weibo|dingtalk|alipayclient|ucbrowser|baidubrowser|mqqbrowser/.test(ua);
+    }
+
+    async function copyToClipboard(text) {
+      const value = String(text || '');
+      if (!value) return false;
+      try {
+        await navigator.clipboard.writeText(value);
+        return true;
+      } catch {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return ok;
+      }
+    }
+
+    function normalizePayUrl(input) {
+      const value = String(input || '').trim();
+      if (!value) return '';
+      if (/^https?:\/\//i.test(value)) return value;
+      if (value.startsWith('//')) return `${window.location.protocol}${value}`;
+      if (value.startsWith('/')) return `${window.location.origin}${value}`;
+      if (value.startsWith('api/')) return `${window.location.origin}/${value}`;
+      return '';
+    }
+
+    const TIERS = [
+      { min: 1999, rate: 1.55, label: '加赠55%' },
+      { min: 999, rate: 1.38, label: '加赠38%' },
+      { min: 499, rate: 1.25, label: '加赠25%' },
+      { min: 199, rate: 1.15, label: '加赠15%' },
+      { min: 99, rate: 1.18, label: '加赠18%' },
+      { min: 50, rate: 1.14, label: '加赠14%' },
+      { min: 10, rate: 1.10, label: '加赠10%' },
+      { min: 1, rate: 1.20, label: '加赠20%' },
+    ];
+
+    function fmtMoney(n) {
+      return '$' + Number(n || 0).toFixed(2);
+    }
+
+    function getTier(amount) {
+      return TIERS.find(t => amount >= t.min) || { rate: 1, label: '无赠送' };
+    }
+
+    function syncTier() {
+      const amount = Number(document.getElementById('buy-amount').value || 0);
+      const tier = getTier(amount);
+      const credit = Math.round(amount * tier.rate * 100) / 100;
+      currentTier = { amount, credit, bonus: Math.max(0, Math.round((credit - amount) * 100) / 100), tier };
+      document.getElementById('tier-hint').textContent = `支付 ¥${amount || 0}，预计到账 ${fmtMoney(credit)}（${tier.label}）`;
+    }
+
+    function setAmount(amount) {
+      document.getElementById('buy-amount').value = amount;
+      syncTier();
+    }
+
+    async function buyKey() {
+      const email = document.getElementById('buy-email').value.trim();
+      const amount = Number(document.getElementById('buy-amount').value || 0);
+      const box = document.getElementById('buy-result');
+      if (!email) {
+        box.className = 'result-empty';
+        box.textContent = '请先填写接收邮箱。';
+        return;
+      }
+      if (!amount || amount < 1) {
+        box.className = 'result-empty';
+        box.textContent = '请输入有效购买金额。';
+        return;
+      }
+      box.className = 'result-box';
+      box.textContent = '正在创建订单...';
+      try {
+        const mobile = isMobileBrowser();
+        const inAppBrowser = mobile && isInAppBrowser();
+        const data = await guestApi.guestCreateRecharge(email, amount, mobile);
+        currentGuestPay = {
+          payUrl: normalizePayUrl(data.pay_url || data.payUrl || ''),
+          mobile: Boolean(data.mobile),
+          inAppBrowser,
+        };
+        const paySummary = currentGuestPay.inAppBrowser
+          ? '当前是微信/QQ 等内置浏览器，建议复制链接到 Safari / Chrome 后支付。'
+          : currentGuestPay.mobile
+            ? '当前是手机浏览器，可直接发起 H5 支付。'
+            : '当前是电脑浏览器，可打开网页支付。';
+        const payButtons = currentGuestPay.inAppBrowser
+          ? `
+            <button class="btn-accent btn-sm" onclick="copyCurrentGuestPayLink()">复制支付链接</button>
+            <button class="btn-outline btn-sm" onclick="openCurrentGuestPay()">尝试打开</button>
+          `
+          : `
+            <button class="btn-accent btn-sm" onclick="openCurrentGuestPay()">去支付</button>
+            <button class="btn-outline btn-sm" onclick="copyCurrentGuestPayLink()">复制链接</button>
+          `;
+        box.innerHTML = `
+          <div><strong>订单号：</strong>${data.out_trade_no}</div>
+          <div><strong>实付：</strong>¥${Number(data.amount || amount).toFixed(2)}</div>
+          <div><strong>到账：</strong>${fmtMoney(data.credit_amount || 0)}</div>
+          <div><strong>赠送：</strong>${fmtMoney(data.bonus_amount || 0)} · ${data.discount_label || ''}</div>
+          <div class="order-meta">
+            <span>自动发卡到邮箱</span>
+            <span>无需邮箱验证码</span>
+            <span>${data.mobile ? '手机 H5 支付' : '电脑网页支付'}</span>
+          </div>
+          <div class="pay-help ${currentGuestPay.inAppBrowser ? 'warning' : ''}">
+            <strong>${currentGuestPay.inAppBrowser ? '内置浏览器限制' : '支付提示'}</strong>
+            <div>${paySummary}</div>
+            <div class="pay-link">${currentGuestPay.payUrl || data.pay_url || '-'}</div>
+            <div class="pay-actions">
+              ${payButtons}
+              <button class="btn-outline btn-sm" onclick="checkOrder('${data.out_trade_no}')">刷新订单</button>
+            </div>
+          </div>
+        `;
+        if (mobile && !inAppBrowser) {
+          setTimeout(() => openCurrentGuestPay(), 300);
+        }
+      } catch (e) {
+        box.className = 'result-empty';
+        box.textContent = e.message || '创建订单失败';
+      }
+    }
+
+    function openPay(payUrl, mobile = null) {
+      const shouldUseMobile = typeof mobile === 'boolean' ? mobile : isMobileBrowser();
+      if (!payUrl) return;
+      if (shouldUseMobile) {
+        window.location.href = payUrl;
+        return;
+      }
+      window.open(payUrl, '_blank', 'noopener,noreferrer');
+    }
+
+    function openCurrentGuestPay() {
+      if (!currentGuestPay) return;
+      if (currentGuestPay.inAppBrowser) {
+        copyCurrentGuestPayLink();
+        return;
+      }
+      openPay(currentGuestPay.payUrl, currentGuestPay.mobile);
+    }
+
+    async function copyCurrentGuestPayLink() {
+      if (!currentGuestPay?.payUrl) return;
+      const ok = await copyToClipboard(currentGuestPay.payUrl);
+      alert(ok ? '支付链接已复制，请在 Safari / Chrome 中打开。' : '复制失败，请手动长按复制支付链接。');
+    }
+
+    async function checkOrder(outTradeNo) {
+      const box = document.getElementById('buy-result');
+      try {
+        const data = await guestApi.guestGetOrder(outTradeNo);
+        const order = data.order || {};
+        box.className = 'result-box';
+        box.innerHTML = `
+          <div><strong>订单号：</strong>${order.out_trade_no || outTradeNo}</div>
+          <div><strong>状态：</strong>${order.status || '-'}</div>
+          <div><strong>发货状态：</strong>${order.delivery_status || '-'}</div>
+          <div><strong>到账额度：</strong>${fmtMoney(order.amount || 0)}</div>
+          <div><strong>邮箱：</strong>${order.guest_email || '-'}</div>
+          <div><strong>最新消息：</strong>${order.delivery_message || '-'}</div>
+        `;
+      } catch (e) {
+        box.className = 'result-empty';
+        box.textContent = e.message || '订单查询失败';
+      }
+    }
+
+    syncTier();
+  </script>
+</body>
+</html>
