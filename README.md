@@ -20,7 +20,7 @@
 ### 🚀 智能路由
 - **多上游负载均衡** - 同一模型可配置多个上游服务商，支持加权轮询
 - **自动故障转移** - 上游 Key 限流或失效时自动切换
-- **CC Club Key 守护** - 智能监控上游 Key 状态，自动冷却与恢复
+- **Key 状态监控** - 实时监控上游 Key 健康状态
 
 ### 💳 灵活计费
 - **双余额体系** - Token 计费（语言/视觉模型）+ 按次计费（特定模型）
@@ -185,7 +185,6 @@ DOUBAO_API_KEY=your-doubao-api-key
 | `openclaw_packages` | 订阅套餐配置 |
 | `openclaw_user_packages` | 用户订阅记录 |
 | `openclaw_request_logs` | 请求计费日志（含 prompt、completion 统计） |
-| `openclaw_ccclub_key_resets` | CC Club 上游 Key 冷却记录 |
 
 ---
 
@@ -372,9 +371,34 @@ await cache.delByPrefix('upstreams:');
 
 ---
 
-## 📄 许可证
+## 📄 使用协议
 
-[MIT](LICENSE) © yunjunet
+本项目基于 **MIT 许可证** 开源，具体使用条款如下：
+
+### ✅ 允许
+- **个人免费使用** - 个人学习、研究、非商业项目
+- **修改与分发** - 基于本项目的二次开发并开源
+- **商业试用** - 企业内部分享、测试环境使用（需联系获取授权）
+
+### ⚠️ 需要授权
+- **团队/企业商业使用** - 用于生产环境、对外提供服务、商业产品集成
+- **二次开发后销售** - 基于本项目进行商业化销售或作为付费服务的一部分
+- **大规模部署** - 企业级多实例部署、SaaS 化运营
+
+如需商业授权，请联系作者：
+📧 [2743319061@qq.com](mailto:2743319061@qq.com)
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+1. Fork 本项目
+2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add amazing feature'`)
+4. 推送分支 (`git push origin feature/amazing-feature`)
+5. 创建 Pull Request
 
 ---
 
