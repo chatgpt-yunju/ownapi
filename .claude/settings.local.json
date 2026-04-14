@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(python:*)",
+      "Bash(node local-server.js)",
+      "WebFetch(domain:localhost)",
+      "Bash(date -Iseconds)",
+      "Bash(curl -s \"http://127.0.0.1:3003/track?p=project_a_demo&h=test.example.com&ua=Mozilla/5.0%20\\(Windows%20NT%2010.0;%20Win64;%20x64\\)%20AppleWebKit/537.36%20\\(KHTML,%20like%20Gecko\\)%20Chrome/120.0.0.0&golf/Safari/537.36&ts=$\\(date -Iseconds\\)\")",
+      "Bash(node:*)",
+      "Bash(curl -s \"http://localhost:3003/admin\")",
+      "Bash(curl -s \"http://localhost:3003/track?p=shop_vip&h=example.com&ts=$\\(date -Iseconds\\)\")",
+      "Bash(PORT=3004 node:*)",
+      "Bash(curl -s \"http://127.0.0.1:3004/\")",
+      "Bash(curl -s \"http://127.0.0.1:3003/track?p=shop_vip&h=test.example.com&ua=Mozilla/5.0%20Test\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f'总部署数: {len\\(d\\)}'\\); print\\(f'项目列表:'\\); [print\\(f' - {x[\\\\\"p\\\\\"]}: {x[\\\\\"h\\\\\"]}'\\) for x in d]\")",
+      "Bash(pkill -f \"node.*local-server.js\")",
+      "Bash(curl -s http://localhost:3003/api/deploys)",
+      "Bash(curl -s http://localhost:3000/api/plugins/ai-gateway/admin)",
+      "Bash(curl:*)",
+      "Bash(npm run:*)",
+      "Bash(npm start:*)",
+      "Bash(npm install:*)",
+      "Bash(pkill -f \"git\")",
+      "Bash(rm -f F:/ownapi/ownapi/.git/index.lock)",
+      "Bash(git push:*)",
+      "Bash(git config:*)",
+      "Bash(ping -n 2 github.com)",
+      "Bash(git remote:*)"
+    ]
+  }
+}

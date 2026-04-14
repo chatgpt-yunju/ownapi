@@ -1,0 +1,33 @@
+# 隐私配置文件
+backend/.env
+backend/src/config/db.js
+backend/src/utils/alipay.js
+
+# 排除所有markdown文件，除了README.md
+*.md
+!README.md
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# 日志
+logs/
+*.log
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 文件
+.DS_Store
+Thumbs.db
+
+# Claude 配置
+.claude/

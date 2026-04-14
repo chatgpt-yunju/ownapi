@@ -1,0 +1,48 @@
+/**
+ * 支付宝工具函数
+ * 复用自 AI-Short-Video 项目
+ */
+
+/**
+ * 格式化 PEM 密钥
+ * @param {string} key - 原始密钥字符串
+ * @param {string} type - 密钥类型 'private' 或 'public'
+ * @returns {string} 格式化后的 PEM 密钥
+ */
+function formatPemKey(key, type) {
+  // 移除所有头尾标记和空白字符
+  const clean = key.replace(/-----.*?-----/g, '').replace(/\s/g, '');
+
+  // 添加正确的头尾标记
+  const header = type === 'private' ? '-----BEGIN PRIVATE KEY-----' : '-----BEGIN PUBLIC KEY-----';
+  const footer = type === 'private' ? '-----END PRIVATE KEY-----' : '-----END PUBLIC KEY-----';
+
+  // 每64个字符换行
+  const body = clean.match(/.{1,64}/g).join('\n');
+  return `${header}\n${body}\n${footer}`;
+}
+
+/**
+ * 生成订单号
+ * @param {number} userId - 用户ID
+ * @returns {string} 订单号
+ */
+function makeTradeNo(userId) {
+  return `${Date.now()}${userId}${Math.floor(Math.random() * 10000)}`;
+}
+
+/**
+ * 判断是否移动端
+ * @param {object} req - Express request 对象
+ * @returns {boolean} 是否移动端
+ */
+function isMobile(req) {
+  const ua = (req.headers['user-agent'] || '').toLowerCase();
+  return /mobile|android|iphone|ipad|ipod|windows phone/i.test(ua);
+}
+
+module.exports = {
+  formatPemKey,
+  makeTradeNo,
+  isMobile
+};
