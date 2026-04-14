@@ -1,6 +1,6 @@
-# AI Gateway - OpenAI 兼容 API 网关
+# AI Gateway - 多协议兼容 API 网关
 
-`api.yunjunet.cn` 是一个功能完善的 OpenAI 兼容 AI 网关 + 内容管理系统，支持多上游路由、API Key 管理、计费系统和会员订阅。
+`api.yunjunet.cn` 是一个专业的 AI 接口网关，**兼容 OpenAI、Gemini、Anthropic 三种主流协议**，提供统一的多上游路由、智能 Key 管理、计费系统和会员订阅。
 
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-4.x-blue.svg)](https://expressjs.com/)
@@ -10,43 +10,51 @@
 
 ---
 
-## 在线演示
+## 🌟 核心特性
 
-**主站**: https://api.yunjunet.cn
+### 🔄 多协议兼容
+- **OpenAI 协议** - 完全兼容 OpenAI API 格式，支持 `/v1/chat/completions`、`/v1/models` 等标准端点
+- **Gemini 协议** - 支持 Google Gemini API 格式，`/v1beta/models` 端点
+- **Anthropic 协议** - 支持 Anthropic Claude API 原生格式（包括 Claude Code CLI）
 
-**用户控制台**: https://api.yunjunet.cn/console.html
+### 🚀 智能路由
+- **多上游负载均衡** - 同一模型可配置多个上游服务商，支持加权轮询
+- **自动故障转移** - 上游 Key 限流或失效时自动切换
+- **CC Club Key 守护** - 智能监控上游 Key 状态，自动冷却与恢复
 
-**管理后台**: https://api.yunjunet.cn/admin.html
+### 💳 灵活计费
+- **双余额体系** - Token 计费（语言/视觉模型）+ 按次计费（特定模型）
+- **实时扣费** - 请求完成后立即扣费，支持精确到小数点
+- **请求日志** - 完整的计费记录和用量统计
 
----
-
-## 主要功能
-
-### 🤖 AI 网关
-- **OpenAI/Gemini 兼容 API** - 完全兼容 OpenAI API 格式，支持 `/v1/chat/completions`、`/v1/models` 等端点
-- **多上游路由** - 同一模型可配置多个上游服务商，支持加权负载均衡
-- **智能 Key 管理** - 自动监控上游 Key 限流状态，智能冷却与恢复
-- **双余额计费体系** - Token 计费（语言/视觉模型）+ 按次计费（特定模型）
+### 🔐 安全可靠
+- **API Key 认证** - 支持 `Authorization: Bearer` 和 `x-api-key` 两种方式
+- **JWT 用户认证** - 安全的用户会话管理
 - **请求队列** - 防止并发过载的自我保护机制
-
-### 👥 用户系统
-- **JWT 认证** - 安全的多端认证机制
-- **API Key 管理** - 用户可创建和管理自己的 API Keys
-- **会员订阅** - 支持多种套餐和订阅管理
-
-### 📦 插件化架构
-- **子站系统** - planet、fubao、opc、openclaw 等多子站管理
-- **AI 应用** - 图像生成、视频生成、会议总结、PPT 生成等
-- **求职助手** - AI 驱动的求职辅助功能
-
-### 💰 支付系统
-- **支付宝集成** - 支持国内主流支付方式
-- **套餐管理** - 灵活的订阅套餐配置
-- **钱包系统** - 充值和消费管理
+- **速率限制** - 可配置的请求频率限制
 
 ---
 
-## 项目结构
+## 📡 支持的 API 端点
+
+| 协议 | 端点 | 说明 |
+|------|------|------|
+| OpenAI | `POST /v1/chat/completions` | 对话完成接口（流式/非流式） |
+| OpenAI | `GET /v1/models` | 获取可用模型列表 |
+| OpenAI | `GET /v1beta/models` | Gemini 兼容接口 |
+| Anthropic | `POST /v1/messages` | Claude API 原生格式 |
+| Internal | `POST /v1/internal/*` | 内部服务接口 |
+
+---
+
+## 🔧 快速开始
+
+### 环境要求
+- Node.js 18+
+- MySQL 8.0+
+- Redis 6.0+
+
+### 1. 克隆项目
 
 ```
 ├── backend/                    # Express 后端
@@ -112,17 +120,17 @@ cd backend && npm install
 ### 3. 配置环境变量
 
 ```bash
-cp .env.example .env
-# 编辑 .env 文件，配置数据库、Redis、密钥等
+cp backend/.env.example backend/.env
+# 编辑 backend/.env 文件，配置数据库、Redis、JWT 密钥等
 ```
 
 ### 4. 启动服务
 
 ```bash
-# 开发模式
+# 开发模式（热重载）
 cd backend && npm run dev
 
-# 生产模式 (使用 PM2)
+# 生产模式（使用 PM2）
 cd backend && npm start
 ```
 
@@ -134,7 +142,7 @@ curl http://localhost:3000/api/health
 
 ---
 
-## 环境变量配置
+## ⚙️ 环境变量配置
 
 创建 `backend/.env` 文件：
 
@@ -145,8 +153,8 @@ DB_USER=root
 DB_PASSWORD=
 DB_NAME=wechat_cms
 
-# JWT 密钥
-JWT_SECRET=your-jwt-secret-key
+# JWT 密钥（必须修改）
+JWT_SECRET=your-random-jwt-secret-key-minimum-32-chars
 
 # Redis 配置
 REDIS_URL=redis://127.0.0.1:6379
@@ -163,55 +171,44 @@ DOUBAO_API_KEY=your-doubao-api-key
 
 ---
 
-## AI Gateway 核心功能
-
-### 支持的 API 端点
-
-| 端点 | 说明 |
-|------|------|
-| `POST /v1/chat/completions` | OpenAI 标准对话接口 |
-| `GET /v1/models` | 获取可用模型列表 |
-| `GET /v1beta/models` | Google Gemini 兼容接口 |
-
-### 认证方式
-
-**方式 1: Bearer Token**
-```bash
-curl http://localhost:3000/v1/chat/completions \
-  -H "Authorization: Bearer sk-your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'
-```
-
-**方式 2: x-api-key**
-```bash
-curl http://localhost:3000/v1/chat/completions \
-  -H "x-api-key: sk-your-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'
-```
+## 🗄️ 数据库结构
 
 ### 核心数据表
 
 | 表名 | 用途 |
 |------|------|
-| `openclaw_models` | AI 模型目录 |
-| `openclaw_model_upstreams` | 上游服务商配置 |
-| `openclaw_api_keys` | 用户 API Keys |
-| `openclaw_quota` | Token 余额 |
-| `openclaw_wallet` | 钱包余额 |
-| `openclaw_packages` | 订阅套餐 |
-| `openclaw_request_logs` | 请求计费日志 |
+| `openclaw_models` | AI 模型目录（model_id、price、provider、category） |
+| `openclaw_model_upstreams` | 每个模型的上游配置（base_url、api_key、weight） |
+| `openclaw_api_keys` | 用户 API Key（hash 存储） |
+| `openclaw_quota` | Token 余额（按语言/视觉/代码模型分类） |
+| `openclaw_wallet` | 钱包余额（按次计费模型） |
+| `openclaw_packages` | 订阅套餐配置 |
+| `openclaw_user_packages` | 用户订阅记录 |
+| `openclaw_request_logs` | 请求计费日志（含 prompt、completion 统计） |
+| `openclaw_ccclub_key_resets` | CC Club 上游 Key 冷却记录 |
 
 ---
 
-## 插件开发
+## 🔌 插件系统
+
+项目采用插件化架构，AI 网关功能以插件形式实现。
+
+### 插件目录结构
+
+```
+backend/src/plugins/
+├── ai-gateway/          # AI 网关核心插件
+│   ├── routes/          # OpenAI/Gemini/Anthropic 兼容路由
+│   ├── middleware/      # 认证、计费、限流中间件
+│   └── utils/           # 计费、缓存、调试工具
+├── planet/              # planet 子站插件
+├── fubao/               # 福报子站插件
+└── ...                  # 其他插件
+```
+
+### 创建新插件
+
+1. 复制模板目录:
 
 插件目录: `backend/src/plugins/`
 
@@ -222,7 +219,6 @@ curl http://localhost:3000/v1/chat/completions \
 
 ### 创建新插件
 
-1. 复制 `_example` 目录:
 ```bash
 cp -r backend/src/plugins/_example backend/src/plugins/my-plugin
 ```
@@ -253,19 +249,19 @@ module.exports = router;
 
 ---
 
-## 部署
+## 🚀 部署
 
 ### 生产环境部署
 
 ```bash
 # 1. 确保环境变量配置正确
 cp backend/.env.example backend/.env
-# 编辑 .env
+# 编辑 backend/.env
 
-# 2. 安装依赖
+# 2. 安装生产依赖
 cd backend && npm install --production
 
-# 3. 使用 PM2 启动服务
+# 3. 使用 PM2 启动服务（4 个集群实例）
 cd backend && npm start
 # 或
 pm2 start src/app.js --name backend -i 4
@@ -295,7 +291,23 @@ server {
 
 ---
 
-## 开发指南
+## 💼 商业授权
+
+本项目为开源项目，**免费用于个人学习和非商业用途**。
+
+如需用于商业场景（企业内部分享、对外提供服务、二次开发后销售等），请联系作者获取商业授权：
+
+📧 **邮箱**: [2743319061@qq.com](mailto:2743319061@qq.com)
+
+商业授权包含：
+- 完整源代码使用权
+- 技术支持服务
+- 定制化开发咨询
+- 商业部署保障
+
+---
+
+## 📖 开发指南
 
 ### 常用命令
 
@@ -340,18 +352,19 @@ await cache.delByPrefix('upstreams:');
 
 ---
 
-## 文档
+## 📚 相关文档
 
-- [CLAUDE.md](CLAUDE.md) - 项目详细说明
-- [QUICK-START.md](QUICK-START.md) - 快速上手指南
-- [CONSOLE_INTEGRATION_COMPLETE.md](CONSOLE_INTEGRATION_COMPLETE.md) - 控制台集成说明
-- [PAYMENT_TEST_GUIDE.md](PAYMENT_TEST_GUIDE.md) - 支付测试指南
+- **详细说明**: [CLAUDE.md](CLAUDE.md) - 项目架构、插件系统、核心机制
+- **快速上手**: [QUICK-START.md](QUICK-START.md) - 部署和配置指南
+- **API 参考**: [OpenAI API 文档](https://platform.openai.com/docs/api-reference) - 标准接口规范
 
 ---
 
-## 贡献
+## 🤝 贡献
 
-1. Fork 项目
+欢迎提交 Issue 和 Pull Request！
+
+1. Fork 本项目
 2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
 3. 提交更改 (`git commit -m 'Add amazing feature'`)
 4. 推送分支 (`git push origin feature/amazing-feature`)
@@ -359,15 +372,15 @@ await cache.delByPrefix('upstreams:');
 
 ---
 
-## 许可证
+## 📄 许可证
 
 [MIT](LICENSE) © yunjunet
 
 ---
 
-## 相关链接
+## 🔗 相关链接
 
-- **主站**: https://api.yunjunet.cn
+- **项目主页**: https://api.yunjunet.cn
 - **用户控制台**: https://api.yunjunet.cn/console.html
 - **管理后台**: https://api.yunjunet.cn/admin.html
-- **API 文档**: https://platform.openai.com/docs/api-reference
+- **GitHub**: https://github.com/chatgpt-yunju/ownapi
