@@ -1,5 +1,6 @@
 package com.geo.system.entity;
 
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -47,10 +48,15 @@ public class TenantLlmConfig {
     @Column(name = "update_time", nullable = false)
     private LocalDateTime updateTime;
 
+    @Column(name = "del_flag", nullable = false)
+    @TableLogic
+    private Integer delFlag;
+
     @PrePersist
     protected void onCreate() {
         createTime = LocalDateTime.now();
         updateTime = LocalDateTime.now();
+        delFlag = 0;
         if (enabled == null) {
             enabled = 1;
         }
