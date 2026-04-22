@@ -25,7 +25,7 @@ public class TenantInterceptor implements HandlerInterceptor {
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             String token = authHeader.substring(7);
             try {
-                Claims claims = Jwts.parserBuilder()
+                Claims claims = Jwts.parser()
                         .setSigningKey(jwtSecret.getBytes())
                         .build()
                         .parseClaimsJws(token)
