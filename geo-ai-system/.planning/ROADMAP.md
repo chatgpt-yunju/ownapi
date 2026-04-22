@@ -36,6 +36,11 @@
 - LLM调用日志审计、Token消耗统计
 - 前端LLM配置管理页面
 **Requirements:** REQ-005, REQ-006, REQ-007
+**Plans:** 4 plans
+- [ ] 02-01-PLAN.md — LLMBaseService接口、OpenAI兼容实现、租户配置管理、统一DTOs
+- [ ] 02-02-PLAN.md — 豆包/DeepSeek/ERNIE/Qwen平台适配、LLMServiceFactory路由
+- [ ] 02-03-PLAN.md — 限流/重试/熔断、LLM调用日志、Token计数、异步日志记录
+- [ ] 02-04-PLAN.md — 前端LLM配置管理页面、连接测试、启用/禁用、使用统计
 
 ### Phase 3: AI可见度诊断模块
 **Goal:** 实现品牌GEO可见度一键诊断，多平台数据采集、品牌提及检测、指标计算、报告生成
